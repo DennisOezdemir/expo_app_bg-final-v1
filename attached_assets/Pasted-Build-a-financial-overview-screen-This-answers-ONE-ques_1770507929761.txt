@@ -1,0 +1,158 @@
+Build a financial overview screen. This answers ONE question: "Wo verliere ich Geld?"
+
+HEADER:
+- "Finanzen" large bold
+- Current month selector: [◀ Februar 2026 ▶]
+- Right: Export icon (PDF/CSV)
+
+HERO CARDS (2 columns, top):
+┌──────────────┐ ┌──────────────┐
+│   €48.200    │ │   €36.150    │
+│  Aufträge    │ │   Kosten     │
+│   6 aktiv    │ │  Material+   │
+│              │ │  Lohn+Subs   │
+└──────────────┘ └──────────────┘
+┌──────────────┐ ┌──────────────┐
+│   €12.050    │ │    24,9%     │
+│  Ergebnis    │ │   Ø Marge    │
+│   🟢 +8%    │ │   🟢 Ziel:  │
+│  vs. Jan     │ │     20%      │
+└──────────────┘ └──────────────┘
+
+MARGE PRO PROJEKT (ranked list):
+Header: "Projekte nach Marge"
+Sort: worst first (red on top = action needed)
+🔴 BL-2026-003  Schwentnerring    12%  €1.488
+Maler+Boden  SAGA              ████░░░░░░
+⚠️ Material €800 über Plan
+🟡 BL-2026-007  Haferweg          21%  €1.869
+Sanitär      SAGA              ██████░░░░
+🟢 BL-2026-001  Bramfelder Str.   34%  €4.080
+Komplett     Privat            █████████░
+🟢 BL-2026-005  Billhorner Deich  31%  €2.790
+Maler        GWG               ████████░░
+
+Tap project → navigates to project detail.
+
+CASHFLOW SECTION (card):
+Header: "Cashflow"
+Simple bar chart — last 6 months:
+- Green bars up: Einnahmen (payments received)
+- Rose bars down: Ausgaben (invoices paid)
+- Net line connecting months
+Sep   Okt   Nov   Dez   Jan   Feb
+▓▓▓   ▓▓▓   ▓▓▓   ▓▓▓   ▓▓▓   ▓▓▓  ← Einnahmen
+░░░   ░░░   ░░░   ░░░   ░░░   ░░░  ← Ausgaben
+
+Below chart:
+- "Einnahmen: €52.400" emerald
+- "Ausgaben: €38.200" rose  
+- "Ergebnis: €14.200" white bold
+
+OFFENE POSTEN SECTION (card):
+Header: "Offene Posten" with total "€8.640"
+
+Two tabs: [Forderungen] [Verbindlichkeiten]
+
+Forderungen (what clients owe us):
+🔴 SAGA — RE-2026-012      €4.200   21 Tage!
+Schwentnerring            [Mahnen →]
+🟡 GWG — RE-2026-008       €2.890   8 Tage
+Billhorner Deich
+🟢 Privat — RE-2026-014    €1.550   2 Tage
+Bramfelder Str.
+
+Verbindlichkeiten (what we owe suppliers):
+🟡 MEGA eG — ER-4521       €1.840   fällig Mi
+🟢 Süding — ER-4498        €620     fällig 28.02.
+
+KOSTENVERTEILUNG SECTION (card):
+Header: "Kostenverteilung"
+Donut chart:
+- Material: 45% (amber)
+- Lohn: 35% (blue)
+- Subunternehmer: 12% (purple)  
+- Sonstiges: 8% (zinc)
+
+Legend below with absolute numbers.
+
+All cards zinc-900 rounded-2xl.
+Numbers are HEROES — biggest element everywhere.
+Traffic light on everything.
+Worst performers on top — force action.
+German labels, € format with dots and commas.
+
+Profil/Einstellungen:
+Build a profile and settings screen. Simple, clean, functional.
+
+HEADER:
+- "Profil" large bold
+
+PROFILE CARD (top, full-width):
+┌────────────────────────────────────────┐
+│  👤                                    │
+│  Dennis                                │
+│  dennis@bauloewen.de                   │
+│  Geschäftsführer                       │
+│                                        │
+│  Deine Baulöwen GmbH                  │
+│  Seit Januar 2025                      │
+└────────────────────────────────────────┘
+
+QUICK STATS (2 columns):
+┌──────────────┐ ┌──────────────┐
+│     47       │ │    €182k     │
+│  Projekte    │ │   Umsatz     │
+│  gesamt      │ │   2026       │
+└──────────────┘ └──────────────┘
+
+SETTINGS SECTIONS:
+
+"Benachrichtigungen" (card):
+Toggle rows with labels:
+- 🔔 Push-Benachrichtigungen          [ON]
+- 📧 Email-Zusammenfassung täglich    [OFF]
+- ⚠️ Marge unter 20% warnen           [ON]
+- 📦 Material-Erinnerungen            [ON]
+- 💰 Zahlungseingänge melden          [ON]
+
+"Team" (card):
+List of team members:
+- 👷 Mehmet — Maler, aktiv
+- 👷 Ali — Fliesen, aktiv  
+- 👩‍💼 Ayse — Projektleitung, aktiv
+- [+ Mitarbeiter einladen]
+
+"Firma" (card):
+- Firmenname: Deine Baulöwen GmbH
+- Adresse: Musterstraße 12, 20095 Hamburg
+- Steuernummer: DE123456789
+- [Bearbeiten →]
+
+"Lieferanten" (card):
+- 21 Lieferanten gespeichert
+- [Verwalten →]
+
+"Katalog" (card):
+- WABS Katalog: 620 Positionen
+- Letzte Aktualisierung: 01.02.2026
+- [Katalog verwalten →]
+
+"Integrationen" (card):
+- 🟢 Google Drive — Verbunden
+- 🟢 Telegram — Verbunden  
+- 🟢 Superchat — Verbunden
+- 🟡 easybill — Nicht verbunden [Verbinden]
+- 🟡 GoCardless — Nicht verbunden [Verbinden]
+
+"App" (card):
+- Version: 1.0.0
+- Dunkelmodus: [ON] (always on, not changeable lol)
+- Sprache: Deutsch
+- [Feedback geben]
+- [Abmelden] — rose text
+
+All zinc-900 cards, rounded-2xl.
+Toggles: amber-500 when ON.
+German labels.
+Clean, no clutter.
