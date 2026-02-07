@@ -23,6 +23,16 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back" }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="project/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+      <Stack.Screen
+        name="assign-material"
+        options={{
+          presentation: "formSheet",
+          sheetAllowedDetents: [0.65, 1],
+          sheetGrabberVisible: true,
+          headerShown: false,
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
     </Stack>
   );
 }
