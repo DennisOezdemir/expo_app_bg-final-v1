@@ -1,0 +1,65 @@
+Build the project detail screen. User taps a project card from the list and lands here.
+
+HEADER:
+- Back arrow ←
+- Project number "BL-2026-003" in zinc-400
+- Address large bold: "Schwentnerring 13c EG Links"
+- "SAGA GWG • Maler+Boden" zinc-400
+
+MARGIN HERO (full-width card, centered):
+- Large circular progress ring
+- "18%" inside, rose-500 (red = bad margin)
+- Below ring: "Angebot €12.400 — Kosten €10.168"
+- Below that: "Ergebnis €2.232"
+
+QUICK ACTIONS (horizontal scroll row, 5 circle buttons):
+- 📋 Auftrag
+- 📦 Material  
+- 👷 Team
+- 📸 Foto (opens camera, tags photo to project)
+- 💬 Chat
+
+BEGEHUNGEN SECTION (card):
+Header: "Begehungen" with + button
+Three status rows:
+- "🟢 Erstbegehung — 03.02.2026 ✅ erledigt"
+- "🟡 Zwischenbegehung — geplant 10.02." with [Starten] button
+- "⚪ Abnahme — nicht geplant"
+Tap a row → opens begehung detail (checklist + photos + notes)
+
+PLANUNG SECTION (card):
+Header: "Planung"
+Mini Gantt chart showing:
+- Today marker (amber vertical line)
+- 3-4 bars: "Maler KW6-7" (green), "Boden KW7" (yellow), "Sanitär KW8" (gray=future)
+- Start: 03.02. | Ende: 21.02. | Tag 5 von 15
+Simple horizontal bars, not a full Gantt library. Just colored rectangles.
+
+CHAT/TELEGRAM SECTION (card):  
+Header: "Nachrichten" with badge "4"
+Last 3 messages preview:
+- "👷 Mehmet: Fliesen sind da ✅" • "14:32"
+- "📸 Ayse: [Foto] Wasserfleck Küche" • "11:20"  
+- "🤖 BG: Material bestellt bei MEGA" • "09:00"
+[Alle Nachrichten →] link at bottom
+
+ALERTS SECTION (card, rose-500/10 bg):
+- "⚠️ Material 'Vliesraufaser' fehlt" → tap to resolve
+- "⚠️ 1 Freigabe offen" → tap to approve
+- "⚠️ Keine Zeiterfassung seit 2 Tagen"
+
+POSITIONEN SECTION (card):
+Header: "Positionen" with count "47"
+Grouped by room (accordion):
+- "Badezimmer (3 Pos.)" — collapsed
+- "Küche (5 Pos.)" — collapsed  
+- "Wohnzimmer (8 Pos.)" — collapsed
+Tap to expand → shows position list with amounts
+
+DOKUMENTE SECTION (card):
+- 📄 Auftrag.pdf
+- 📄 Angebot v1
+- 📄 Protokoll Erstbegehung 03.02.
+
+All sections are vertical scroll, generous spacing between cards.
+Each card: zinc-900, rounded-2xl, p-5.

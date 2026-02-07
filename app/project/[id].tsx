@@ -21,8 +21,8 @@ import Colors from "@/constants/colors";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-const RING_SIZE = 140;
-const STROKE_WIDTH = 10;
+const RING_SIZE = 150;
+const STROKE_WIDTH = 12;
 const RADIUS = (RING_SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
@@ -55,7 +55,6 @@ function MarginRing({ percent, color }: { percent: number; color: string }) {
       </Svg>
       <View style={ringStyles.center}>
         <Text style={[ringStyles.value, { color }]}>{percent}%</Text>
-        <Text style={ringStyles.label}>Marge</Text>
       </View>
     </View>
   );
@@ -67,6 +66,7 @@ const ringStyles = StyleSheet.create({
     height: RING_SIZE,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 16,
   },
   svg: {
     position: "absolute",
@@ -76,14 +76,8 @@ const ringStyles = StyleSheet.create({
   },
   value: {
     fontFamily: "Inter_800ExtraBold",
-    fontSize: 36,
-    lineHeight: 40,
-  },
-  label: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: Colors.raw.zinc500,
-    marginTop: 2,
+    fontSize: 42,
+    lineHeight: 46,
   },
 });
 
@@ -126,7 +120,7 @@ function QuickAction({
 const qaStyles = StyleSheet.create({
   container: {
     alignItems: "center",
-    flex: 1,
+    width: 64,
   },
   circle: {
     width: 56,
@@ -141,18 +135,215 @@ const qaStyles = StyleSheet.create({
   },
   label: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.raw.zinc400,
+    textAlign: "center",
   },
 });
 
-function AlertCard({
-  text,
-  onPress,
+function SectionCard({ children, style }: { children: React.ReactNode; style?: any }) {
+  return <View style={[cardStyles.card, style]}>{children}</View>;
+}
+
+const cardStyles = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    padding: 20,
+    marginBottom: 16,
+  },
+});
+
+function SectionHeader({
+  title,
+  badge,
+  rightIcon,
+  onRightPress,
 }: {
-  text: string;
-  onPress?: () => void;
+  title: string;
+  badge?: string;
+  rightIcon?: string;
+  onRightPress?: () => void;
 }) {
+  return (
+    <View style={shStyles.row}>
+      <View style={shStyles.left}>
+        <Text style={shStyles.title}>{title}</Text>
+        {badge && (
+          <View style={shStyles.badge}>
+            <Text style={shStyles.badgeText}>{badge}</Text>
+          </View>
+        )}
+      </View>
+      {rightIcon && (
+        <Pressable
+          onPress={onRightPress}
+          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+        >
+          <Ionicons name={rightIcon as any} size={22} color={Colors.raw.zinc500} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+const shStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  left: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  title: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: Colors.raw.white,
+  },
+  badge: {
+    backgroundColor: Colors.raw.rose500,
+    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 7,
+  },
+  badgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+    color: "#fff",
+  },
+});
+
+type BegehungStatus = "erledigt" | "geplant" | "offen";
+
+interface Begehung {
+  name: string;
+  status: BegehungStatus;
+  date?: string;
+}
+
+const BEGEHUNGEN: Begehung[] = [
+  { name: "Erstbegehung", status: "erledigt", date: "03.02.2026" },
+  { name: "Zwischenbegehung", status: "geplant", date: "10.02." },
+  { name: "Abnahme", status: "offen" },
+];
+
+const BEGEHUNG_CONFIG: Record<BegehungStatus, { dot: string; label: string }> = {
+  erledigt: { dot: Colors.raw.emerald500, label: "erledigt" },
+  geplant: { dot: Colors.raw.amber500, label: "geplant" },
+  offen: { dot: Colors.raw.zinc600, label: "nicht geplant" },
+};
+
+function BegehungRow({ item }: { item: Begehung }) {
+  const cfg = BEGEHUNG_CONFIG[item.status];
+  return (
+    <View style={bgStyles.row}>
+      <View style={bgStyles.left}>
+        <View style={[bgStyles.dot, { backgroundColor: cfg.dot }]} />
+        <View>
+          <Text style={bgStyles.name}>{item.name}</Text>
+          <Text style={bgStyles.meta}>
+            {item.date ? `${item.date} \u2022 ` : ""}
+            {cfg.label}
+          </Text>
+        </View>
+      </View>
+      {item.status === "erledigt" && (
+        <Ionicons name="checkmark-circle" size={20} color={Colors.raw.emerald500} />
+      )}
+      {item.status === "geplant" && (
+        <Pressable
+          style={({ pressed }) => [bgStyles.startBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Text style={bgStyles.startText}>Starten</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+const bgStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  left: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  name: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.white,
+    marginBottom: 2,
+  },
+  meta: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
+  },
+  startBtn: {
+    backgroundColor: Colors.raw.amber500 + "18",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  startText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.amber500,
+  },
+});
+
+interface GanttBar {
+  label: string;
+  color: string;
+  startPercent: number;
+  widthPercent: number;
+}
+
+const GANTT_BARS: GanttBar[] = [
+  { label: "Maler KW6-7", color: Colors.raw.emerald500, startPercent: 0, widthPercent: 53 },
+  { label: "Boden KW7", color: Colors.raw.amber500, startPercent: 27, widthPercent: 26 },
+  { label: "Sanit\u00E4r KW8", color: Colors.raw.zinc600, startPercent: 53, widthPercent: 27 },
+];
+
+const TODAY_PERCENT = 30;
+
+interface Message {
+  sender: string;
+  text: string;
+  time: string;
+  icon: string;
+  iconColor: string;
+}
+
+const MESSAGES: Message[] = [
+  { sender: "Mehmet", text: "Fliesen sind da", time: "14:32", icon: "construct", iconColor: Colors.raw.amber500 },
+  { sender: "Ayse", text: "[Foto] Wasserfleck K\u00FCche", time: "11:20", icon: "camera", iconColor: "#3b82f6" },
+  { sender: "BG", text: "Material bestellt bei MEGA", time: "09:00", icon: "flash", iconColor: Colors.raw.emerald500 },
+];
+
+function AlertCard({ text, onPress }: { text: string; onPress?: () => void }) {
   return (
     <Pressable
       onPress={onPress}
@@ -162,10 +353,10 @@ function AlertCard({
       ]}
     >
       <View style={alertStyles.left}>
-        <Ionicons name="warning" size={18} color={Colors.raw.rose500} />
+        <Ionicons name="warning" size={16} color={Colors.raw.rose500} />
         <Text style={alertStyles.text}>{text}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={16} color={Colors.raw.rose400} />
+      <Ionicons name="chevron-forward" size={14} color={Colors.raw.rose400} />
     </Pressable>
   );
 }
@@ -175,13 +366,9 @@ const alertStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "rgba(244, 63, 94, 0.08)",
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.raw.rose500,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 10,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
   },
   left: {
     flexDirection: "row",
@@ -190,7 +377,7 @@ const alertStyles = StyleSheet.create({
     flex: 1,
   },
   text: {
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "Inter_500Medium",
     fontSize: 14,
     color: Colors.raw.rose400,
     flex: 1,
@@ -204,7 +391,7 @@ function AccordionSection({
 }: {
   title: string;
   count: number;
-  items: string[];
+  items: { name: string; amount?: string }[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -225,7 +412,7 @@ function AccordionSection({
         <View style={accStyles.headerLeft}>
           <Text style={accStyles.headerTitle}>{title}</Text>
           <View style={accStyles.countBadge}>
-            <Text style={accStyles.countText}>{count}</Text>
+            <Text style={accStyles.countText}>{count} Pos.</Text>
           </View>
         </View>
         <Ionicons
@@ -245,7 +432,10 @@ function AccordionSection({
               ]}
             >
               <View style={accStyles.itemDot} />
-              <Text style={accStyles.itemText}>{item}</Text>
+              <Text style={accStyles.itemText}>{item.name}</Text>
+              {item.amount && (
+                <Text style={accStyles.itemAmount}>{item.amount}</Text>
+              )}
             </View>
           ))}
         </View>
@@ -256,19 +446,14 @@ function AccordionSection({
 
 const accStyles = StyleSheet.create({
   container: {
-    backgroundColor: Colors.raw.zinc900,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    marginBottom: 10,
-    overflow: "hidden",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 16,
-    paddingHorizontal: 18,
+    paddingVertical: 14,
   },
   headerLeft: {
     flexDirection: "row",
@@ -277,7 +462,7 @@ const accStyles = StyleSheet.create({
   },
   headerTitle: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.raw.white,
   },
   countBadge: {
@@ -287,24 +472,23 @@ const accStyles = StyleSheet.create({
     paddingVertical: 2,
   },
   countText: {
-    fontFamily: "Inter_700Bold",
+    fontFamily: "Inter_600SemiBold",
     fontSize: 12,
-    color: Colors.raw.zinc400,
+    color: Colors.raw.zinc500,
   },
   body: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.raw.zinc800,
+    paddingBottom: 4,
   },
   item: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 13,
-    paddingHorizontal: 18,
+    paddingVertical: 11,
+    paddingLeft: 4,
     gap: 12,
   },
   itemBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: Colors.raw.zinc800,
+    borderBottomColor: Colors.raw.zinc800 + "60",
   },
   itemDot: {
     width: 6,
@@ -313,22 +497,21 @@ const accStyles = StyleSheet.create({
     backgroundColor: Colors.raw.amber500,
   },
   itemText: {
-    fontFamily: "Inter_500Medium",
+    fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: Colors.raw.zinc300,
+    flex: 1,
+  },
+  itemAmount: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
   },
 });
 
-function DocumentRow({
-  name,
-  onPress,
-}: {
-  name: string;
-  onPress?: () => void;
-}) {
+function DocumentRow({ name }: { name: string }) {
   return (
     <Pressable
-      onPress={onPress}
       style={({ pressed }) => [
         docStyles.row,
         { opacity: pressed ? 0.8 : 1 },
@@ -346,13 +529,9 @@ const docStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: Colors.raw.zinc900,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 8,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
   },
   name: {
     fontFamily: "Inter_500Medium",
@@ -384,13 +563,7 @@ export default function ProjectDetailScreen() {
         >
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
-        <View style={styles.backHeaderRight}>
-          <Text style={styles.projectCode}>BL-2026-003</Text>
-          <View style={[styles.statusPill, { backgroundColor: Colors.raw.amber500 + "18" }]}>
-            <View style={[styles.statusDot, { backgroundColor: Colors.raw.amber500 }]} />
-            <Text style={[styles.statusText, { color: Colors.raw.amber500 }]}>Achtung</Text>
-          </View>
-        </View>
+        <Text style={styles.projectCode}>BL-2026-003</Text>
       </View>
 
       <ScrollView
@@ -405,122 +578,186 @@ export default function ProjectDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.heroSection}>
-          <Text style={styles.heroAddress}>Schwentnerring 13c{"\n"}EG Links</Text>
-          <Text style={styles.heroClient}>SAGA GWG  {"\u2022"}  Maler+Boden</Text>
+          <Text style={styles.heroAddress}>
+            Schwentnerring 13c{"\n"}EG Links
+          </Text>
+          <Text style={styles.heroClient}>
+            SAGA GWG  {"\u2022"}  Maler+Boden
+          </Text>
         </View>
 
-        <View style={styles.marginCard}>
-          <MarginRing percent={marginPercent} color={marginColor} />
+        <SectionCard>
+          <View style={styles.marginCenter}>
+            <MarginRing percent={marginPercent} color={marginColor} />
+          </View>
           <View style={styles.marginBreakdown}>
-            <View style={styles.marginRow}>
+            <View style={styles.marginCol}>
               <Text style={styles.marginLabel}>Angebot</Text>
               <Text style={styles.marginValue}>{"\u20AC"}12.400</Text>
             </View>
             <View style={styles.marginDivider} />
-            <View style={styles.marginRow}>
+            <View style={styles.marginCol}>
               <Text style={styles.marginLabel}>Kosten</Text>
               <Text style={styles.marginValue}>{"\u20AC"}10.168</Text>
             </View>
             <View style={styles.marginDivider} />
-            <View style={styles.marginRow}>
+            <View style={styles.marginCol}>
               <Text style={styles.marginLabel}>Ergebnis</Text>
-              <Text style={[styles.marginValue, { color: marginColor }]}>{"\u20AC"}2.232</Text>
+              <Text style={[styles.marginValue, { color: marginColor }]}>
+                {"\u20AC"}2.232
+              </Text>
             </View>
           </View>
-        </View>
+        </SectionCard>
 
-        <View style={styles.section}>
-          <View style={styles.quickActions}>
-            <QuickAction
-              icon={<Ionicons name="clipboard" size={24} color={Colors.raw.amber500} />}
-              label="Auftrag"
-            />
-            <QuickAction
-              icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
-              label="Material"
-            />
-            <QuickAction
-              icon={<Ionicons name="people" size={24} color={Colors.raw.amber500} />}
-              label="Team"
-            />
-            <QuickAction
-              icon={<Ionicons name="camera" size={24} color={Colors.raw.amber500} />}
-              label="Foto"
-            />
-          </View>
-        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.qaRow}
+          style={styles.qaScroll}
+        >
+          <QuickAction
+            icon={<Ionicons name="clipboard" size={24} color={Colors.raw.amber500} />}
+            label="Auftrag"
+          />
+          <QuickAction
+            icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
+            label="Material"
+          />
+          <QuickAction
+            icon={<Ionicons name="people" size={24} color={Colors.raw.amber500} />}
+            label="Team"
+          />
+          <QuickAction
+            icon={<Ionicons name="camera" size={24} color={Colors.raw.amber500} />}
+            label="Foto"
+          />
+          <QuickAction
+            icon={<Ionicons name="chatbubbles" size={24} color={Colors.raw.amber500} />}
+            label="Chat"
+          />
+        </ScrollView>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Zeitplan</Text>
-          <View style={styles.timelineCard}>
-            <View style={styles.timelineHeader}>
-              <Text style={styles.timelineDay}>Tag 8 von 10</Text>
-              <View style={styles.overduePill}>
-                <Ionicons name="time" size={14} color={Colors.raw.rose400} />
-                <Text style={styles.overdueText}>2 Tage über Plan</Text>
+        <SectionCard>
+          <SectionHeader title="Begehungen" rightIcon="add-circle-outline" />
+          {BEGEHUNGEN.map((b, i) => (
+            <BegehungRow key={i} item={b} />
+          ))}
+        </SectionCard>
+
+        <SectionCard>
+          <SectionHeader title="Planung" />
+          <View style={styles.ganttContainer}>
+            <View style={styles.ganttTodayLine} />
+            {GANTT_BARS.map((bar, i) => (
+              <View key={i} style={styles.ganttRow}>
+                <Text style={styles.ganttLabel}>{bar.label}</Text>
+                <View style={styles.ganttTrack}>
+                  <View
+                    style={[
+                      styles.ganttBar,
+                      {
+                        backgroundColor: bar.color,
+                        left: `${bar.startPercent}%`,
+                        width: `${bar.widthPercent}%`,
+                      },
+                    ]}
+                  />
+                </View>
               </View>
-            </View>
-            <View style={styles.timelineBarBg}>
-              <View style={[styles.timelineBarFill, { width: "80%" }]} />
-              <View style={[styles.timelineBarOverdue, { width: "20%", left: "80%" }]} />
-            </View>
-            <View style={styles.timelineDates}>
-              <Text style={styles.timelineDate}>Start: 28. Jan 2026</Text>
-              <Text style={styles.timelineDate}>Ende: 06. Feb 2026</Text>
+            ))}
+            <View style={styles.ganttFooter}>
+              <Text style={styles.ganttDate}>Start: 03.02.</Text>
+              <Text style={styles.ganttMid}>Tag 5 von 15</Text>
+              <Text style={styles.ganttDate}>Ende: 21.02.</Text>
             </View>
           </View>
-        </View>
+        </SectionCard>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Warnungen</Text>
+        <SectionCard>
+          <SectionHeader title="Nachrichten" badge="4" />
+          {MESSAGES.map((msg, i) => (
+            <View
+              key={i}
+              style={[
+                styles.msgRow,
+                i < MESSAGES.length - 1 && styles.msgBorder,
+              ]}
+            >
+              <View style={[styles.msgIcon, { backgroundColor: msg.iconColor + "18" }]}>
+                <Ionicons name={msg.icon as any} size={16} color={msg.iconColor} />
+              </View>
+              <View style={styles.msgBody}>
+                <Text style={styles.msgSender}>{msg.sender}</Text>
+                <Text style={styles.msgText} numberOfLines={1}>
+                  {msg.text}
+                </Text>
+              </View>
+              <Text style={styles.msgTime}>{msg.time}</Text>
+            </View>
+          ))}
+          <Pressable
+            style={({ pressed }) => [
+              styles.allMessagesBtn,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
+            <Text style={styles.allMessagesText}>Alle Nachrichten</Text>
+            <Ionicons name="arrow-forward" size={16} color={Colors.raw.amber500} />
+          </Pressable>
+        </SectionCard>
+
+        <SectionCard style={{ backgroundColor: Colors.raw.rose500 + "0D" }}>
+          <SectionHeader title="Warnungen" />
           <AlertCard text="Material 'Vliesraufaser' fehlt" />
           <AlertCard text="1 Freigabe offen" />
-        </View>
+          <AlertCard text="Keine Zeiterfassung seit 2 Tagen" />
+        </SectionCard>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Positionen</Text>
+        <SectionCard>
+          <SectionHeader title="Positionen" badge="47" />
           <AccordionSection
             title="Badezimmer"
             count={3}
             items={[
-              "Wände spachteln & streichen",
-              "Boden verlegen (Vinyl)",
-              "Decke streichen",
+              { name: "W\u00E4nde spachteln & streichen", amount: "\u20AC860" },
+              { name: "Boden verlegen (Vinyl)", amount: "\u20AC1.240" },
+              { name: "Decke streichen", amount: "\u20AC420" },
             ]}
           />
           <AccordionSection
-            title="Küche"
+            title="K\u00FCche"
             count={5}
             items={[
-              "Wände tapezieren (Vlies)",
-              "Decke streichen",
-              "Boden schleifen",
-              "Boden versiegeln",
-              "Sockelleisten montieren",
+              { name: "W\u00E4nde tapezieren (Vlies)", amount: "\u20AC980" },
+              { name: "Decke streichen", amount: "\u20AC380" },
+              { name: "Boden schleifen", amount: "\u20AC560" },
+              { name: "Boden versiegeln", amount: "\u20AC440" },
+              { name: "Sockelleisten montieren", amount: "\u20AC220" },
             ]}
           />
           <AccordionSection
             title="Wohnzimmer"
             count={8}
             items={[
-              "Altbelag entfernen",
-              "Untergrund vorbereiten",
-              "Wände spachteln Q3",
-              "Wände streichen 2x",
-              "Decke streichen",
-              "Boden verlegen (Parkett)",
-              "Sockelleisten montieren",
-              "Endreinigung",
+              { name: "Altbelag entfernen", amount: "\u20AC340" },
+              { name: "Untergrund vorbereiten", amount: "\u20AC280" },
+              { name: "W\u00E4nde spachteln Q3", amount: "\u20AC720" },
+              { name: "W\u00E4nde streichen 2x", amount: "\u20AC640" },
+              { name: "Decke streichen", amount: "\u20AC380" },
+              { name: "Boden verlegen (Parkett)", amount: "\u20AC1.860" },
+              { name: "Sockelleisten montieren", amount: "\u20AC240" },
+              { name: "Endreinigung", amount: "\u20AC180" },
             ]}
           />
-        </View>
+        </SectionCard>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Dokumente</Text>
+        <SectionCard>
+          <SectionHeader title="Dokumente" />
           <DocumentRow name="Auftrag.pdf" />
-          <DocumentRow name="Angebot v1.pdf" />
-          <DocumentRow name="Aufmass_EG.pdf" />
-        </View>
+          <DocumentRow name="Angebot v1" />
+          <DocumentRow name="Protokoll Erstbegehung 03.02." />
+        </SectionCard>
       </ScrollView>
     </View>
   );
@@ -539,43 +776,21 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingBottom: 12,
+    gap: 8,
   },
   backButton: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-  },
-  backHeaderRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
   },
   projectCode: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
     color: Colors.raw.zinc500,
     letterSpacing: 0.3,
-  },
-  statusPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
   },
   scrollView: {
     flex: 1,
@@ -584,7 +799,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   heroSection: {
-    marginBottom: 32,
+    marginBottom: 24,
   },
   heroAddress: {
     fontFamily: "Inter_800ExtraBold",
@@ -598,22 +813,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.raw.zinc500,
   },
-  marginCard: {
-    backgroundColor: Colors.raw.zinc900,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    padding: 24,
+  marginCenter: {
     alignItems: "center",
-    marginBottom: 32,
   },
   marginBreakdown: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 20,
     width: "100%",
   },
-  marginRow: {
+  marginCol: {
     flex: 1,
     alignItems: "center",
   },
@@ -633,82 +841,120 @@ const styles = StyleSheet.create({
     height: 32,
     backgroundColor: Colors.raw.zinc800,
   },
-  section: {
-    marginBottom: 32,
-  },
-  sectionTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: Colors.raw.white,
+  qaScroll: {
     marginBottom: 16,
+    marginHorizontal: -20,
   },
-  quickActions: {
+  qaRow: {
+    paddingHorizontal: 20,
+    gap: 12,
     flexDirection: "row",
-    gap: 8,
   },
-  timelineCard: {
-    backgroundColor: Colors.raw.zinc900,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    padding: 20,
-  },
-  timelineHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 14,
-  },
-  timelineDay: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: Colors.raw.white,
-  },
-  overduePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(244, 63, 94, 0.08)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  overdueText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    color: Colors.raw.rose400,
-  },
-  timelineBarBg: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.raw.zinc800,
-    marginBottom: 12,
-    overflow: "hidden",
+  ganttContainer: {
     position: "relative",
   },
-  timelineBarFill: {
+  ganttTodayLine: {
     position: "absolute",
+    left: `${TODAY_PERCENT + 30}%`,
     top: 0,
-    left: 0,
-    height: 8,
+    bottom: 30,
+    width: 2,
     backgroundColor: Colors.raw.amber500,
-    borderRadius: 4,
+    zIndex: 2,
+    borderRadius: 1,
+    opacity: 0.7,
   },
-  timelineBarOverdue: {
+  ganttRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    gap: 10,
+  },
+  ganttLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.raw.zinc400,
+    width: 80,
+  },
+  ganttTrack: {
+    flex: 1,
+    height: 20,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 6,
+    position: "relative",
+    overflow: "hidden",
+  },
+  ganttBar: {
     position: "absolute",
     top: 0,
-    height: 8,
-    backgroundColor: Colors.raw.rose500,
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
+    height: 20,
+    borderRadius: 6,
   },
-  timelineDates: {
+  ganttFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
   },
-  timelineDate: {
+  ganttDate: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc600,
+  },
+  ganttMid: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.raw.amber500,
+  },
+  msgRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    gap: 12,
+  },
+  msgBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  msgIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  msgBody: {
+    flex: 1,
+  },
+  msgSender: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.white,
+    marginBottom: 2,
+  },
+  msgText: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
+    color: Colors.raw.zinc400,
+  },
+  msgTime: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
     color: Colors.raw.zinc600,
+  },
+  allMessagesBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: Colors.raw.zinc800,
+    marginTop: 4,
+  },
+  allMessagesText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.amber500,
   },
 });
