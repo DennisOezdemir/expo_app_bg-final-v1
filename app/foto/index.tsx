@@ -504,18 +504,16 @@ export default function FotoScreen() {
               )}
             </Pressable>
 
-            <Animated.View style={captureAnimStyle}>
-              <Pressable
-                onPress={capturePhoto}
-                style={({ pressed }) => [
-                  styles.captureBtn,
-                  pressed && styles.captureBtnPressed,
-                ]}
-                testID="capture-btn"
-              >
-                <View style={styles.captureBtnInner} />
-              </Pressable>
-            </Animated.View>
+            <Pressable
+              onPress={capturePhoto}
+              style={({ pressed }) => [
+                styles.captureBtn,
+                pressed && styles.captureBtnPressed,
+              ]}
+              testID="capture-btn"
+            >
+              <View style={styles.captureBtnInner} pointerEvents="none" />
+            </Pressable>
 
             <View style={styles.captureRightSpace}>
               {photoCount > 0 && (

@@ -1,0 +1,105 @@
+Build an offer/quote detail screen for construction offers.
+
+HEADER:
+- Back arrow ←
+- "Angebot" large bold
+- "ANG-2026-003-01" in zinc-400 mono
+- Status badge: 🟡 "Entwurf" / 🟢 "Freigegeben" / 📤 "Versendet" / ✅ "Beauftragt"
+- Right: [⋮] menu (Duplizieren, PDF, Versenden)
+
+PROJECT CONTEXT BAR:
+- "📋 BL-2026-003 • Schwentnerring 13c" 
+- "SAGA GWG" zinc-400
+- Tappable → navigates to project
+
+SUMMEN HERO (full-width card, prominent):
+Angebotssumme
+
+€12.400,00 netto
+€14.756,00 brutto
+
+47 Positionen • 6 Räume
+
+Marge: 24% (€2.976)  🟢
+
+VERSION SELECTOR (if multiple versions):
+- Horizontal pills: [v1] [v2 ←aktiv] [v3 Entwurf]
+- Active: amber-500
+- Tap → switches version
+- "v2 freigegeben am 05.02.2026"
+
+POSITIONEN SECTION:
+Grouped by room (accordion):
+🚿 Badezimmer                    3 Pos. • €2.840
+▼
+01.01  Wandfliesen liefern      €680,00
+und verlegen
+12,5 m² × €54,40/m²
+01.02  Bodenfliesen liefern     €420,00
+und verlegen
+6,0 m² × €70,00/m²
+01.03  Sanitärobjekte           €1.740,00
+montieren
+Pauschal
+
+🍳 Küche                         5 Pos. • €1.960
+►  (collapsed)
+🛋️ Wohnzimmer                    8 Pos. • €3.200
+►  (collapsed)
+
+POSITION ROW DETAILS:
+- Position number (left, mono, zinc-500)
+- Description (white, bold first line)
+- Quantity × Unit price (zinc-400)
+- Total right-aligned (white)
+- Tap position → expand to show:
+  - Full WABS description text
+  - Material requirements (linked)
+  - Nachtrag indicator if changed
+
+NACHTRÄGE SECTION (if any):
+Header: "Nachträge" with count
+NT-001  Zusätzliche Steckdose    +€180,00  🟡 offen
+Küche, nicht im LV
+NT-002  Wasserschaden Decke      +€420,00  🟢 genehmigt
+Bad, Trocknung nötig
+Sum: "Nachträge gesamt: +€600,00"
+
+KOSTENÜBERSICHT SECTION (card):
+Angebot (LV)           €12.400,00
+
+Nachträge               €600,00
+─────────────────────────────────
+Gesamt netto           €13.000,00
+MwSt 19%                €2.470,00
+─────────────────────────────────
+Gesamt brutto          €15.470,00
+
+Materialkosten          €4.200,00
+Lohnkosten              €5.824,00
+─────────────────────────────────
+Ergebnis               €2.976,00
+Marge                      22,9%  🟢
+
+AKTIONEN (bottom sticky):
+Different based on status:
+
+Entwurf:
+[✏️ Bearbeiten]  [✅ Zur Freigabe]
+
+Zur Freigabe:
+[✏️ Anpassen]    [📤 Freigeben & Senden]
+
+Freigegeben:
+[📄 PDF]  [📧 Erneut senden]  [📋 Duplizieren]
+
+PDF PREVIEW:
+- Tap PDF → inline preview (scrollable)
+- Share button → email, WhatsApp, download
+- BG letterhead with logo, address, bank details
+
+All cards zinc-900, rounded-2xl.
+Position numbers in monospace.
+Euro amounts right-aligned.
+Nachträge rows have amber left border.
+German everywhere. No English.
