@@ -650,6 +650,7 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<Ionicons name="chatbubbles" size={24} color={Colors.raw.amber500} />}
             label="Chat"
+            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "1" } })}
           />
         </ScrollView>
 
@@ -722,6 +723,12 @@ export default function ProjectDetailScreen() {
             </View>
           ))}
           <Pressable
+            onPress={() => {
+              if (Platform.OS !== "web") {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }
+              router.push({ pathname: "/chat/[id]", params: { id: id || "1" } });
+            }}
             style={({ pressed }) => [
               styles.allMessagesBtn,
               { opacity: pressed ? 0.7 : 1 },

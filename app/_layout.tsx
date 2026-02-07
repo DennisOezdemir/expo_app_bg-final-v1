@@ -25,6 +25,7 @@ function RootLayoutNav() {
       <Stack.Screen name="project/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="begehung/[type]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="planung/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+      <Stack.Screen name="chat/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen
         name="assign-material"
         options={{
