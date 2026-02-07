@@ -126,21 +126,21 @@ export default function StartScreen() {
               rightContent={<TileSubtext text="5 offen" color={Colors.raw.zinc400} />}
             />
             <Tile
-              icon={<MaterialCommunityIcons name="chart-line" size={28} color={Colors.raw.emerald500} />}
-              label="Marge"
-              rightContent={<TileCounter value="24%" color={Colors.raw.emerald500} />}
+              icon={<Ionicons name="calendar" size={28} color="#3b82f6" />}
+              label="Planung"
+              rightContent={<TileSubtext text="KW 6" color={Colors.raw.zinc400} />}
             />
           </View>
           <View style={styles.tilesRow}>
             <Tile
-              icon={<Ionicons name="camera" size={28} color={Colors.raw.amber500} />}
-              label="Schnellfoto"
-              rightContent={<View />}
+              icon={<Ionicons name="document-text" size={28} color={Colors.raw.amber500} />}
+              label="Angebote"
+              rightContent={<TileSubtext text="4 offen" color={Colors.raw.zinc400} />}
             />
             <Tile
-              icon={<Ionicons name="time" size={28} color={Colors.raw.zinc400} />}
-              label="Zeiten"
-              rightContent={<TileSubtext text="6:15h" color={Colors.raw.zinc400} />}
+              icon={<MaterialCommunityIcons name="finance" size={28} color={Colors.raw.emerald500} />}
+              label="Financials"
+              rightContent={<TileCounter value="24%" color={Colors.raw.emerald500} />}
             />
           </View>
         </View>
