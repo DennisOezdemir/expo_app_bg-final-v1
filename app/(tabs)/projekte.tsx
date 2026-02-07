@@ -3,6 +3,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { useState, useCallback } from "react";
+import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
@@ -173,6 +174,9 @@ function ProjectCard({ project }: { project: Project }) {
       }}
       onPressOut={() => {
         scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+      }}
+      onPress={() => {
+        router.push({ pathname: "/project/[id]", params: { id: project.id } });
       }}
     >
       <View style={styles.cardHeader}>

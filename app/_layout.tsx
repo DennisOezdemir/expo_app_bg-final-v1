@@ -22,6 +22,7 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back" }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="project/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
     </Stack>
   );
 }
