@@ -1,0 +1,87 @@
+Build a project chat screen that mirrors Telegram messages. This shows all communication about ONE project in one place.
+
+HEADER:
+- Back arrow ← to project
+- "Nachrichten" large bold
+- "BL-2026-003 • Schwentnerring" zinc-400
+- Right: Filter icon (funnel)
+- Badge: "24 Nachrichten"
+
+FILTER CHIPS (horizontal scroll):
+[Alle] [💬 Chat] [📸 Fotos] [🤖 System] [📋 Protokolle]
+
+MESSAGE FEED (reverse chronological, newest bottom like a chat):
+Messages look like chat bubbles. Different styles per sender type:
+
+HUMAN MESSAGE (left-aligned, zinc-800 bg):
+👷 Mehmet                           14:32
+Fliesen sind angekommen,
+12 Kartons. Alles okay ✅
+
+HUMAN WITH PHOTO (left-aligned):
+📸 Ayse                             11:20
+[Photo thumbnail - tappable]
+Wasserfleck an der Decke Küche.
+Muss vor dem Streichen getrocknet werden.
+
+SYSTEM/BOT MESSAGE (centered, zinc-900/50 bg, amber border-l-4):
+🤖 BAUGENIUS                        09:00
+Material bestellt bei MEGA eG
+12x Vliesraufaser, 12x Vlieskleber
+Lieferung: voraussichtlich Mi 12.02.
+
+APPROVAL MESSAGE (centered, special card):
+✅ FREIGABE                          08:45
+Dennis hat Angebot freigegeben
+€12.400 netto • 47 Positionen
+
+ALERT MESSAGE (rose-500/10 bg):
+⚠️ WARNUNG                          gestern
+Keine Zeiterfassung seit 2 Tagen
+Betroffene: Mehmet, Ali
+
+PHOTO MESSAGES:
+- Inline thumbnail (max 240px wide, rounded-xl)
+- Tap → fullscreen gallery with swipe
+- Caption below photo
+- Room tag badge on photo: "Küche"
+
+DATE SEPARATORS:
+- "── Heute ──"
+- "── Gestern ──"  
+- "── 08. Feb 2026 ──"
+Centered, zinc-500, small text
+
+INPUT BAR (sticky bottom):
+┌─────────────────────────────────────────┐
+│ 📸  📎  | Nachricht schreiben...  [➤]  │
+└─────────────────────────────────────────┘
+- Camera icon → take photo, auto-tags to project
+- Paperclip → attach document
+- Send button amber-500
+- Input: zinc-800 bg, rounded-full
+
+PHOTO CAPTURE FLOW (when 📸 tapped):
+1. Camera opens
+2. After shot: 
+   - Room selector dropdown (Küche, Bad, Wohnzimmer...)
+   - Tag selector: [Mangel] [Nachtrag] [Frage] [Fortschritt]
+   - Optional note field
+   - [Senden] button
+3. Photo appears in chat + saved to project folder
+
+SMART FEATURES:
+- Photos tagged "Mangel" → auto-creates entry in Mängelliste
+- Photos tagged "Nachtrag" → auto-creates Nachtrag draft in Freigaben
+- System messages are not editable
+- Human messages show read receipts (✓✓ blue)
+
+EMPTY STATE:
+- "Noch keine Nachrichten"
+- "Starte die Kommunikation für dieses Projekt"
+- [📸 Erstes Foto] [💬 Erste Nachricht]
+
+Scrolls like WhatsApp/Telegram. Latest messages at bottom.
+Auto-scroll to bottom on open.
+New messages: blue "↓ 3 neue Nachrichten" pill at bottom.
+All zinc-900 cards, German labels, dark mode.
