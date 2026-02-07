@@ -160,11 +160,13 @@ export default function StartScreen() {
               icon={<Ionicons name="document-text" size={28} color={Colors.raw.amber500} />}
               label="Angebote"
               rightContent={<TileSubtext text="4 offen" color={Colors.raw.zinc400} />}
+              onPress={() => router.push({ pathname: "/angebot/[id]", params: { id: "1" } })}
             />
             <Tile
               icon={<MaterialCommunityIcons name="finance" size={28} color={Colors.raw.emerald500} />}
-              label="Financials"
+              label="Finanzen"
               rightContent={<TileCounter value="24%" color={Colors.raw.emerald500} />}
+              onPress={() => router.push("/finanzen")}
             />
           </View>
         </View>

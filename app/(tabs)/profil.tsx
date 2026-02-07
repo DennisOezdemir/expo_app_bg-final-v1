@@ -1,43 +1,373 @@
-import { StyleSheet, Text, View, Platform } from "react-native";
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  Platform,
+  Pressable,
+  Switch,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useState } from "react";
+import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+
+interface ToggleSetting {
+  key: string;
+  icon: string;
+  label: string;
+  defaultOn: boolean;
+}
+
+const NOTIFICATION_SETTINGS: ToggleSetting[] = [
+  { key: "push", icon: "notifications", label: "Push-Benachrichtigungen", defaultOn: true },
+  { key: "email", icon: "mail", label: "Email-Zusammenfassung t\u00E4glich", defaultOn: false },
+  { key: "margin", icon: "warning", label: "Marge unter 20% warnen", defaultOn: true },
+  { key: "material", icon: "cube", label: "Material-Erinnerungen", defaultOn: true },
+  { key: "payment", icon: "cash", label: "Zahlungseing\u00E4nge melden", defaultOn: true },
+];
+
+interface TeamMember {
+  name: string;
+  role: string;
+  icon: string;
+}
+
+const TEAM: TeamMember[] = [
+  { name: "Mehmet", role: "Maler, aktiv", icon: "hammer" },
+  { name: "Ali", role: "Fliesen, aktiv", icon: "hammer" },
+  { name: "Ayse", role: "Projektleitung, aktiv", icon: "briefcase" },
+];
+
+interface Integration {
+  name: string;
+  connected: boolean;
+  icon: string;
+}
+
+const INTEGRATIONS: Integration[] = [
+  { name: "Google Drive", connected: true, icon: "folder" },
+  { name: "Telegram", connected: true, icon: "send" },
+  { name: "Superchat", connected: true, icon: "chatbubbles" },
+  { name: "easybill", connected: false, icon: "receipt" },
+  { name: "GoCardless", connected: false, icon: "card" },
+];
+
+function SettingToggle({ setting, value, onToggle }: { setting: ToggleSetting; value: boolean; onToggle: () => void }) {
+  return (
+    <View style={toggleStyles.row}>
+      <View style={toggleStyles.left}>
+        <Ionicons name={setting.icon as any} size={18} color={Colors.raw.zinc400} />
+        <Text style={toggleStyles.label}>{setting.label}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={() => {
+          if (Platform.OS !== "web") Haptics.selectionAsync();
+          onToggle();
+        }}
+        trackColor={{ false: Colors.raw.zinc700, true: Colors.raw.amber500 + "60" }}
+        thumbColor={value ? Colors.raw.amber500 : Colors.raw.zinc500}
+        ios_backgroundColor={Colors.raw.zinc700}
+      />
+    </View>
+  );
+}
+
+const toggleStyles = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
+  left: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  label: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc300 },
+});
 
 export default function ProfilScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
+  const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const [toggles, setToggles] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    NOTIFICATION_SETTINGS.forEach((s) => { init[s.key] = s.defaultOn; });
+    return init;
+  });
+
+  const toggleSetting = (key: string) => {
+    setToggles((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   return (
     <View style={styles.container}>
-      <View style={[styles.content, { paddingTop: topInset + 60 }]}>
-        <View style={styles.placeholder}>
-          <Text style={styles.placeholderText}>Profil</Text>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: topInset + 20, paddingBottom: bottomInset + 100 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.title}>Profil</Text>
+
+        <View style={styles.profileCard}>
+          <View style={styles.avatarCircle}>
+            <Ionicons name="person" size={32} color={Colors.raw.amber500} />
+          </View>
+          <Text style={styles.profileName}>Dennis</Text>
+          <Text style={styles.profileEmail}>dennis@bauloewen.de</Text>
+          <Text style={styles.profileRole}>Gesch\u00E4ftsf\u00FChrer</Text>
+          <View style={styles.profileDivider} />
+          <Text style={styles.companyName}>Deine Baul\u00F6wen GmbH</Text>
+          <Text style={styles.companySince}>Seit Januar 2025</Text>
         </View>
-      </View>
+
+        <View style={styles.statsRow}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>47</Text>
+            <Text style={styles.statLabel}>Projekte</Text>
+            <Text style={styles.statSub}>gesamt</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>\u20AC182k</Text>
+            <Text style={styles.statLabel}>Umsatz</Text>
+            <Text style={styles.statSub}>2026</Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionLabel}>Benachrichtigungen</Text>
+        <View style={styles.card}>
+          {NOTIFICATION_SETTINGS.map((s, i) => (
+            <View key={s.key}>
+              <SettingToggle setting={s} value={toggles[s.key]} onToggle={() => toggleSetting(s.key)} />
+              {i < NOTIFICATION_SETTINGS.length - 1 && <View style={styles.divider} />}
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionLabel}>Team</Text>
+        <View style={styles.card}>
+          {TEAM.map((member, i) => (
+            <View key={member.name}>
+              <View style={styles.teamRow}>
+                <View style={styles.teamAvatar}>
+                  <Ionicons name={member.icon as any} size={18} color={Colors.raw.amber500} />
+                </View>
+                <View>
+                  <Text style={styles.teamName}>{member.name}</Text>
+                  <Text style={styles.teamRole}>{member.role}</Text>
+                </View>
+              </View>
+              {i < TEAM.length - 1 && <View style={styles.divider} />}
+            </View>
+          ))}
+          <View style={styles.divider} />
+          <Pressable style={({ pressed }) => [styles.addRow, { opacity: pressed ? 0.7 : 1 }]}>
+            <Ionicons name="add-circle" size={20} color={Colors.raw.amber500} />
+            <Text style={styles.addText}>Mitarbeiter einladen</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.sectionLabel}>Firma</Text>
+        <View style={styles.card}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Firmenname</Text>
+            <Text style={styles.infoValue}>Deine Baul\u00F6wen GmbH</Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Adresse</Text>
+            <Text style={styles.infoValue}>Musterstra\u00DFe 12, 20095 Hamburg</Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Steuernummer</Text>
+            <Text style={styles.infoValue}>DE123456789</Text>
+          </View>
+          <View style={styles.divider} />
+          <Pressable style={({ pressed }) => [styles.linkRow, { opacity: pressed ? 0.7 : 1 }]}>
+            <Text style={styles.linkText}>Bearbeiten</Text>
+            <Ionicons name="chevron-forward" size={16} color={Colors.raw.amber500} />
+          </Pressable>
+        </View>
+
+        <Text style={styles.sectionLabel}>Lieferanten</Text>
+        <View style={styles.card}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoValue}>21 Lieferanten gespeichert</Text>
+          </View>
+          <View style={styles.divider} />
+          <Pressable style={({ pressed }) => [styles.linkRow, { opacity: pressed ? 0.7 : 1 }]}>
+            <Text style={styles.linkText}>Verwalten</Text>
+            <Ionicons name="chevron-forward" size={16} color={Colors.raw.amber500} />
+          </Pressable>
+        </View>
+
+        <Text style={styles.sectionLabel}>Katalog</Text>
+        <View style={styles.card}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>WABS Katalog</Text>
+            <Text style={styles.infoValue}>620 Positionen</Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Letzte Aktualisierung</Text>
+            <Text style={styles.infoValue}>01.02.2026</Text>
+          </View>
+          <View style={styles.divider} />
+          <Pressable style={({ pressed }) => [styles.linkRow, { opacity: pressed ? 0.7 : 1 }]}>
+            <Text style={styles.linkText}>Katalog verwalten</Text>
+            <Ionicons name="chevron-forward" size={16} color={Colors.raw.amber500} />
+          </Pressable>
+        </View>
+
+        <Text style={styles.sectionLabel}>Integrationen</Text>
+        <View style={styles.card}>
+          {INTEGRATIONS.map((integ, i) => (
+            <View key={integ.name}>
+              <View style={styles.integRow}>
+                <View style={styles.integLeft}>
+                  <View style={[styles.integDot, { backgroundColor: integ.connected ? Colors.raw.emerald500 : Colors.raw.amber500 }]} />
+                  <Ionicons name={integ.icon as any} size={18} color={Colors.raw.zinc400} />
+                  <Text style={styles.integName}>{integ.name}</Text>
+                </View>
+                {integ.connected ? (
+                  <Text style={styles.integConnected}>Verbunden</Text>
+                ) : (
+                  <Pressable style={({ pressed }) => [styles.integConnectBtn, { opacity: pressed ? 0.7 : 1 }]}>
+                    <Text style={styles.integConnectText}>Verbinden</Text>
+                  </Pressable>
+                )}
+              </View>
+              {i < INTEGRATIONS.length - 1 && <View style={styles.divider} />}
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionLabel}>App</Text>
+        <View style={styles.card}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Version</Text>
+            <Text style={styles.infoValue}>1.0.0</Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Dunkelmodus</Text>
+            <Switch
+              value={true}
+              disabled
+              trackColor={{ false: Colors.raw.zinc700, true: Colors.raw.amber500 + "60" }}
+              thumbColor={Colors.raw.amber500}
+              ios_backgroundColor={Colors.raw.zinc700}
+            />
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Sprache</Text>
+            <Text style={styles.infoValue}>Deutsch</Text>
+          </View>
+          <View style={styles.divider} />
+          <Pressable style={({ pressed }) => [styles.linkRow, { opacity: pressed ? 0.7 : 1 }]}>
+            <Text style={styles.linkText}>Feedback geben</Text>
+            <Ionicons name="chevron-forward" size={16} color={Colors.raw.amber500} />
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable style={({ pressed }) => [styles.logoutRow, { opacity: pressed ? 0.7 : 1 }]}>
+            <Text style={styles.logoutText}>Abmelden</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.raw.zinc950,
+  container: { flex: 1, backgroundColor: Colors.raw.zinc950 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 20 },
+  title: { fontFamily: "Inter_800ExtraBold", fontSize: 30, color: Colors.raw.white, marginBottom: 24 },
+
+  profileCard: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    padding: 24,
+    alignItems: "center",
+    marginBottom: 16,
   },
-  content: {
+  avatarCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Colors.raw.amber500 + "18",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  profileName: { fontFamily: "Inter_800ExtraBold", fontSize: 24, color: Colors.raw.white, marginBottom: 4 },
+  profileEmail: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.raw.zinc400, marginBottom: 4 },
+  profileRole: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.amber500, marginBottom: 16 },
+  profileDivider: { height: 1, backgroundColor: Colors.raw.zinc800, alignSelf: "stretch", marginBottom: 16 },
+  companyName: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.zinc300, marginBottom: 4 },
+  companySince: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500 },
+
+  statsRow: { flexDirection: "row", gap: 10, marginBottom: 28 },
+  statCard: {
     flex: 1,
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    padding: 20,
+    alignItems: "center",
+  },
+  statValue: { fontFamily: "Inter_800ExtraBold", fontSize: 28, color: Colors.raw.white, marginBottom: 4 },
+  statLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc400 },
+  statSub: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500 },
+
+  sectionLabel: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.raw.zinc400,
+    marginBottom: 10,
+    marginTop: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  card: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    paddingHorizontal: 18,
+    paddingVertical: 4,
+    marginBottom: 20,
+  },
+  divider: { height: 1, backgroundColor: Colors.raw.zinc800 },
+
+  teamRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 },
+  teamAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.amber500 + "14",
     alignItems: "center",
     justifyContent: "center",
   },
-  placeholder: {
-    backgroundColor: Colors.raw.zinc900,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    borderRadius: 16,
-    paddingVertical: 40,
-    paddingHorizontal: 32,
-  },
-  placeholderText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 18,
-    color: Colors.raw.zinc500,
-  },
+  teamName: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white },
+  teamRole: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500 },
+  addRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 14 },
+  addText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.amber500 },
+
+  infoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
+  infoLabel: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc500 },
+  infoValue: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc300 },
+  linkRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
+  linkText: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.amber500 },
+  logoutRow: { paddingVertical: 14, alignItems: "center" },
+  logoutText: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.rose500 },
+
+  integRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
+  integLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  integDot: { width: 8, height: 8, borderRadius: 4 },
+  integName: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc300 },
+  integConnected: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.emerald500 },
+  integConnectBtn: { backgroundColor: Colors.raw.amber500 + "18", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
+  integConnectText: { fontFamily: "Inter_700Bold", fontSize: 12, color: Colors.raw.amber500 },
 });
