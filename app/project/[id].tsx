@@ -244,8 +244,22 @@ const BEGEHUNG_CONFIG: Record<BegehungStatus, { dot: string; label: string }> = 
 
 function BegehungRow({ item }: { item: Begehung }) {
   const cfg = BEGEHUNG_CONFIG[item.status];
+  const typeMap: Record<string, string> = {
+    Erstbegehung: "erstbegehung",
+    Zwischenbegehung: "zwischenbegehung",
+    Abnahme: "abnahme",
+  };
+  const handlePress = () => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    router.push({ pathname: "/begehung/[type]", params: { type: typeMap[item.name] || "zwischenbegehung" } });
+  };
   return (
-    <View style={bgStyles.row}>
+    <Pressable
+      onPress={handlePress}
+      style={({ pressed }) => [bgStyles.row, { opacity: pressed ? 0.8 : 1 }]}
+    >
       <View style={bgStyles.left}>
         <View style={[bgStyles.dot, { backgroundColor: cfg.dot }]} />
         <View>
@@ -260,13 +274,14 @@ function BegehungRow({ item }: { item: Begehung }) {
         <Ionicons name="checkmark-circle" size={20} color={Colors.raw.emerald500} />
       )}
       {item.status === "geplant" && (
-        <Pressable
-          style={({ pressed }) => [bgStyles.startBtn, { opacity: pressed ? 0.7 : 1 }]}
-        >
+        <View style={bgStyles.startBtn}>
           <Text style={bgStyles.startText}>Starten</Text>
-        </Pressable>
+        </View>
       )}
-    </View>
+      {item.status === "offen" && (
+        <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+      )}
+    </Pressable>
   );
 }
 

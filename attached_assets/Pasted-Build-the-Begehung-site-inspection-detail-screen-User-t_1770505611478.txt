@@ -1,0 +1,96 @@
+Build the "Begehung" (site inspection) detail screen. User taps a begehung row from the project detail.
+
+THREE TYPES (same layout, different checklists):
+- Erstbegehung (initial inspection)
+- Zwischenbegehung (progress inspection)  
+- Abnahme (final acceptance)
+
+HEADER:
+- Back arrow ← to project
+- "Zwischenbegehung" large bold
+- "BL-2026-003 • Schwentnerring 13c" zinc-400
+- Status badge: 🟡 "In Bearbeitung" or 🟢 "Erledigt"
+- Date: "10.02.2026 • 14:30 Uhr"
+
+PROGRESS HERO:
+- Horizontal progress bar full width
+- "8 von 12 Punkten erledigt" below
+- Percentage right-aligned: "67%"
+
+CHECKLIST SECTION:
+Header: "Checkliste"
+Each item is a tappable row with checkbox:
+
+Erstbegehung items:
+- ☑️ Wohnung begehbar
+- ☑️ Schlüssel erhalten  
+- ☑️ Zählerstände notiert
+- ☑️ Fenster geprüft
+- ☐ Elektro geprüft
+- ☐ Sanitär geprüft
+- ☐ Böden begutachtet
+- ☐ Wände begutachtet
+- ☐ Türen geprüft
+- ☐ Aufmaß erstellt
+
+Zwischenbegehung items:
+- ☐ Arbeitsfortschritt geprüft
+- ☐ Qualität kontrolliert
+- ☐ Mängel dokumentiert
+- ☐ Zeitplan besprochen
+- ☐ Material vor Ort geprüft
+- ☐ Nachträge identifiziert
+
+Abnahme items:
+- ☐ Alle Positionen fertig
+- ☐ Mängelliste erstellt
+- ☐ Zählerstände Übergabe
+- ☐ Schlüssel übergeben
+- ☐ Abnahmeprotokoll unterschrieben
+
+Each checkbox: tap to toggle. Green check animation on complete.
+Tap the row text → expands to show optional note field + photo button.
+
+FOTOS SECTION:
+Header: "Fotos" with count + camera button [📸 Foto]
+Grid of thumbnails (3 columns, square, rounded-xl)
+Each photo shows:
+- Thumbnail
+- Small badge: room name "Küche" or "Bad"
+- Tap → fullscreen with note overlay
+
+[📸 Foto hinzufügen] big amber button
+- Opens camera
+- After photo: tag with room (dropdown) + optional note
+- Auto-saves to project storage
+
+MÄNGEL SECTION (only in Zwischenbegehung + Abnahme):
+Header: "Mängel" with count + [+ Mangel]
+Each Mangel card:
+- 📸 Photo thumbnail left
+- "Wasserfleck Decke Küche" title
+- "Maler muss nacharbeiten" description  
+- Status: 🔴 Offen / 🟡 In Arbeit / 🟢 Behoben
+- Assigned: "Mehmet" or "Nicht zugewiesen"
+
+NOTIZEN SECTION:
+- Free text area
+- "Allgemeine Anmerkungen zur Begehung..."
+- Auto-saves on blur
+
+BOTTOM STICKY BAR:
+If not all items checked:
+- "Begehung fortsetzen" amber button (saves progress)
+
+If all items checked:
+- "✅ Begehung abschließen" emerald button
+- Opens confirmation: "Begehung als erledigt markieren?"
+
+For Abnahme specifically:
+- "✍️ Unterschrift" button → signature pad (finger draw)
+- After signature: "Protokoll erstellen" → generates PDF
+
+All cards zinc-900 rounded-2xl. 
+Checkboxes: large 24px touch targets.
+Photos auto-upload to project folder.
+German labels everywhere.
