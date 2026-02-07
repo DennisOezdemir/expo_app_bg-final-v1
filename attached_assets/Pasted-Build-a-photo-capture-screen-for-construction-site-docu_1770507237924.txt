@@ -1,0 +1,88 @@
+Build a photo capture screen for construction site documentation. Reachable from Home tile "Schnellfoto" AND from inside a project.
+
+ENTRY POINT MATTERS:
+- From Home → user must SELECT project first
+- From Project → project is pre-selected
+
+STEP 1: PROJECT SELECTOR (only if from Home):
+- "Projekt wählen" header
+- Search field
+- Recent projects (last 3, large cards):
+  - "BL-2026-003 Schwentnerring" 
+  - "BL-2026-007 Haferweg"
+- Tap → moves to Step 2
+
+STEP 2: CAMERA VIEW
+Full screen camera preview.
+Bottom overlay (translucent zinc-900/80 backdrop-blur):
+
+Top of overlay:
+- Project badge: "📋 BL-2026-003 Schwentnerring" (tappable to change)
+
+Tag selector (horizontal chips, MUST select one):
+[📸 Fortschritt] [⚠️ Mangel] [📝 Nachtrag] [❓ Frage] [📦 Lieferung]
+
+- Active chip: amber-500 bg
+- Default: "Fortschritt" pre-selected
+
+Big capture button: centered, 72px, white ring, amber fill on press.
+Gallery button: bottom-left, last photo thumbnail
+Flash toggle: top-right
+
+STEP 3: AFTER CAPTURE (photo review)
+Full screen photo with bottom sheet overlay:
+
+Photo displayed full width.
+Bottom sheet:
+Tag: ⚠️ Mangel                    [ändern]
+Raum
+[Küche ▾]     ← dropdown: Küche, Bad, Wohnzimmer,
+Schlafzimmer, Flur, Kinderzimmer, Außen
+Beschreibung
+┌────────────────────────────────────┐
+│ Wasserfleck an Decke, muss        │
+│ trocknen vor Malerarbeiten...     │
+└────────────────────────────────────┘
+Dringlichkeit
+[🟢 Normal] [🟡 Wichtig] [🔴 Dringend]
+     [📸 Weiteres Foto]
+┌────────────────────────────────────┐
+│        ✅ SPEICHERN                │
+└────────────────────────────────────┘
+
+SMART BEHAVIOR based on tag:
+- "Mangel" → auto-creates Mängel-Eintrag in project
+- "Nachtrag" → auto-creates Nachtrag-Draft in Freigaben with photo attached
+- "Frage" → sends to Chat with ❓ prefix
+- "Fortschritt" → saves to project gallery
+- "Lieferung" → saves + updates material status
+
+AFTER SAVE:
+- Short success toast: "✅ Foto gespeichert"
+- Options:
+  - [📸 Nächstes Foto] → back to camera (same project, same room)
+  - [✅ Fertig] → back to where user came from
+
+BATCH MODE:
+- If user takes multiple photos in a row → same project + room stays selected
+- Counter shows: "3 Fotos heute"
+- Quick capture: tap-tap-tap without re-entering room/tag each time
+- Long press capture button → burst mode (3 photos)
+
+GALLERY VIEW (from project detail "Fotos" section):
+- Grid: 3 columns, square thumbnails, rounded-lg
+- Filter by tag: [Alle] [Mängel] [Nachträge] [Fortschritt]
+- Filter by room: [Alle Räume ▾]
+- Tap photo → fullscreen with swipe left/right
+- Fullscreen shows: room tag, description, date, who took it
+- Share button → sends photo via chat or email
+
+DESIGN:
+- Camera view: true fullscreen, no top bar
+- Overlay: translucent, blur backdrop
+- Capture button: satisfying press animation (scale + haptic)
+- Success: green checkmark animation (0.5s)
+- Tags use same colors everywhere (Mangel=rose, Nachtrag=amber, Frage=blue)
+- Dark mode everything
+- Touch targets 48px+
+- Room dropdown: large bottom sheet, not tiny select

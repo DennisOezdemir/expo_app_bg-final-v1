@@ -2,6 +2,8 @@ import { StyleSheet, Text, View, ScrollView, Platform, Pressable } from "react-n
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import { router } from "expo-router";
+import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
 
@@ -106,6 +108,28 @@ export default function StartScreen() {
           <Ionicons name="chevron-forward" size={18} color={Colors.raw.rose500} />
         </Pressable>
 
+        <Pressable
+          onPress={() => {
+            if (Platform.OS !== "web") {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+            router.push("/foto");
+          }}
+          style={({ pressed }) => [
+            styles.schnellfotoBtn,
+            { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
+          ]}
+        >
+          <View style={styles.schnellfotoIcon}>
+            <Ionicons name="camera" size={22} color="#000" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.schnellfotoLabel}>Schnellfoto</Text>
+            <Text style={styles.schnellfotoSub}>Foto aufnehmen & zuordnen</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc500} />
+        </Pressable>
+
         <View style={styles.tilesGrid}>
           <View style={styles.tilesRow}>
             <Tile
@@ -205,7 +229,38 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 16,
-    marginBottom: 28,
+    marginBottom: 20,
+  },
+  schnellfotoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    marginBottom: 24,
+  },
+  schnellfotoIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: Colors.raw.amber500,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  schnellfotoLabel: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.raw.white,
+    marginBottom: 2,
+  },
+  schnellfotoSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
   },
   alertLeft: {
     flexDirection: "row",
