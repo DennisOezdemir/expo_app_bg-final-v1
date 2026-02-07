@@ -1,0 +1,71 @@
+Build a "Planung" (planning/scheduling) screen for a construction project. Mobile-first.
+
+HEADER:
+- Back arrow ← to project
+- "Planung" large bold
+- "BL-2026-003 • Schwentnerring 13c" zinc-400
+- Right: [✏️ Bearbeiten] button
+
+TIMELINE HERO (full-width card):
+- "Tag 5 von 15" large
+- "03.02. → 21.02.2026"
+- Progress bar: ██████░░░░░░░░ 33%
+- "⏰ Im Plan" emerald or "⏰ 2 Tage über" rose
+
+WEEK SELECTOR (horizontal scroll):
+- [KW 5] [KW 6 ←aktiv] [KW 7] [KW 8] [KW 9]
+- Active week: amber-500 bg
+- Tap week → scrolls Gantt to that week
+
+MINI GANTT (the core — NO library, pure CSS/divs):
+Left column: Trade labels (fixed)
+Right area: horizontal scrollable timeline
+
+Day headers: Mo Di Mi Do Fr (zinc-500, small)
+Today: amber vertical dashed line spanning full height
+
+Rows:
+Maler     ████████████████████░░░░░░░  KW6-7
+Boden     ░░░░░░░░░░████████████░░░░░  KW7
+Sanitär   ░░░░░░░░░░░░░░░░░████████░  KW8
+Elektro   ░░░░██░░░░░░░░░░░░░░░░░░░░  KW6 (1 Tag)
+
+Bar colors by status:
+- Emerald: completed days
+- Amber: in progress (today)
+- Zinc-700: future/planned
+- Rose: overdue
+
+Tap a bar → expands to show:
+- Trade name + assigned team member(s)
+- Start → End dates
+- "3 von 8 Positionen fertig"
+- Status badge
+
+TEAM SECTION (below Gantt):
+Header: "Team diese Woche"
+Cards per person:
+👷 Mehmet          Maler
+Mo-Fr KW6       Schwentnerring
+👷 Ayse            Bauleitung
+Mo, Mi, Fr      Schwentnerring
+
+MEILENSTEINE SECTION:
+- 🟢 "Material geliefert" — 05.02. ✅
+- 🟡 "Zwischenbegehung" — 10.02. (in 5 Tagen)
+- ⚪ "Abnahme" — 21.02.
+
+EDIT MODE (when ✏️ tapped):
+- Bars become draggable (start/end handles)
+- Tap bar → date picker for start/end
+- Drag to extend/shorten
+- [💾 Speichern] sticky bottom button
+- [Abbrechen] ghost button
+
+CONFLICTS:
+- If two trades overlap on same day and same person → rose border on both bars
+- Warning: "⚠️ Mehmet: Doppelbelegung am 12.02."
+
+Keep it simple. Colored rectangles in a grid. No Gantt library.
+Mobile: horizontal scroll on timeline, fixed trade labels left.
+All zinc-900 cards, rounded-2xl.

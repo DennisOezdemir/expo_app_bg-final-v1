@@ -660,34 +660,44 @@ export default function ProjectDetailScreen() {
           ))}
         </SectionCard>
 
-        <SectionCard>
-          <SectionHeader title="Planung" />
-          <View style={styles.ganttContainer}>
-            <View style={styles.ganttTodayLine} />
-            {GANTT_BARS.map((bar, i) => (
-              <View key={i} style={styles.ganttRow}>
-                <Text style={styles.ganttLabel}>{bar.label}</Text>
-                <View style={styles.ganttTrack}>
-                  <View
-                    style={[
-                      styles.ganttBar,
-                      {
-                        backgroundColor: bar.color,
-                        left: `${bar.startPercent}%`,
-                        width: `${bar.widthPercent}%`,
-                      },
-                    ]}
-                  />
+        <Pressable
+          onPress={() => {
+            if (Platform.OS !== "web") {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }
+            router.push({ pathname: "/planung/[id]", params: { id: id || "1" } });
+          }}
+          style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+        >
+          <SectionCard>
+            <SectionHeader title="Planung" rightIcon="arrow-forward" />
+            <View style={styles.ganttContainer}>
+              <View style={styles.ganttTodayLine} />
+              {GANTT_BARS.map((bar, i) => (
+                <View key={i} style={styles.ganttRow}>
+                  <Text style={styles.ganttLabel}>{bar.label}</Text>
+                  <View style={styles.ganttTrack}>
+                    <View
+                      style={[
+                        styles.ganttBar,
+                        {
+                          backgroundColor: bar.color,
+                          left: `${bar.startPercent}%`,
+                          width: `${bar.widthPercent}%`,
+                        },
+                      ]}
+                    />
+                  </View>
                 </View>
+              ))}
+              <View style={styles.ganttFooter}>
+                <Text style={styles.ganttDate}>Start: 03.02.</Text>
+                <Text style={styles.ganttMid}>Tag 5 von 15</Text>
+                <Text style={styles.ganttDate}>Ende: 21.02.</Text>
               </View>
-            ))}
-            <View style={styles.ganttFooter}>
-              <Text style={styles.ganttDate}>Start: 03.02.</Text>
-              <Text style={styles.ganttMid}>Tag 5 von 15</Text>
-              <Text style={styles.ganttDate}>Ende: 21.02.</Text>
             </View>
-          </View>
-        </SectionCard>
+          </SectionCard>
+        </Pressable>
 
         <SectionCard>
           <SectionHeader title="Nachrichten" badge="4" />
