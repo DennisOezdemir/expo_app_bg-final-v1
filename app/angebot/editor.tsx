@@ -74,6 +74,115 @@ const CATALOG: CatalogPosition[] = [
 
 const TRADE_FILTERS = ["Alle", "Maler", "Boden", "Sanit\u00E4r", "Fliesen", "Elektro"];
 
+interface CatalogSource {
+  id: string;
+  label: string;
+  icon: string;
+  desc: string;
+}
+
+const CATALOG_SOURCES: CatalogSource[] = [
+  { id: "wabs", label: "WABS Katalog", icon: "layers", desc: "Standardleistungsverzeichnis" },
+  { id: "stlb", label: "StLB-Bau", icon: "library", desc: "Standardleistungsbuch Bau" },
+  { id: "eigen", label: "Eigenleistungen", icon: "construct", desc: "Eigene Leistungspositionen" },
+  { id: "firma", label: "Firmenpreise", icon: "business", desc: "Interne Preisliste" },
+];
+
+interface JumboTemplate {
+  id: string;
+  title: string;
+  desc: string;
+  icon: string;
+  trade: string;
+  posCount: number;
+  avgValue: number;
+  positions: { nr: string; title: string; desc: string; price: number; unit: string; qty: number; trade: string }[];
+}
+
+const JUMBO_TEMPLATES: JumboTemplate[] = [
+  {
+    id: "bad-komplett",
+    title: "Badsanierung komplett",
+    desc: "Komplettpaket: Fliesen, Sanit\u00E4r, Maler inkl. aller Standardpositionen",
+    icon: "water",
+    trade: "Komplett",
+    posCount: 8,
+    avgValue: 8500,
+    positions: [
+      { nr: "01", title: "Wandfliesen Bad", desc: "Wandfliesen im D\u00FCnnbett verlegen inkl. Grundierung, Kleber und Verfugung.", price: 54.4, unit: "m\u00B2", qty: 28, trade: "Fliesen" },
+      { nr: "02", title: "Bodenfliesen Bad", desc: "Bodenfliesen im D\u00FCnnbett verlegen inkl. Grundierung, Kleber und Verfugung.", price: 70, unit: "m\u00B2", qty: 6, trade: "Fliesen" },
+      { nr: "03", title: "Waschtisch montieren", desc: "Waschtisch inkl. Einhandmischer und Siphon montieren.", price: 180, unit: "Stk", qty: 1, trade: "Sanit\u00E4r" },
+      { nr: "04", title: "WC montieren", desc: "Wand-WC inkl. Bet\u00E4tigungsplatte und Anschluss montieren.", price: 220, unit: "Stk", qty: 1, trade: "Sanit\u00E4r" },
+      { nr: "05", title: "Badewanne / Dusche", desc: "Badewanne oder Duschwanne einbauen inkl. Anschluss und Abdichtung.", price: 380, unit: "Stk", qty: 1, trade: "Sanit\u00E4r" },
+      { nr: "06", title: "Silikonfugen", desc: "Silikonfugen in K\u00FCche/Bad erneuern, Altsilikon entfernen.", price: 8.5, unit: "lfm", qty: 15, trade: "Fliesen" },
+      { nr: "07", title: "Decke streichen", desc: "Deckenfl\u00E4chen mit Dispersionsfarbe streichen.", price: 5.2, unit: "m\u00B2", qty: 6, trade: "Maler" },
+      { nr: "08", title: "Armaturen", desc: "Brauseset und Armaturen montieren inkl. Anschluss.", price: 120, unit: "Stk", qty: 1, trade: "Sanit\u00E4r" },
+    ],
+  },
+  {
+    id: "wohnung-renovierung",
+    title: "Wohnungsrenovierung Standard",
+    desc: "Tapezieren, Streichen, Boden \u2013 alle R\u00E4ume einer 3-Zimmer-Wohnung",
+    icon: "home",
+    trade: "Komplett",
+    posCount: 6,
+    avgValue: 6200,
+    positions: [
+      { nr: "01", title: "Raufaser tapezieren", desc: "Raufasertapete Typ mittel auf vorbereiteten Untergrund tapezieren.", price: 8.4, unit: "m\u00B2", qty: 120, trade: "Maler" },
+      { nr: "02", title: "Wandfl\u00E4chen streichen", desc: "Wandfl\u00E4chen streichen mit Dispersionsfarbe, deckend.", price: 4.8, unit: "m\u00B2", qty: 120, trade: "Maler" },
+      { nr: "03", title: "Decken streichen", desc: "Deckenfl\u00E4chen mit Dispersionsfarbe streichen.", price: 5.2, unit: "m\u00B2", qty: 65, trade: "Maler" },
+      { nr: "04", title: "Laminat verlegen", desc: "Laminat NK32 schwimmend verlegen inkl. Trittschalld\u00E4mmung.", price: 24.5, unit: "m\u00B2", qty: 55, trade: "Boden" },
+      { nr: "05", title: "Sockelleisten", desc: "Sockelleisten aus MDF montieren inkl. Zubeh\u00F6r.", price: 12.5, unit: "lfm", qty: 42, trade: "Boden" },
+      { nr: "06", title: "T\u00FCrzargen lackieren", desc: "T\u00FCrzargen schleifen, grundieren und lackieren.", price: 28, unit: "Stk", qty: 6, trade: "Maler" },
+    ],
+  },
+  {
+    id: "maler-standard",
+    title: "Malerarbeiten Standard",
+    desc: "Grundierung, Tapezierung und Anstrich f\u00FCr einen Raum",
+    icon: "color-palette",
+    trade: "Maler",
+    posCount: 4,
+    avgValue: 1800,
+    positions: [
+      { nr: "01", title: "Wandfl\u00E4chen grundieren", desc: "Wandfl\u00E4chen fachgerecht grundieren mit Tiefengrund LF.", price: 3.2, unit: "m\u00B2", qty: 40, trade: "Maler" },
+      { nr: "02", title: "Raufaser tapezieren", desc: "Raufasertapete Typ mittel auf vorbereiteten Untergrund.", price: 8.4, unit: "m\u00B2", qty: 40, trade: "Maler" },
+      { nr: "03", title: "Wandfl\u00E4chen streichen", desc: "Dispersionsfarbe deckend in einem Anstrich.", price: 4.8, unit: "m\u00B2", qty: 40, trade: "Maler" },
+      { nr: "04", title: "Decke streichen", desc: "Deckenfl\u00E4chen streichen mit Dispersionsfarbe.", price: 5.2, unit: "m\u00B2", qty: 12, trade: "Maler" },
+    ],
+  },
+  {
+    id: "elektro-wohnung",
+    title: "Elektro-Grundausstattung",
+    desc: "Steckdosen, Schalter und Leitungen f\u00FCr eine Wohneinheit",
+    icon: "flash",
+    trade: "Elektro",
+    posCount: 4,
+    avgValue: 3200,
+    positions: [
+      { nr: "01", title: "Steckdosen setzen", desc: "Unterputz-Steckdose setzen inkl. Schlitz und Verdrahtung.", price: 45, unit: "Stk", qty: 24, trade: "Elektro" },
+      { nr: "02", title: "Lichtschalter setzen", desc: "Unterputz-Lichtschalter setzen inkl. Verdrahtung.", price: 42, unit: "Stk", qty: 12, trade: "Elektro" },
+      { nr: "03", title: "Deckenleuchte anschlie\u00DFen", desc: "Deckenauslass inkl. L\u00FCsterklemme und Baldachin.", price: 35, unit: "Stk", qty: 8, trade: "Elektro" },
+      { nr: "04", title: "Sicherungskasten", desc: "Sicherungskasten pr\u00FCfen und ggf. Sicherungen tauschen.", price: 180, unit: "Pauschal", qty: 1, trade: "Elektro" },
+    ],
+  },
+  {
+    id: "boden-komplett",
+    title: "Bodenarbeiten komplett",
+    desc: "Boden vorbereiten, verlegen und Sockelleisten f\u00FCr einen Raum",
+    icon: "grid",
+    trade: "Boden",
+    posCount: 4,
+    avgValue: 2400,
+    positions: [
+      { nr: "01", title: "Altbelag entfernen", desc: "Vorhandenen Bodenbelag entfernen und entsorgen.", price: 6.5, unit: "m\u00B2", qty: 25, trade: "Boden" },
+      { nr: "02", title: "Untergrund spachteln", desc: "Untergrund ausgleichen mit Nivelliermasse.", price: 8, unit: "m\u00B2", qty: 25, trade: "Boden" },
+      { nr: "03", title: "Laminat verlegen", desc: "Laminat NK32 schwimmend verlegen inkl. Trittschalld\u00E4mmung.", price: 24.5, unit: "m\u00B2", qty: 25, trade: "Boden" },
+      { nr: "04", title: "Sockelleisten", desc: "Sockelleisten montieren inkl. Eckst\u00FCcke.", price: 12.5, unit: "lfm", qty: 20, trade: "Boden" },
+    ],
+  },
+];
+
 const ROOM_SUGGESTIONS: { icon: string; name: string }[] = [
   { icon: "water", name: "Bad" },
   { icon: "restaurant", name: "K\u00FCche" },
@@ -293,18 +402,20 @@ const ps = StyleSheet.create({
   createBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#000" },
 });
 
-type AddTab = "katalog" | "letzte" | "frei";
+type AddTab = "katalog" | "letzte" | "frei" | "jumbos";
 
 function AddPositionSheet({
   visible,
   onClose,
   onAdd,
+  onAddMultiple,
   roomNr,
   nextPosNr,
 }: {
   visible: boolean;
   onClose: () => void;
   onAdd: (pos: OfferPosition) => void;
+  onAddMultiple?: (positions: OfferPosition[]) => void;
   roomNr: string;
   nextPosNr: number;
 }) {
@@ -316,6 +427,9 @@ function AddPositionSheet({
   const [qty, setQty] = useState("");
   const [priceOverride, setPriceOverride] = useState("");
   const [markup, setMarkup] = useState("15");
+  const [selectedCatalog, setSelectedCatalog] = useState<string>("wabs");
+  const [showCatalogPicker, setShowCatalogPicker] = useState(false);
+  const [selectedJumbo, setSelectedJumbo] = useState<JumboTemplate | null>(null);
 
   const [freiNr, setFreiNr] = useState(`${roomNr}.${String(nextPosNr).padStart(2, "0")}`);
   const [freiTitle, setFreiTitle] = useState("");
@@ -447,6 +561,7 @@ function AddPositionSheet({
                 <View style={apStyles.tabs}>
                   {([
                     { key: "katalog" as AddTab, icon: "search", label: "Katalog" },
+                    { key: "jumbos" as AddTab, icon: "rocket", label: "Jumbos" },
                     { key: "letzte" as AddTab, icon: "time", label: "Letzte" },
                     { key: "frei" as AddTab, icon: "create", label: "Frei" },
                   ]).map((t) => (
@@ -459,6 +574,39 @@ function AddPositionSheet({
 
                 {tab === "katalog" && (
                   <View style={{ flex: 1 }}>
+                    <Pressable
+                      onPress={() => setShowCatalogPicker(!showCatalogPicker)}
+                      style={({ pressed }) => [apStyles.catalogSelector, { opacity: pressed ? 0.85 : 1 }]}
+                      testID="catalog-source-picker"
+                    >
+                      <Ionicons name={(CATALOG_SOURCES.find(c => c.id === selectedCatalog)?.icon || "layers") as any} size={16} color={Colors.raw.amber500} />
+                      <Text style={apStyles.catalogSelectorText}>{CATALOG_SOURCES.find(c => c.id === selectedCatalog)?.label}</Text>
+                      <Ionicons name={showCatalogPicker ? "chevron-up" : "chevron-down"} size={14} color={Colors.raw.zinc500} />
+                    </Pressable>
+                    {showCatalogPicker && (
+                      <View style={apStyles.catalogPickerList}>
+                        {CATALOG_SOURCES.map((cs) => (
+                          <Pressable
+                            key={cs.id}
+                            onPress={() => {
+                              setSelectedCatalog(cs.id);
+                              setShowCatalogPicker(false);
+                              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }}
+                            style={({ pressed }) => [apStyles.catalogPickerItem, selectedCatalog === cs.id && apStyles.catalogPickerItemActive, { opacity: pressed ? 0.85 : 1 }]}
+                          >
+                            <View style={[apStyles.catalogPickerIcon, selectedCatalog === cs.id && { backgroundColor: Colors.raw.amber500 + "30" }]}>
+                              <Ionicons name={cs.icon as any} size={16} color={selectedCatalog === cs.id ? Colors.raw.amber500 : Colors.raw.zinc500} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[apStyles.catalogPickerLabel, selectedCatalog === cs.id && { color: Colors.raw.amber500 }]}>{cs.label}</Text>
+                              <Text style={apStyles.catalogPickerDesc}>{cs.desc}</Text>
+                            </View>
+                            {selectedCatalog === cs.id && <Ionicons name="checkmark-circle" size={18} color={Colors.raw.amber500} />}
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
                     <View style={apStyles.searchRow}>
                       <Ionicons name="search" size={16} color={Colors.raw.zinc500} />
                       <TextInput style={apStyles.searchInput} placeholder="Position suchen..." placeholderTextColor={Colors.raw.zinc600} value={search} onChangeText={setSearch} autoCapitalize="none" testID="catalog-search" />
@@ -557,6 +705,105 @@ function AddPositionSheet({
                     </Pressable>
                   </ScrollView>
                 )}
+
+                {tab === "jumbos" && (
+                  <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+                    {selectedJumbo ? (
+                      <View>
+                        <Pressable onPress={() => setSelectedJumbo(null)} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 16 }}>
+                          <Ionicons name="arrow-back" size={18} color={Colors.raw.zinc400} />
+                          <Text style={{ fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc400 }}>Zur\u00FCck</Text>
+                        </Pressable>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                          <View style={apStyles.jumboDetailIcon}>
+                            <Ionicons name={selectedJumbo.icon as any} size={20} color={Colors.raw.amber500} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.raw.white }}>{selectedJumbo.title}</Text>
+                            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400, marginTop: 2 }}>{selectedJumbo.desc}</Text>
+                          </View>
+                        </View>
+                        <View style={{ flexDirection: "row", gap: 10, marginBottom: 16, marginTop: 10 }}>
+                          <View style={apStyles.jumboStatBadge}>
+                            <Text style={apStyles.jumboStatText}>{selectedJumbo.positions.length} Positionen</Text>
+                          </View>
+                          <View style={apStyles.jumboStatBadge}>
+                            <Text style={apStyles.jumboStatText}>{"\u2248"} {formatEuro(selectedJumbo.positions.reduce((s, p) => s + p.price * p.qty, 0))}</Text>
+                          </View>
+                        </View>
+                        <Text style={apStyles.sectionLabel}>Enthaltene Positionen</Text>
+                        {selectedJumbo.positions.map((p, idx) => (
+                          <View key={idx} style={apStyles.catalogItem}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={apStyles.catalogTitle}>{p.title}</Text>
+                              <Text style={apStyles.catalogDesc} numberOfLines={1}>{p.desc}</Text>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
+                                <Text style={apStyles.catalogPrice}>{p.qty} {p.unit} x {formatEuro(p.price)}</Text>
+                                <View style={apStyles.tradeBadge}><Text style={apStyles.tradeText}>{p.trade}</Text></View>
+                              </View>
+                            </View>
+                          </View>
+                        ))}
+                        <Pressable
+                          onPress={() => {
+                            if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            const positions: OfferPosition[] = selectedJumbo.positions.map((p, idx) => ({
+                              id: genId() + idx,
+                              nr: `${roomNr}.${String(nextPosNr + idx).padStart(2, "0")}`,
+                              title: p.title,
+                              desc: p.desc,
+                              qty: p.qty,
+                              unit: p.unit,
+                              basePrice: p.price,
+                              markup: 15,
+                            }));
+                            if (onAddMultiple) {
+                              onAddMultiple(positions);
+                            } else {
+                              positions.forEach((pos) => onAdd(pos));
+                            }
+                            setSelectedJumbo(null);
+                            onClose();
+                          }}
+                          style={({ pressed }) => [apStyles.confirmBtn, { opacity: pressed ? 0.85 : 1, marginTop: 16 }]}
+                          testID="jumbo-apply-btn"
+                        >
+                          <Ionicons name="rocket" size={18} color="#000" />
+                          <Text style={apStyles.confirmBtnText}>Alle {selectedJumbo.positions.length} Positionen \u00FCbernehmen</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View>
+                        <Text style={apStyles.sectionLabel}>Vorgefertigte Angebotstemplates</Text>
+                        {JUMBO_TEMPLATES.map((jt) => (
+                          <Pressable
+                            key={jt.id}
+                            onPress={() => {
+                              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              setSelectedJumbo(jt);
+                            }}
+                            style={({ pressed }) => [apStyles.jumboCard, { opacity: pressed ? 0.85 : 1 }]}
+                            testID={`jumbo-${jt.id}`}
+                          >
+                            <View style={apStyles.jumboIcon}>
+                              <Ionicons name={jt.icon as any} size={22} color={Colors.raw.amber500} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={apStyles.jumboTitle}>{jt.title}</Text>
+                              <Text style={apStyles.jumboDesc} numberOfLines={2}>{jt.desc}</Text>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
+                                <View style={apStyles.jumboBadge}><Text style={apStyles.jumboBadgeText}>{jt.posCount} Pos.</Text></View>
+                                <View style={apStyles.jumboBadge}><Text style={apStyles.jumboBadgeText}>{"\u2248"} {formatEuroShort(jt.avgValue)}</Text></View>
+                                <View style={apStyles.jumboBadge}><Text style={apStyles.jumboBadgeText}>{jt.trade}</Text></View>
+                              </View>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                  </ScrollView>
+                )}
               </>
             )}
           </View>
@@ -611,6 +858,23 @@ const apStyles = StyleSheet.create({
   unitChipActive: { backgroundColor: Colors.raw.amber500 },
   unitChipText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc400 },
   unitChipTextActive: { color: "#000" },
+  catalogSelector: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: Colors.raw.zinc800, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10, borderWidth: 1, borderColor: Colors.raw.zinc700 },
+  catalogSelectorText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.white, flex: 1 },
+  catalogPickerList: { backgroundColor: Colors.raw.zinc800, borderRadius: 14, borderWidth: 1, borderColor: Colors.raw.zinc700, marginBottom: 12, overflow: "hidden" as const },
+  catalogPickerItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.raw.zinc700 },
+  catalogPickerItemActive: { backgroundColor: Colors.raw.amber500 + "10" },
+  catalogPickerIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.raw.zinc700, alignItems: "center", justifyContent: "center" },
+  catalogPickerLabel: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.white },
+  catalogPickerDesc: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.raw.zinc500, marginTop: 1 },
+  jumboCard: { flexDirection: "row", alignItems: "center", backgroundColor: Colors.raw.zinc800, borderRadius: 16, borderWidth: 1, borderColor: Colors.raw.zinc700, padding: 16, gap: 14, marginBottom: 10 },
+  jumboIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: Colors.raw.amber500 + "18", alignItems: "center", justifyContent: "center" },
+  jumboTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white, marginBottom: 2 },
+  jumboDesc: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400, lineHeight: 17 },
+  jumboBadge: { backgroundColor: Colors.raw.zinc700, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  jumboBadgeText: { fontFamily: "Inter_500Medium", fontSize: 10, color: Colors.raw.zinc300 },
+  jumboDetailIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: Colors.raw.amber500 + "18", alignItems: "center", justifyContent: "center" },
+  jumboStatBadge: { backgroundColor: Colors.raw.zinc800, borderWidth: 1, borderColor: Colors.raw.zinc700, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  jumboStatText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.zinc300 },
 });
 
 function EditPositionSheet({
@@ -1218,6 +1482,7 @@ export default function OfferEditorScreen() {
         visible={addPosVisible}
         onClose={() => { setAddPosVisible(false); setAddPosRoomId(null); }}
         onAdd={(pos) => { if (addPosRoomId) addPosition(addPosRoomId, pos); }}
+        onAddMultiple={(positions) => { if (addPosRoomId) positions.forEach((pos) => addPosition(addPosRoomId, pos)); }}
         roomNr={roomNrForAdd}
         nextPosNr={nextPosNr}
       />
