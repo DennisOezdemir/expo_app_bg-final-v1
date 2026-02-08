@@ -1,0 +1,83 @@
+Build a voice AI assistant screen accessible from a floating action button (FAB) on every screen.
+
+FAB BUTTON:
+- Bottom right, above tab bar
+- Amber-500 circle, 56px
+- 🎤 microphone icon
+- Subtle pulse animation when idle
+- Tap → opens assistant overlay
+
+ASSISTANT OVERLAY (bottom sheet, 80% screen height):
+
+HEADER:
+- "BG Assistent" bold
+- Active project badge: "📋 BL-2026-003 Schwentnerring"
+- [Change project] small link
+
+CONVERSATION AREA:
+Chat-style bubbles, scrollable.
+
+USER MESSAGE (right-aligned, amber-500/20 bg):
+🎤 "Sind Thermostatköpfe im
+Schlafzimmer drin?"
+
+BOT RESPONSE (left-aligned, zinc-800 bg):
+🤖 Nein, im Schlafzimmer ist nur
+"Heizkörper streichen" (Pos. 04.01).
+Thermostatköpfe tauschen ist enthalten in:
+• Bad — Pos. 03.04 (€38,40)
+• Wohnzimmer — Pos. 05.02 (€38,40)
+[📋 Positionen ansehen]
+[➕ Als Nachtrag anlegen]
+
+Action buttons inline with responses — tappable.
+
+VOICE INPUT:
+- Hold microphone button → recording
+- Animated sound wave while recording
+- Release → processing
+- "🔄 Verstehe..." while Claude thinks
+- Response appears as chat bubble
+- Auto-plays TTS response (optional toggle)
+
+TEXT INPUT (fallback):
+┌────────────────────────────────┐
+│ 🎤  Frage stellen...     [➤]  │
+└────────────────────────────────┘
+Can type OR hold mic button.
+
+QUICK ACTIONS (chips above input):
+[Was fehlt noch?] [Marge?] [Nächster Schritt?] [Zeitplan?]
+
+SMART CONTEXT:
+- If user is on project detail → auto-selects that project
+- If user is on material screen → prioritizes material answers
+- If user is on financials → prioritizes cost/margin answers
+
+EXAMPLE CONVERSATIONS:
+
+Q: "Was kostet das Projekt bis jetzt?"
+A: "Kosten bisher €10.168 bei einem Angebot von €12.400. 
+    Marge aktuell 18% — unter deinem Ziel von 20%. 
+    Haupttreiber: Materialkosten €800 über Plan."
+
+Q: "Ist das Material für die Küche bestellt?"
+A: "Wandfliesen und Bodenfliesen sind bestellt bei 
+    Keramundo, Lieferung Mittwoch. Fliesenkleber und 
+    Fugenmasse fehlen noch — soll ich eine Bestellung 
+    bei MEGA vorbereiten?"
+
+Q: "Wer arbeitet nächste Woche?"
+A: "KW 7: Mehmet (Maler, Mo-Fr), Ali (Fliesen, Mi-Fr). 
+    Schwentnerring und Haferweg parallel."
+
+DESIGN:
+- Overlay: zinc-900/95 with backdrop-blur
+- Smooth slide-up animation
+- Mic button: large (64px), amber, pulse when listening
+- Sound wave: amber bars animating
+- Bot avatar: small BG logo
+- Response typing indicator: 3 dots animation
+- Dark mode, generous spacing
+- Works in portrait AND landscape
+- Swipe down to dismiss

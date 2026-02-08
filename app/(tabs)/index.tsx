@@ -136,11 +136,13 @@ export default function StartScreen() {
               icon={<Ionicons name="clipboard" size={28} color={Colors.raw.amber500} />}
               label="Projekte"
               rightContent={<TileSubtext text="12 aktiv" color={Colors.raw.zinc400} />}
+              onPress={() => router.navigate("/(tabs)/projekte")}
             />
             <Tile
               icon={<Ionicons name="checkmark-circle" size={28} color={Colors.raw.emerald500} />}
               label="Freigaben"
               rightContent={<TileBadge count="3" />}
+              onPress={() => router.navigate("/(tabs)/freigaben")}
             />
           </View>
           <View style={styles.tilesRow}>
@@ -148,11 +150,13 @@ export default function StartScreen() {
               icon={<MaterialCommunityIcons name="package-variant" size={28} color={Colors.raw.amber400} />}
               label="Material"
               rightContent={<TileSubtext text="5 offen" color={Colors.raw.zinc400} />}
+              onPress={() => router.navigate("/(tabs)/material")}
             />
             <Tile
               icon={<Ionicons name="calendar" size={28} color="#3b82f6" />}
               label="Planung"
               rightContent={<TileSubtext text="KW 6" color={Colors.raw.zinc400} />}
+              onPress={() => router.push("/planung")}
             />
           </View>
           <View style={styles.tilesRow}>
@@ -160,7 +164,7 @@ export default function StartScreen() {
               icon={<Ionicons name="document-text" size={28} color={Colors.raw.amber500} />}
               label="Angebote"
               rightContent={<TileSubtext text="4 offen" color={Colors.raw.zinc400} />}
-              onPress={() => router.push({ pathname: "/angebot/[id]", params: { id: "1" } })}
+              onPress={() => router.push("/angebote")}
             />
             <Tile
               icon={<MaterialCommunityIcons name="finance" size={28} color={Colors.raw.emerald500} />}
