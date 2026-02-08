@@ -1,0 +1,122 @@
+Build the approval detail screen. User taps "Details ansehen" on an approval card.
+
+This screen shows ALL information needed to make a decision. No back-and-forth.
+
+HEADER:
+- Back arrow ← to Freigaben
+- "Angebot freigeben" large bold (or "Material bestellen" / "Nachtrag genehmigen" depending on type)
+- Status: 🟡 "Wartet auf Freigabe"
+- "vor 2 Stunden eingereicht"
+
+PROJECT CONTEXT:
+- "📋 BL-2026-003 • Schwentnerring 13c EG Links"
+- "SAGA GWG • Maler+Boden"
+- Tappable → project detail
+
+---
+
+TYPE A: ANGEBOT FREIGEBEN
+
+SUMMEN CARD:
+€12.400,00 netto
+€14.756,00 brutto
+
+47 Positionen • 6 Räume
+Marge: 24% (€2.976) 🟢
+
+VERGLEICH (if previous version exists):
+vs. Version 1:
++ €1.200 (Nachtrag Bad)
+- €400 (Position gestrichen)
+= +€800 Differenz
+
+TOP POSITIONEN (most expensive, max 5):
+Badezimmer komplett           €2.840
+Wohnzimmer Boden             €1.960
+Küche Wand+Boden             €1.800
+Schlafzimmer Maler           €1.400
+Flur                         €980
+... 42 weitere Positionen
+[Alle Positionen ansehen →]
+
+PDF PREVIEW:
+- Inline scrollable PDF preview (max 300px height)
+- [PDF Vollbild →]
+
+---
+
+TYPE B: MATERIAL BESTELLEN
+
+LIEFERANT CARD:
+🏪 MEGA eG
+Kd.Nr: 48291
+📞 040-123456
+
+POSITIONEN:
+12x Vliesraufaser Erfurt 52    €226,80
+12x Vlieskleber 16kg           €311,40
+4x Dispersionsfarbe 10L       €171,60
+─────────────────────────────────
+Summe netto:                   €709,80
+
+BUDGET CHECK:
+Material-Budget:    €4.200
+Bereits bestellt:   €2.840
+Diese Bestellung:     €710
+─────────────────────────
+Rest nach Bestellung: €650  🟡
+
+---
+
+TYPE C: NACHTRAG GENEHMIGEN
+
+GRUND:
+⚠️ Wasserschaden Decke Badezimmer
+Entdeckt bei Zwischenbegehung am 08.02.
+
+FOTOS (horizontal scroll, 3 photos):
+[Photo1] [Photo2] [Photo3]
+
+KALKULATION:
+Trocknung (3 Tage)          €280
+Decke neu spachteln          €140
+─────────────────────────────
+Nachtrag:                    €420 netto
+
+VOB REFERENZ:
+- "§2 Abs. 6 VOB/B — Zusätzliche Leistung"
+- "Nicht im ursprünglichen LV enthalten"
+
+---
+
+BOTTOM STICKY (same for all types):
+
+COMMENT FIELD:
+┌────────────────────────────────────────┐
+│ Anmerkung (optional)...               │
+└────────────────────────────────────────┘
+
+ACTION BUTTONS:
+┌─────────────┐ ┌───────────────────────┐
+│   ❌ Nein    │ │   ✅ FREIGEBEN         │
+└─────────────┘ └───────────────────────┘
+
+If "Nein" tapped:
+- Bottom sheet: "Grund für Ablehnung"
+- Required text field
+- [Ablehnung senden] rose button
+
+If "Freigeben" tapped:
+- Green flash animation
+- "✅ Freigegeben" toast
+- Auto-navigate back to Freigaben list
+- Counter decrements
+
+DESIGN:
+- All info on ONE scrollable page
+- No tabs, no sub-navigation
+- Decision without leaving this screen
+- Numbers big and scannable
+- Photos inline, not behind a link
+- zinc-900 cards, rounded-2xl
+- German labels
