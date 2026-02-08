@@ -1,0 +1,168 @@
+Build a login screen with a short branding video splash.
+
+--- SPLASH VIDEO (plays ONCE on app open, before login) ---
+
+BEHAVIOR:
+- Plays automatically on app launch (first time or after logout)
+- Max 3 seconds
+- No sound (or optional subtle sound)
+- Skip button appears after 1 second: "Überspringen →" top right, zinc-400
+- After video → smooth fade to login screen
+- Does NOT play on subsequent app opens (only after logout or first install)
+- Store flag: "splash_seen" in local storage
+
+VIDEO CONTENT (placeholder for now):
+- Dark background (zinc-950)
+- BAUGENIUS logo animates in:
+  1. Construction helmet icon draws itself (line animation)
+  2. "BAUGENIUS" text fades in below, amber-500
+  3. Tagline fades in: "Von Sklave zu Chef." zinc-400
+  4. Brief particle/spark effect (amber)
+  5. Fade to black → login
+
+FALLBACK (if video fails to load):
+- Static screen with logo + tagline for 1.5s
+- Then fade to login
+
+--- LOGIN SCREEN ---
+
+BACKGROUND:
+- zinc-950
+- Subtle gradient or very faint construction site image (10% opacity)
+- Optional: slow-moving subtle particles (amber, very sparse)
+
+LAYOUT (centered, mobile):
+┌─────────────────────────────────────────┐
+│                                         │
+│                                         │
+│                                         │
+│            🏗️                           │
+│         BAUGENIUS                        │
+│    Von Sklave zu Chef.                  │
+│                                         │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │ 📧  Email                         │  │
+│  └───────────────────────────────────┘  │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │ 🔒  Passwort                      │  │
+│  └───────────────────────────────────┘  │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │         ANMELDEN                  │  │ ← amber-500, full width
+│  └───────────────────────────────────┘  │
+│                                         │
+│         Passwort vergessen?             │ ← zinc-400, small link
+│                                         │
+│  ────────── oder ──────────            │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │  🔑  Mit Zugangslink anmelden     │  │ ← zinc-800 bg, outline
+│  └───────────────────────────────────┘  │
+│                                         │
+│                                         │
+│                                         │
+│                                         │
+│   © 2026 Deine Baulöwen GmbH          │
+│   Impressum • Datenschutz               │
+│                                         │
+└─────────────────────────────────────────┘
+
+INPUT FIELDS:
+- zinc-800 bg, rounded-xl, p-4
+- White text, zinc-400 placeholder
+- Amber-500 focus ring
+- Eye icon on password field (toggle visibility)
+- Email: keyboard type = email
+- Password: min 8 chars
+
+VALIDATION:
+- Email format check on blur
+- "Ungültige Email-Adresse" error in rose-400 below field
+- Password too short: "Mindestens 8 Zeichen" rose-400
+- Both fields required
+- Button disabled (zinc-700) until both valid
+
+ANMELDEN BUTTON:
+- amber-500 bg, black text, font-bold
+- Loading: spinner replaces text "Anmelden..."
+- Success: brief green flash → navigate to Home
+- Error: shake animation on form + "Email oder Passwort falsch" rose-400
+
+MAGIC LINK OPTION:
+- "Mit Zugangslink anmelden" → shows email-only field
+- "📧 Link an dennis@bauloewen.de senden"
+- After send: "✅ Link gesendet! Prüfe deine Emails."
+- Good for Monteure who forget passwords
+
+PASSWORT VERGESSEN:
+- Tap → bottom sheet:
+Passwort zurücksetzen
+┌────────────────────────────────┐
+│ 📧  Deine Email-Adresse        │
+└────────────────────────────────┘
+[📧 Link senden]
+- "✅ Reset-Link gesendet"
+
+--- FIRST LOGIN (after invite) ---
+
+If user was invited by GF (team member):
+┌─────────────────────────────────────────┐
+│                                         │
+│            🏗️                           │
+│         BAUGENIUS                        │
+│                                         │
+│    Willkommen bei Deine Baulöwen!      │
+│    Dennis hat dich eingeladen.          │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │ 👤  Dein Name                     │  │
+│  └───────────────────────────────────┘  │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │ 🔒  Passwort festlegen            │  │
+│  └───────────────────────────────────┘  │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │ 🔒  Passwort bestätigen           │  │
+│  └───────────────────────────────────┘  │
+│                                         │
+│  Deine Rolle: 👷 Monteur              │
+│  Gewerk: Maler                         │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │         LOS GEHT'S               │  │ ← amber
+│  └───────────────────────────────────┘  │
+│                                         │
+└─────────────────────────────────────────┘
+
+--- BIOMETRIC LOGIN (after first login) ---
+
+On subsequent opens (if device supports it):
+┌─────────────────────────────────────────┐
+│                                         │
+│            🏗️                           │
+│         BAUGENIUS                        │
+│                                         │
+│                                         │
+│          [ 👆 ]                          │
+│   Touch ID zum Anmelden                │
+│                                         │
+│   oder                                  │
+│   [Mit Email anmelden]                  │
+│                                         │
+└─────────────────────────────────────────┘
+
+Auto-triggers biometric on screen open.
+Fallback to email/password always available.
+
+DESIGN:
+- Logo animation: subtle, premium, not flashy
+- No stock photos of construction sites
+- Clean, minimal, confident
+- Amber accent only on primary action
+- Footer links: zinc-500, very small
+- The whole thing should feel like logging into a banking app
+- Dark mode only
+- Safe area padding iOS
