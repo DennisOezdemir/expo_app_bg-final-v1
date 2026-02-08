@@ -31,6 +31,8 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
+import { useOffline } from "@/contexts/OfflineContext";
+import { OfflineBlockedHint } from "@/components/OfflineBanner";
 
 type ApprovalType = "angebot" | "material" | "nachtrag" | "rechnung";
 
@@ -129,6 +131,7 @@ function SwipeableCard({
   onViewDetails,
   isTop,
   stackIndex,
+  disabled,
 }: {
   approval: Approval;
   onApprove: () => void;
@@ -136,6 +139,7 @@ function SwipeableCard({
   onViewDetails: () => void;
   isTop: boolean;
   stackIndex: number;
+  disabled?: boolean;
 }) {
   const translateX = useSharedValue(0);
   const opacity = useSharedValue(1);
@@ -166,7 +170,7 @@ function SwipeableCard({
   }, [onReject, width]);
 
   const panGesture = Gesture.Pan()
-    .enabled(isTop)
+    .enabled(isTop && !disabled)
     .onUpdate((e) => {
       translateX.value = e.translationX;
       if (e.translationX > 40) {
@@ -281,9 +285,10 @@ function SwipeableCard({
           <View style={cardStyles.actions}>
             <Pressable
               onPress={handleReject}
+              disabled={disabled}
               style={({ pressed }) => [
                 cardStyles.rejectButton,
-                { opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+                { opacity: disabled ? 0.4 : pressed ? 0.8 : 1, transform: [{ scale: pressed && !disabled ? 0.97 : 1 }] },
               ]}
               testID="reject-button"
             >
@@ -292,9 +297,10 @@ function SwipeableCard({
             </Pressable>
             <Pressable
               onPress={handleApprove}
+              disabled={disabled}
               style={({ pressed }) => [
                 cardStyles.approveButton,
-                { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+                { opacity: disabled ? 0.4 : pressed ? 0.9 : 1, transform: [{ scale: pressed && !disabled ? 0.97 : 1 }] },
               ]}
               testID="approve-button"
             >
@@ -499,6 +505,7 @@ export default function FreigabenScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const router = useRouter();
+  const { isOnline, getCacheAge } = useOffline();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
@@ -568,6 +575,11 @@ export default function FreigabenScreen() {
       </View>
 
       <View style={styles.cardArea}>
+        {!isOnline && (
+          <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+            <OfflineBlockedHint message="Freigaben nur online möglich" />
+          </View>
+        )}
         {visible.length === 0 ? (
           <EmptyState />
         ) : (
@@ -582,6 +594,7 @@ export default function FreigabenScreen() {
                   approval={approval}
                   isTop={stackIndex === 0}
                   stackIndex={stackIndex}
+                  disabled={!isOnline}
                   onApprove={() => handleDismiss(approval.id)}
                   onReject={() => handleDismiss(approval.id)}
                   onViewDetails={() => router.push(`/freigabe/${approval.id}` as any)}

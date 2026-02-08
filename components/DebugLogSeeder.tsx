@@ -2,11 +2,14 @@ import { useEffect, useRef } from "react";
 import { useDebugLog } from "@/contexts/DebugLogContext";
 import { setDebugLogFn } from "@/lib/query-client";
 import { useRole } from "@/contexts/RoleContext";
+import { useOffline } from "@/contexts/OfflineContext";
 
 export function DebugLogSeeder() {
   const { addLog, logs } = useDebugLog();
   const { role } = useRole();
+  const { addToSyncQueue, syncQueue } = useOffline();
   const seeded = useRef(false);
+  const syncSeeded = useRef(false);
 
   useEffect(() => {
     setDebugLogFn((entry) => {
@@ -14,6 +17,22 @@ export function DebugLogSeeder() {
     });
     return () => setDebugLogFn(null);
   }, [addLog]);
+
+  useEffect(() => {
+    if (syncSeeded.current || syncQueue.length > 0) return;
+    syncSeeded.current = true;
+
+    const demoSync = [
+      { type: "photo" as const, label: "Foto", detail: "Schwentnerring Bad" },
+      { type: "timestamp" as const, label: "Einstempeln 07:15", detail: "Schwentnerring 14" },
+      { type: "chat" as const, label: '"Fliesen sind da"', detail: "Projekt BL-2026-003" },
+      { type: "checklist" as const, label: "Begehung Punkt 3", detail: "Schwentnerring Keller" },
+    ];
+
+    demoSync.forEach((item, i) => {
+      setTimeout(() => addToSyncQueue(item), 200 + i * 100);
+    });
+  }, [addToSyncQueue, syncQueue.length]);
 
   useEffect(() => {
     if (seeded.current || logs.length > 0) return;

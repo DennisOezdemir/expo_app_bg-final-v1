@@ -11,6 +11,7 @@ import { FAB, AssistantOverlay } from "@/components/BGAssistant";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
 import { DebugConsole } from "@/components/DebugConsole";
 import { DebugLogSeeder } from "@/components/DebugLogSeeder";
+import { OfflineBanner } from "@/components/OfflineBanner";
 
 function FreigabenBadge() {
   return (
@@ -253,6 +254,7 @@ export default function TabLayout() {
 
   return (
     <View style={{ flex: 1 }}>
+      <OfflineBanner />
       {isImpersonating && <ImpersonationBanner />}
       <ClassicTabLayout />
       <View style={{ position: "absolute", right: 20, bottom: fabBottom, zIndex: 50 }}>

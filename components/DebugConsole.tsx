@@ -16,6 +16,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useDebugLog, type LogFilter, type LogType, type DebugLogEntry } from "@/contexts/DebugLogContext";
+import { SyncQueuePanel } from "@/components/SyncQueuePanel";
 
 const SIDEBAR_WIDTH = 320;
 
@@ -265,6 +266,8 @@ export function DebugConsole() {
           <Ionicons name="close" size={22} color={Colors.raw.zinc400} />
         </Pressable>
       </View>
+
+      <SyncQueuePanel />
 
       <View style={s.filterRow}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterScroll}>

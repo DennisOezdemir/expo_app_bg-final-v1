@@ -7,6 +7,8 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
 import { useRole } from "@/contexts/RoleContext";
+import { useOffline } from "@/contexts/OfflineContext";
+import { OfflineBadge } from "@/components/OfflineBanner";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -317,6 +319,7 @@ export default function StartScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 84 : 90;
   const { role, user, isImpersonating } = useRole();
+  const { isOnline, getCacheAge } = useOffline();
 
   const greetings: Record<string, { greeting: string; subtitle: string }> = {
     gf: { greeting: `Moin ${user.name}`, subtitle: "3 Dinge brauchen dich" },
@@ -341,7 +344,10 @@ export default function StartScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.greetingSection}>
-          <Text style={styles.greeting}>{greeting}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Text style={styles.greeting}>{greeting}</Text>
+            {!isOnline && <OfflineBadge cacheAge={getCacheAge("projekte")} />}
+          </View>
           <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
 

@@ -18,6 +18,7 @@ import { queryClient } from "@/lib/query-client";
 import { RoleProvider } from "@/contexts/RoleContext";
 import { DebugLogProvider } from "@/contexts/DebugLogContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { OfflineProvider } from "@/contexts/OfflineContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -81,16 +82,18 @@ export default function RootLayout() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <RoleProvider>
-            <DebugLogProvider>
-              <GestureHandlerRootView style={{ flex: 1 }}>
-                <KeyboardProvider>
-                  <StatusBar style="light" />
-                  <RootLayoutNav />
-                </KeyboardProvider>
-              </GestureHandlerRootView>
-            </DebugLogProvider>
-          </RoleProvider>
+          <OfflineProvider>
+            <RoleProvider>
+              <DebugLogProvider>
+                <GestureHandlerRootView style={{ flex: 1 }}>
+                  <KeyboardProvider>
+                    <StatusBar style="light" />
+                    <RootLayoutNav />
+                  </KeyboardProvider>
+                </GestureHandlerRootView>
+              </DebugLogProvider>
+            </RoleProvider>
+          </OfflineProvider>
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>

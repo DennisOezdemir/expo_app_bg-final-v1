@@ -23,6 +23,8 @@ import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
+import { useOffline } from "@/contexts/OfflineContext";
+import { OfflineBadge, OfflineBlockedHint } from "@/components/OfflineBanner";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -477,6 +479,7 @@ export default function MaterialScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 84 : 90;
+  const { isOnline, getCacheAge } = useOffline();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
 
   const cartCount = 5;
@@ -500,7 +503,10 @@ export default function MaterialScreen() {
         <View style={styles.headerSection}>
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.headerTitle}>Material</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Text style={styles.headerTitle}>Material</Text>
+                {!isOnline && <OfflineBadge cacheAge={getCacheAge("material")} />}
+              </View>
               <Text style={styles.headerSubtitle}>
                 BL-2026-003 {"\u2022"} Schwentnerring
               </Text>
@@ -576,11 +582,17 @@ export default function MaterialScreen() {
       </ScrollView>
 
       <View style={[styles.stickyBar, { paddingBottom: Platform.OS === "web" ? 34 : insets.bottom + 8 }]}>
+        {!isOnline && (
+          <View style={{ marginBottom: 8 }}>
+            <OfflineBlockedHint message="Bestellen nur online möglich" />
+          </View>
+        )}
         <Pressable
           onPress={() => router.push("/bestellung" as any)}
+          disabled={!isOnline}
           style={({ pressed }) => [
             styles.stickyBarButton,
-            { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
+            { opacity: !isOnline ? 0.4 : pressed ? 0.9 : 1, transform: [{ scale: pressed && isOnline ? 0.98 : 1 }] },
           ]}
           testID="cart-sticky-bar"
         >
