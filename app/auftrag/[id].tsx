@@ -536,7 +536,7 @@ const amStyles = StyleSheet.create({
 });
 
 export default function AuftragScreen() {
-  const { id } = useLocalSearchParams();
+  const { id, tab } = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -544,7 +544,7 @@ export default function AuftragScreen() {
   const [rooms, setRooms] = useState<AuftragRoom[]>(INITIAL_ROOMS);
   const [materials, setMaterials] = useState<BaustelleMaterial[]>(INITIAL_MATERIALS);
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set(["r1", "r2"]));
-  const [activeTab, setActiveTab] = useState<"auftrag" | "material">("auftrag");
+  const [activeTab, setActiveTab] = useState<"auftrag" | "material">(tab === "material" ? "material" : "auftrag");
   const [filterStatus, setFilterStatus] = useState<PosStatus | "alle">("alle");
   const [matFilter, setMatFilter] = useState<string>("alle");
   const [mangelSheet, setMangelSheet] = useState<AuftragPosition | null>(null);
