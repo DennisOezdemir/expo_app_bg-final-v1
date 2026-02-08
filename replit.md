@@ -28,6 +28,7 @@ Preferred communication style: Simple, everyday language.
   - `lieferanten.tsx` — Supplier management: list view with search + detail view with contact, Konditionen, Bestellweg, orders
   - `katalog.tsx` — WABS catalog: Gewerke → Positionen → Position detail with pricing and material requirements
   - `team.tsx` — Team management: member list + invite modal with role/Gewerk selection
+  - `briefpapier.tsx` — Briefpapier editor: logo upload, layout controls, header/footer config, color picker, live preview, and document templates
 
 ### Backend (Express.js)
 
