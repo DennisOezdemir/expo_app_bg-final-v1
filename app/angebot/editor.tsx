@@ -128,6 +128,10 @@ function ProjectSelector({ onSelect }: { onSelect: (p: Project) => void }) {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const [search, setSearch] = useState("");
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newAddress, setNewAddress] = useState("");
+  const [newClient, setNewClient] = useState("");
 
   const filtered = search
     ? PROJECTS.filter((p) =>
@@ -137,6 +141,21 @@ function ProjectSelector({ onSelect }: { onSelect: (p: Project) => void }) {
       )
     : PROJECTS;
 
+  const handleCreateProject = () => {
+    if (!newName.trim()) return;
+    if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const nextNr = String(PROJECTS.length + 1).padStart(3, "0");
+    const newProject: Project = {
+      id: genId(),
+      code: `BL-2026-${nextNr}`,
+      name: newName.trim(),
+      address: newAddress.trim() || "Adresse ausstehend",
+      client: newClient.trim() || "Kunde ausstehend",
+    };
+    PROJECTS.push(newProject);
+    onSelect(newProject);
+  };
+
   return (
     <View style={ps.container}>
       <View style={[ps.header, { paddingTop: topInset + 8 }]}>
@@ -144,9 +163,68 @@ function ProjectSelector({ onSelect }: { onSelect: (p: Project) => void }) {
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
       </View>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={[ps.content, { paddingTop: topInset + 64, paddingBottom: bottomInset + 20 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={[ps.content, { paddingTop: topInset + 64, paddingBottom: bottomInset + 20 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Text style={ps.title}>Projekt w\u00E4hlen</Text>
-        <Text style={ps.subtitle}>F\u00FCr welches Projekt soll das Angebot erstellt werden?</Text>
+        <Text style={ps.subtitle}>W\u00E4hle ein bestehendes Projekt oder lege ein neues an.</Text>
+
+        <Pressable
+          onPress={() => {
+            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            setShowNewForm(!showNewForm);
+          }}
+          style={({ pressed }) => [ps.newProjectBtn, { opacity: pressed ? 0.85 : 1 }]}
+          testID="new-project-btn"
+        >
+          <View style={ps.newProjectIcon}>
+            <Ionicons name={showNewForm ? "chevron-up" : "add"} size={20} color="#000" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={ps.newProjectTitle}>Neues Projekt anlegen</Text>
+            <Text style={ps.newProjectSub}>Projekt wird automatisch erstellt</Text>
+          </View>
+        </Pressable>
+
+        {showNewForm && (
+          <View style={ps.newFormCard}>
+            <Text style={ps.formLabel}>Projektname *</Text>
+            <TextInput
+              style={ps.formInput}
+              value={newName}
+              onChangeText={setNewName}
+              placeholder="z.B. Schwentnerring 13c"
+              placeholderTextColor={Colors.raw.zinc600}
+              autoFocus
+              testID="new-project-name"
+            />
+            <Text style={ps.formLabel}>Adresse</Text>
+            <TextInput
+              style={ps.formInput}
+              value={newAddress}
+              onChangeText={setNewAddress}
+              placeholder="Stra\u00DFe, PLZ Ort"
+              placeholderTextColor={Colors.raw.zinc600}
+              testID="new-project-address"
+            />
+            <Text style={ps.formLabel}>Kunde</Text>
+            <TextInput
+              style={ps.formInput}
+              value={newClient}
+              onChangeText={setNewClient}
+              placeholder="z.B. SAGA GWG"
+              placeholderTextColor={Colors.raw.zinc600}
+              testID="new-project-client"
+            />
+            <Pressable
+              onPress={handleCreateProject}
+              style={({ pressed }) => [ps.createBtn, { opacity: newName.trim() ? (pressed ? 0.85 : 1) : 0.4 }]}
+              testID="create-project-btn"
+            >
+              <Ionicons name="checkmark-circle" size={18} color="#000" />
+              <Text style={ps.createBtnText}>Projekt anlegen & weiter</Text>
+            </Pressable>
+          </View>
+        )}
+
         <View style={ps.searchBar}>
           <Ionicons name="search" size={18} color={Colors.raw.zinc500} />
           <TextInput
@@ -204,6 +282,15 @@ const ps = StyleSheet.create({
   cardCode: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.amber500, marginBottom: 2 },
   cardName: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.raw.white, marginBottom: 2 },
   cardAddr: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500 },
+  newProjectBtn: { flexDirection: "row", alignItems: "center", backgroundColor: Colors.raw.amber500 + "18", borderRadius: 16, borderWidth: 1, borderColor: Colors.raw.amber500 + "40", padding: 16, gap: 14, marginBottom: 16 },
+  newProjectIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: Colors.raw.amber500, alignItems: "center", justifyContent: "center" },
+  newProjectTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white, marginBottom: 2 },
+  newProjectSub: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400 },
+  newFormCard: { backgroundColor: Colors.raw.zinc900, borderRadius: 18, borderWidth: 1, borderColor: Colors.raw.zinc800, padding: 18, marginBottom: 20 },
+  formLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc400, marginBottom: 6, marginTop: 10 },
+  formInput: { backgroundColor: Colors.raw.zinc800, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.white },
+  createBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: Colors.raw.amber500, borderRadius: 14, paddingVertical: 14, marginTop: 16 },
+  createBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#000" },
 });
 
 type AddTab = "katalog" | "letzte" | "frei";
