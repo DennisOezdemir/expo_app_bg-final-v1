@@ -1,10 +1,6 @@
 import { fetch } from "expo/fetch";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-/**
- * Gets the base URL for the Express API server (e.g., "http://localhost:3000")
- * @returns {string} The API base URL
- */
 export function getApiUrl(): string {
   let host = process.env.EXPO_PUBLIC_DOMAIN;
 
@@ -24,6 +20,13 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+type DebugLogFn = (entry: Record<string, unknown>) => void;
+let _debugLogFn: DebugLogFn | null = null;
+
+export function setDebugLogFn(fn: DebugLogFn | null) {
+  _debugLogFn = fn;
+}
+
 export async function apiRequest(
   method: string,
   route: string,
@@ -31,16 +34,46 @@ export async function apiRequest(
 ): Promise<Response> {
   const baseUrl = getApiUrl();
   const url = new URL(route, baseUrl);
+  const start = Date.now();
 
-  const res = await fetch(url.toString(), {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  try {
+    const res = await fetch(url.toString(), {
+      method,
+      headers: data ? { "Content-Type": "application/json" } : {},
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
 
-  await throwIfResNotOk(res);
-  return res;
+    const latency = Date.now() - start;
+
+    if (_debugLogFn) {
+      _debugLogFn({
+        type: "api",
+        method: method.toUpperCase(),
+        endpoint: route,
+        status: res.status,
+        latency,
+        request: data,
+      });
+    }
+
+    await throwIfResNotOk(res);
+    return res;
+  } catch (err) {
+    const latency = Date.now() - start;
+    if (_debugLogFn) {
+      _debugLogFn({
+        type: "api",
+        method: method.toUpperCase(),
+        endpoint: route,
+        status: 0,
+        latency,
+        message: err instanceof Error ? err.message : String(err),
+        request: data,
+      });
+    }
+    throw err;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -51,10 +84,24 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const baseUrl = getApiUrl();
     const url = new URL(queryKey.join("/") as string, baseUrl);
+    const route = queryKey.join("/");
+    const start = Date.now();
 
     const res = await fetch(url.toString(), {
       credentials: "include",
     });
+
+    const latency = Date.now() - start;
+
+    if (_debugLogFn) {
+      _debugLogFn({
+        type: "api",
+        method: "GET",
+        endpoint: route,
+        status: res.status,
+        latency,
+      });
+    }
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

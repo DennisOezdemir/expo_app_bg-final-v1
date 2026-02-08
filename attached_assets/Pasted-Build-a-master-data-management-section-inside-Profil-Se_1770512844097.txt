@@ -1,0 +1,160 @@
+Build a master data management section inside Profil/Settings. GF only.
+
+ACCESS: Profil → sections "Firma", "Lieferanten", "Katalog", "Team" each navigate to their own management screen.
+
+--- FIRMA (Company Settings) ---
+
+Route: /einstellungen/firma
+
+SECTIONS:
+
+Firmendaten (card):
+Firmenname     [Deine Baulöwen GmbH        ]
+Rechtsform     [GmbH ▾]
+Geschäftsführer [Dennis ___                  ]
+Straße         [Musterstraße 12             ]
+PLZ / Ort      [20095] [Hamburg             ]
+Telefon        [040-123456                  ]
+Email          [info@bauloewen.de           ]
+Website        [www.bauloewen.de            ]
+
+Steuer & Recht (card):
+Steuernummer       [41/123/45678            ]
+USt-IdNr.          [DE123456789             ]
+Handelsregister    [HRB 12345 Hamburg       ]
+Finanzamt          [Hamburg-Nord            ]
+
+Bankverbindung (card):
+Bank          [Hamburger Sparkasse          ]
+IBAN          [DE89 3704 0044 0532 0130 00  ]
+BIC           [HASPDEHHXXX                  ]
+[+ Weitere Bankverbindung]
+
+Zahlungsbedingungen (card):
+Standard-Zahlungsziel    [14] Tage
+Skonto                   [2] % bei Zahlung innerhalb [7] Tage
+Mahnfrist 1. Mahnung     [14] Tage
+Mahnfrist 2. Mahnung     [14] Tage
+Verzugszinsen            [5] % über Basiszins
+
+[💾 Speichern] sticky bottom amber button.
+All fields editable inline. Auto-save on blur optional.
+
+--- LIEFERANTEN-VERWALTUNG ---
+
+Route: /einstellungen/lieferanten
+
+LIST:
+🔍 Suchen...
+21 Lieferanten
+🏪 MEGA eG                    ⭐
+Kd.Nr: 48291 • 142 Artikel
+📞 040-123456
+🏪 Süding & Soeken            ⭐
+Kd.Nr: S-1192 • 38 Artikel
+📞 040-789012
+🏪 Delmes Heitmann
+Kd.Nr: DH-4420 • 67 Artikel
+📞 040-456789
+[+ Lieferant hinzufügen]
+
+TAP → Lieferant Detail:
+🏪 MEGA eG                    [⭐]
+Kontakt:
+Ansprechpartner  [Herr Schmidt              ]
+Telefon          [040-123456                 ]
+Email            [bestellung@mega.de         ]
+Fax              [040-123457                 ]
+Konditionen:
+Kundennummer     [48291                      ]
+Rabattgruppe     [Handwerker 15%             ]
+Zahlungsziel     [30 Tage                    ]
+Mindestbestellwert [€50,00                   ]
+Lieferzeit       [2-3 Werktage               ]
+Bestellweg:
+● Email  ○ Fax  ○ Online-Portal  ○ Telefon
+Bestell-Email    [bestellung@mega.de         ]
+Artikel: 142 Produkte gespeichert
+[Artikel ansehen →]
+Letzte Bestellungen:
+05.02. — €709,80 — BL-2026-003
+28.01. — €1.240,00 — BL-2026-001
+[💾 Speichern]  [🗑️ Löschen]
+
+--- KATALOG-VERWALTUNG ---
+
+Route: /einstellungen/katalog
+WABS Katalog
+620 Positionen • 3 Gewerke
+Letzte Aktualisierung: 01.02.2026
+GEWERKE:
+┌────────────────────────────────┐
+│ 🎨 Maler           184 Pos.   │
+│ 🔧 Sanitär          92 Pos.   │
+│ 🏗️ Boden            95 Pos.   │
+│ ⚡ Elektro           82 Pos.   │
+│ 🚿 Fliesen           88 Pos.   │
+│ 🪑 Tischler          79 Pos.   │
+└────────────────────────────────┘
+[🔍 Position suchen]
+[📥 Katalog importieren]
+[📤 Katalog exportieren]
+
+TAP Gewerk → Position-Liste:
+🎨 Maler • 184 Positionen
+🔍 Suchen...
+01.01  Wandflächen grundieren        €3,20/m²
+01.02  Wandflächen streichen         €4,80/m²
+01.03  Raufaser tapezieren           €8,40/m²
+01.04  Vlies tapezieren              €9,60/m²
+...
+
+TAP Position → Detail:
+Position 01.03
+Raufaser tapezieren
+Beschreibung:
+Raufasertapete an Wand- und Deckenflächen
+tapezieren einschl. Kleister und Zuschnitt.
+Einheit:        [m² ▾]
+Grundpreis:     [€8,40]
+Aufschlag:      [15] %
+Endpreis:       €9,66/m²
+Material-Anforderungen:
+Vliesraufaser — Rolle 25m — 1 pro 12,5m²
+Vlieskleber — Eimer 16kg — 1 pro 25m²
+[+ Material-Anforderung]
+[💾 Speichern]
+
+--- TEAM-VERWALTUNG ---
+
+Route: /einstellungen/team
+Team • 4 Mitarbeiter
+👔 Dennis            Geschäftsführer
+dennis@bauloewen.de
+Rolle: GF  🟢 Aktiv
+👩‍💼 Ayse              Projektleiterin
+ayse@bauloewen.de
+Rolle: Bauleiter  🟢 Aktiv
+👷 Mehmet             Maler
+mehmet@bauloewen.de
+Rolle: Monteur  🟢 Aktiv
+👷 Ali                Fliesenleger
+ali@bauloewen.de
+Rolle: Monteur  🟢 Aktiv
+[+ Mitarbeiter einladen]
+
+EINLADEN Dialog (bottom sheet):
+Mitarbeiter einladen
+Name          [                              ]
+Email         [                              ]
+Telefon       [                              ]
+Rolle:
+[👔 GF] [👩‍💼 Bauleiter] [👷 Monteur]
+Gewerk:
+[Maler] [Fliesen] [Sanitär] [Elektro] [Boden]
+[📨 Einladung senden]
+
+All screens: zinc-900 cards, rounded-2xl, dark mode.
+Forms: zinc-800 input bg, white text, amber focus ring.
+German labels.
+GF only — Bauleiter and Monteur cannot access Einstellungen.

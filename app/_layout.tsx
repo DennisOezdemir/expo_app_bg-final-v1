@@ -16,6 +16,7 @@ import {
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { RoleProvider } from "@/contexts/RoleContext";
+import { DebugLogProvider } from "@/contexts/DebugLogContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -70,12 +71,14 @@ export default function RootLayout() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <RoleProvider>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
-              <StatusBar style="light" />
-              <RootLayoutNav />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
+          <DebugLogProvider>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <KeyboardProvider>
+                <StatusBar style="light" />
+                <RootLayoutNav />
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </DebugLogProvider>
         </RoleProvider>
       </QueryClientProvider>
     </ErrorBoundary>

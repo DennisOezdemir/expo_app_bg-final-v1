@@ -9,6 +9,8 @@ import React, { useState } from "react";
 import Colors from "@/constants/colors";
 import { FAB, AssistantOverlay } from "@/components/BGAssistant";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
+import { DebugConsole } from "@/components/DebugConsole";
+import { DebugLogSeeder } from "@/components/DebugLogSeeder";
 
 function FreigabenBadge() {
   return (
@@ -246,7 +248,8 @@ export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const tabBarHeight = isWeb ? 84 : (Platform.OS === "ios" ? 49 + insets.bottom : 56);
   const fabBottom = tabBarHeight + 16;
-  const { isImpersonating } = useRole();
+  const { role, isImpersonating } = useRole();
+  const showDebug = role === "gf" && __DEV__;
 
   return (
     <View style={{ flex: 1 }}>
@@ -256,6 +259,8 @@ export default function TabLayout() {
         <FAB onPress={() => setAssistantVisible(true)} />
       </View>
       <AssistantOverlay visible={assistantVisible} onClose={() => setAssistantVisible(false)} />
+      {showDebug && <DebugLogSeeder />}
+      {showDebug && <DebugConsole />}
     </View>
   );
 }
