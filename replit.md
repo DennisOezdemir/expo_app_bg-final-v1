@@ -21,6 +21,7 @@ Preferred communication style: Simple, everyday language.
 - **UI Libraries**: expo-blur, expo-glass-effect, expo-linear-gradient, expo-haptics for native feel. react-native-gesture-handler for touch handling. react-native-keyboard-controller for keyboard management
 - **Error Handling**: Custom `ErrorBoundary` class component wrapping the entire app with a styled `ErrorFallback` component
 - **Native Tab Bar**: Uses `expo-router/unstable-native-tabs` (NativeTabs) with SF Symbols on iOS, with a fallback custom tab bar for non-liquid-glass platforms
+- **Authentication**: AuthContext (`contexts/AuthContext.tsx`) manages login state with AsyncStorage persistence. Animated splash screen plays once on first launch (`app/splash.tsx`), then redirects to login (`app/login.tsx`). Auth router (`app/index.tsx`) redirects based on auth state. Login supports email/password, magic link, password reset modal, and invite/first-login flow
 - **Role-Based Access**: RoleContext (`contexts/RoleContext.tsx`) supports 3 personas: GF (Geschäftsführer), Bauleiter, Monteur. GF has full access including settings. Role switcher available on Profil screen for GF only
 - **Debug Console**: DebugLogContext + DebugConsole component. Sidebar on web, bottom sheet on mobile. Only visible for GF role in `__DEV__` mode. Auto-logs API calls with latency tracking via `setDebugLogFn()` bridge in `lib/query-client.ts`
 - **Master Data Screens** (GF only, under `app/einstellungen/`):

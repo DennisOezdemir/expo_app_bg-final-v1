@@ -168,7 +168,7 @@ export default function LoginScreen() {
           placeholder="Email"
           placeholderTextColor={Colors.raw.zinc500}
           value={email}
-          onChangeText={(t) => { setEmail(t); setLoginError(""); }}
+          onChangeText={(t) => { setEmail(t); setLoginError(""); if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) setEmailError(""); }}
           onBlur={() => validateEmail(email)}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -187,7 +187,7 @@ export default function LoginScreen() {
           placeholder="Passwort"
           placeholderTextColor={Colors.raw.zinc500}
           value={password}
-          onChangeText={(t) => { setPassword(t); setLoginError(""); }}
+          onChangeText={(t) => { setPassword(t); setLoginError(""); if (t.length >= 8) setPasswordError(""); }}
           onBlur={() => validatePassword(password)}
           secureTextEntry={!showPassword}
           selectionColor={Colors.raw.amber500}
