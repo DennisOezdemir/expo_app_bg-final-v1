@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useState } from "react";
 import * as Haptics from "expo-haptics";
+import { router } from "expo-router";
 import Colors from "@/constants/colors";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
 
@@ -255,57 +256,34 @@ export default function ProfilScreen() {
 
         {role === "gf" && (
           <>
-        <Text style={styles.sectionLabel}>Firma</Text>
+        <Text style={styles.sectionLabel}>Einstellungen</Text>
         <View style={styles.card}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Firmenname</Text>
-            <Text style={styles.infoValue}>Deine Baul\u00F6wen GmbH</Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Adresse</Text>
-            <Text style={styles.infoValue}>Musterstra\u00DFe 12, 20095 Hamburg</Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Steuernummer</Text>
-            <Text style={styles.infoValue}>DE123456789</Text>
-          </View>
-          <View style={styles.divider} />
-          <Pressable style={({ pressed }) => [styles.linkRow, { opacity: pressed ? 0.7 : 1 }]}>
-            <Text style={styles.linkText}>Bearbeiten</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.raw.amber500} />
-          </Pressable>
-        </View>
-
-        <Text style={styles.sectionLabel}>Lieferanten</Text>
-        <View style={styles.card}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoValue}>21 Lieferanten gespeichert</Text>
-          </View>
-          <View style={styles.divider} />
-          <Pressable style={({ pressed }) => [styles.linkRow, { opacity: pressed ? 0.7 : 1 }]}>
-            <Text style={styles.linkText}>Verwalten</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.raw.amber500} />
-          </Pressable>
-        </View>
-
-        <Text style={styles.sectionLabel}>Katalog</Text>
-        <View style={styles.card}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>WABS Katalog</Text>
-            <Text style={styles.infoValue}>620 Positionen</Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Letzte Aktualisierung</Text>
-            <Text style={styles.infoValue}>01.02.2026</Text>
-          </View>
-          <View style={styles.divider} />
-          <Pressable style={({ pressed }) => [styles.linkRow, { opacity: pressed ? 0.7 : 1 }]}>
-            <Text style={styles.linkText}>Katalog verwalten</Text>
-            <Ionicons name="chevron-forward" size={16} color={Colors.raw.amber500} />
-          </Pressable>
+          {([
+            { icon: "business", label: "Firma", sub: "Deine Baul\u00F6wen GmbH", route: "/einstellungen/firma" },
+            { icon: "people", label: "Team", sub: "4 Mitarbeiter", route: "/einstellungen/team" },
+            { icon: "cube", label: "Lieferanten", sub: "21 Lieferanten", route: "/einstellungen/lieferanten" },
+            { icon: "list", label: "Katalog", sub: "WABS \u2022 620 Positionen", route: "/einstellungen/katalog" },
+          ] as const).map((item, i, arr) => (
+            <View key={item.route}>
+              <Pressable
+                onPress={() => router.push(item.route as any)}
+                style={({ pressed }) => [styles.settingsNavRow, { opacity: pressed ? 0.7 : 1 }]}
+                testID={`settings-${item.label.toLowerCase()}`}
+              >
+                <View style={styles.settingsNavLeft}>
+                  <View style={styles.settingsNavIcon}>
+                    <Ionicons name={item.icon as any} size={20} color={Colors.raw.amber500} />
+                  </View>
+                  <View>
+                    <Text style={styles.settingsNavLabel}>{item.label}</Text>
+                    <Text style={styles.settingsNavSub}>{item.sub}</Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+              </Pressable>
+              {i < arr.length - 1 && <View style={styles.divider} />}
+            </View>
+          ))}
         </View>
 
         <Text style={styles.sectionLabel}>Integrationen</Text>
@@ -464,4 +442,17 @@ const styles = StyleSheet.create({
   integConnected: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.emerald500 },
   integConnectBtn: { backgroundColor: Colors.raw.amber500 + "18", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
   integConnectText: { fontFamily: "Inter_700Bold", fontSize: 12, color: Colors.raw.amber500 },
+
+  settingsNavRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
+  settingsNavLeft: { flexDirection: "row", alignItems: "center", gap: 14 },
+  settingsNavIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.amber500 + "14",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsNavLabel: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white },
+  settingsNavSub: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, marginTop: 2 },
 });

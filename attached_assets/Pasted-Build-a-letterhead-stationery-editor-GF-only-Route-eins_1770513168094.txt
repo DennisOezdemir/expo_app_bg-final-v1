@@ -1,0 +1,94 @@
+Build a letterhead/stationery editor. GF only.
+
+Route: /einstellungen/briefpapier
+
+HEADER:
+- "Briefpapier" large bold
+- "Wird verwendet für: Angebote, Rechnungen, Mahnungen, Protokolle"
+
+LOGO UPLOAD (card):
+┌────────────────────────────────────────┐
+│                                        │
+│     ┌──────────────┐                   │
+│     │              │                   │
+│     │  🏗️ LOGO     │   Deine Baulöwen  │
+│     │              │   GmbH            │
+│     └──────────────┘                   │
+│                                        │
+│  [📁 Logo hochladen]  [🗑️ Entfernen]   │
+│                                        │
+│  Max 2MB • PNG, JPG, SVG               │
+│  Empfohlen: 400x200px                  │
+└────────────────────────────────────────┘
+
+Drag & drop on desktop. File picker on mobile.
+
+LAYOUT EDITOR (card):
+Logo Position:
+[Links ←] [Mitte ↔] [Rechts →]
+Logo Größe:
+[Klein] [Mittel] [Groß]
+Schriftart:
+[Inter ▾]  (Inter, Roboto, Open Sans, Lato)
+
+KOPFZEILE (card):
+Absender-Zeile (klein, über Adresse):
+[Deine Baulöwen GmbH • Musterstr. 12 • 20095 Hamburg]
+Zusatztext Kopf (optional):
+[Meisterbetrieb seit 2020                           ]
+
+FUSSZEILE (card):
+Zeile 1: [Deine Baulöwen GmbH • GF: Dennis]
+Zeile 2: [Musterstr. 12 • 20095 Hamburg]
+Zeile 3: [Tel: 040-123456 • info@bauloewen.de]
+Zeile 4: [Hamburger Sparkasse • IBAN: DE89 3704...]
+Zeile 5: [HRB 12345 • USt-IdNr: DE123456789]
+
+FARBEN (card):
+Primärfarbe:    [■ #F59E0B] (amber — for headings, lines)
+Textfarbe:      [■ #18181B] (dark)
+Akzentfarbe:    [■ #10B981] (emerald — for highlights)
+
+Color picker: tap color → wheel/input.
+
+LIVE PREVIEW (card, scrollable):
+┌────────────────────────────────────────┐
+│  🏗️ Deine Baulöwen GmbH               │
+│  ───────────────────── amber line      │
+│                                        │
+│  Deine Baulöwen GmbH • Musterstr...   │
+│                                        │
+│  SAGA GWG                              │
+│  Rechnungsabteilung                    │
+│  Beispielstraße 1                      │
+│  20095 Hamburg                         │
+│                                        │
+│  Angebot ANG-2026-003-01              │
+│  Datum: 08.02.2026                     │
+│                                        │
+│  Sehr geehrte Damen und Herren,        │
+│                                        │
+│  Lorem ipsum dolor sit amet...         │
+│                                        │
+│  ─────────────────────────────────     │
+│  Zeile 1 | Zeile 2 | Zeile 3          │
+│  Zeile 4 | Zeile 5                     │
+└────────────────────────────────────────┘
+
+Preview updates LIVE as user changes settings.
+
+TEMPLATES (card):
+Dokument-Vorlagen:
+📄 Angebot         [Vorschau] [Bearbeiten]
+📄 Rechnung        [Vorschau] [Bearbeiten]
+📄 Mahnung         [Vorschau] [Bearbeiten]
+📄 Abnahmeprotokoll [Vorschau] [Bearbeiten]
+
+ACTIONS:
+[📄 Test-PDF erzeugen]  [💾 SPEICHERN]
+
+"Test-PDF" generates a sample PDF with current settings → download.
+
+zinc-900, dark mode, amber accent.
+Drag & drop zone: dashed border, zinc-800 bg, "Datei hierher ziehen" text.
+German labels.
