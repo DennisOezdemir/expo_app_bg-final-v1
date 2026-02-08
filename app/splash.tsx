@@ -48,7 +48,9 @@ export default function SplashScreen() {
     if (finished) return;
     setFinished(true);
     await markSplashSeen();
-    router.replace("/login" as any);
+    try {
+      router.replace("/login" as any);
+    } catch {}
   };
 
   useEffect(() => {

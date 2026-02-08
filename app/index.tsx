@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import Colors from "@/constants/colors";
@@ -7,17 +7,25 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function AuthRouter() {
   const router = useRouter();
   const { isAuthenticated, splashSeen, isLoading } = useAuth();
+  const hasNavigated = useRef(false);
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || hasNavigated.current) return;
 
-    if (isAuthenticated) {
-      router.replace("/(tabs)" as any);
-    } else if (!splashSeen) {
-      router.replace("/splash" as any);
-    } else {
-      router.replace("/login" as any);
-    }
+    const timer = setTimeout(() => {
+      hasNavigated.current = true;
+      try {
+        if (isAuthenticated) {
+          router.replace("/(tabs)" as any);
+        } else if (!splashSeen) {
+          router.replace("/splash" as any);
+        } else {
+          router.replace("/login" as any);
+        }
+      } catch {}
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [isLoading, isAuthenticated, splashSeen]);
 
   return (

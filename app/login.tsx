@@ -107,7 +107,7 @@ export default function LoginScreen() {
         withTiming(0, { duration: 300 })
       );
       setTimeout(() => {
-        router.replace("/(tabs)" as any);
+        try { router.replace("/(tabs)" as any); } catch {}
       }, 600);
     } else {
       setSocialLoadingProvider(null);
@@ -127,7 +127,7 @@ export default function LoginScreen() {
         withTiming(0, { duration: 300 })
       );
       setTimeout(() => {
-        router.replace("/(tabs)" as any);
+        try { router.replace("/(tabs)" as any); } catch {}
       }, 600);
     } else {
       setLoading(false);
