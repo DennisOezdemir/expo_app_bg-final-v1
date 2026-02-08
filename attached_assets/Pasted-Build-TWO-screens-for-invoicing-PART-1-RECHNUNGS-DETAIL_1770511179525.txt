@@ -1,0 +1,105 @@
+Build TWO screens for invoicing:
+
+--- PART 1: RECHNUNGS-DETAIL ---
+
+Accessed from Financials → tap an invoice row.
+
+HEADER:
+- Back arrow ←
+- "RE-2026-012" large bold mono
+- Status: 🔴 "Überfällig — 21 Tage" / 🟢 "Bezahlt" / 🟡 "Offen"
+- Type badge: "Ausgangsrechnung" or "Eingangsrechnung"
+
+CONTEXT:
+- "📋 BL-2026-003 • Schwentnerring 13c"
+- "SAGA GWG" — Kunde / Lieferant name
+
+SUMMEN CARD:
+Rechnungsbetrag
+
+€4.200,00 netto
+€4.998,00 brutto
+
+Rechnungsdatum: 18.01.2026
+Fällig: 01.02.2026
+⏰ 21 Tage überfällig 🔴
+
+ZAHLUNGSVERLAUF (timeline):
+18.01.  📄 Rechnung erstellt
+18.01.  📤 Per Email versendet
+25.01.  📧 Zahlungserinnerung gesendet
+08.02.  ⚠️ Heute: 21 Tage überfällig
+???     💰 Zahlung ausstehend
+
+POSITIONEN:
+Maler Wohnzimmer komplett     €1.800
+Maler Schlafzimmer            €1.400
+Maler Flur                      €520
+Maler Küche                     €480
+─────────────────────────────────
+Netto:                        €4.200
+MwSt 19%:                       €798
+Brutto:                       €4.998
+
+ABSCHLÄGE (if applicable):
+Abschlag 1 (50%)    -€2.100   ✅ bezahlt 25.01.
+─────────────────────────────────
+Restbetrag:          €2.100
+
+ACTIONS (bottom sticky):
+For Ausgangsrechnung:
+[📄 PDF]  [📧 Erneut senden]  [⚠️ Mahnen]
+
+For Eingangsrechnung:
+[📄 PDF]  [✅ Als bezahlt markieren]  [📋 Projekt zuordnen]
+
+--- PART 2: MAHNUNG ERSTELLEN ---
+
+Triggered by "Mahnen" button. Bottom sheet (90% height).
+
+HEADER:
+- "Mahnung erstellen" bold
+- "RE-2026-012 • SAGA GWG" zinc-400
+
+MAHNSTUFE AUTO-SELECT:
+● Zahlungserinnerung (freundlich)    ← auto if < 14 Tage
+○ 1. Mahnung                         ← auto if 14-30 Tage
+○ 2. Mahnung (mit Frist)             ← auto if > 30 Tage
+○ Letzte Mahnung (Inkasso-Androhung) ← auto if > 60 Tage
+
+PREVIEW CARD:
+An: SAGA GWG
+Rechnungsabteilung
+Betreff: Zahlungserinnerung RE-2026-012
+Sehr geehrte Damen und Herren,
+für die Rechnung RE-2026-012 vom 18.01.2026
+über €4.998,00 steht die Zahlung noch aus.
+Wir bitten um Überweisung bis zum 15.02.2026.
+Mit freundlichen Grüßen,
+Deine Baulöwen GmbH
+
+Text is auto-generated but editable (tap to edit).
+
+MAHNGEBÜHR:
+Mahngebühr:    €0,00     [Bearbeiten]
+Verzugszinsen: €12,40    (auto: 5% über Basiszins)
+──────────────────────
+Neuer Betrag:  €5.010,40
+
+ACTIONS:
+┌────────────────────────────────┐
+│  📄 Als PDF speichern          │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│  📧 MAHNUNG SENDEN             │  ← amber
+└────────────────────────────────┘
+
+After send:
+- "✅ Mahnung versendet"
+- Timeline in Rechnungs-Detail updates
+- Status stays 🔴 until payment
+
+zinc-900 cards, rounded-2xl.
+Euro with German formatting (€4.998,00).
+Mahnstufe auto-calculated based on days overdue.
+Text templates in German, formal business tone.
