@@ -1,0 +1,228 @@
+Build an offer editor screen for creating and editing construction offers.
+
+ACCESS: 
+- From Angebots-Liste → [+ Neues Angebot] 
+- OR from existing offer → [Bearbeiten]
+
+--- STEP 1: PROJEKT WÄHLEN (only for new offers) ---
+
+Same project selector as Foto-Capture:
+- Search + recent 3
+- After select → Step 2
+
+--- STEP 2: OFFER EDITOR ---
+
+HEADER:
+- Back arrow ←
+- "Angebot erstellen" or "Angebot bearbeiten"
+- "BL-2026-003 • Schwentnerring" zinc-400
+- Right: [⋮] menu (Vorschau, PDF, Speichern)
+
+META SECTION (card):
+Angebotsnummer    ANG-2026-003-02 (auto)
+Version           v2 (auto)
+Datum             [08.02.2026]
+Gültig bis        [08.03.2026]
+Kunde:
+SAGA GWG                        [Ändern]
+Rechnungsabteilung
+Beispielstraße 1, 20095 Hamburg
+Betreff:
+┌──────────────────────────────────────┐
+│ Renovierung Schwentnerring 13c      │
+│ EG Links — Maler + Bodenbelag      │
+└──────────────────────────────────────┘
+
+--- POSITIONEN SECTION (the core) ---
+
+Header: "Positionen" + count + [+ Position]
+
+GROUPED BY ROOM (accordion, draggable to reorder):
+🚿 Badezimmer                      3 Pos. • €2.840
+[+ Position] [⋮]
+▼
+01.01  Wandfliesen                    €680,00
+12,5 m² × €54,40/m²
+[✏️] [📋] [🗑️]
+01.02  Bodenfliesen                   €420,00
+6,0 m² × €70,00/m²
+[✏️] [📋] [🗑️]
+01.03  Sanitärobjekte                €1.740,00
+Pauschal
+[✏️] [📋] [🗑️]
+
+[+ Raum hinzufügen] button below all rooms.
+
+--- ADD POSITION (bottom sheet, 90% height) ---
+
+Triggered by [+ Position] in a room.
+
+THREE WAYS TO ADD:
+
+TAB BAR: [🔍 Katalog] [📋 Letzte] [✏️ Frei]
+
+TAB 1 — KATALOG (main way):
+🔍 Position suchen...
+Filter: [Alle] [Maler] [Boden] [Sanitär] [Elektro] [Fliesen]
+SUCHERGEBNISSE:
+01.03  Raufaser tapezieren
+Raufasertapete an Wand- und Deckenflächen
+tapezieren einschl. Kleister und Zuschnitt.
+€8,40/m²
+[+ HINZUFÜGEN]
+01.04  Vliestapete tapezieren
+Vliestapete an Wandflächen tapezieren
+einschl. Kleister, Zuschnitt und Nahtarbeit.
+€9,60/m²
+[+ HINZUFÜGEN]
+07.12  Heizkörper lackieren
+Heizkörper bis 10 Glieder reinigen,
+grundieren und 2x Lackieren.
+€38,40/Stk
+[+ HINZUFÜGEN]
+
+Search is INSTANT — searches across:
+- Position code (01.03)
+- Title (Raufaser)
+- Full description text (WABS Langtext)
+- Trade (Maler, Boden, Sanitär...)
+
+After [+ HINZUFÜGEN]:
+Position hinzugefügt: 01.03 Raufaser tapezieren
+Menge:    [    ] m²        ← MUST FILL
+Preis:    €8,40 /m²       [Anpassen]
+Aufschlag: 15%             [Anpassen]
+Endpreis: €9,66 /m²
+┌────────────────────────────────────────┐
+│  Oder: Menge aus Aufmaß übernehmen    │
+│  [📐 MagicPlan Import]                │
+└────────────────────────────────────────┘
+[✅ ÜBERNEHMEN]
+
+TAB 2 — LETZTE (recently used positions):
+Zuletzt verwendet:
+01.03  Raufaser tapezieren     €8,40/m²    12x verwendet
+01.02  Wandflächen streichen   €4,80/m²     9x
+03.04  Thermostat tauschen     €38,40/Stk   7x
+[+ HINZUFÜGEN]
+
+Sorted by use_count. Shows how often used across all offers.
+
+TAB 3 — FREI (manual entry):
+Freie Position
+Pos.Nr:       [01.99]  (auto-suggested)
+Bezeichnung:
+┌────────────────────────────────────┐
+│ Sonderarbeit Decke                 │
+└────────────────────────────────────┘
+Langtext:
+┌────────────────────────────────────┐
+│ Deckenbereich im Bad aufgrund     │
+│ Wasserschaden extra behandeln,    │
+│ Trocknung und Neuaufbau...        │
+└────────────────────────────────────┘
+Einheit:   [m² ▾]  (m², Stk, Pauschal, lfm, m³)
+Menge:     [     ]
+Preis:     [€    ] pro Einheit
+[✅ ÜBERNEHMEN]
+
+--- POSITION EDIT (inline) ---
+
+Tap ✏️ on existing position:
+01.03  Raufaser tapezieren
+Langtext (aus Katalog, editierbar):
+┌────────────────────────────────────┐
+│ Raufasertapete an Wand- und       │
+│ Deckenflächen tapezieren einschl. │
+│ Kleister und Zuschnitt.           │
+└────────────────────────────────────┘
+[↩️ Originaltext wiederherstellen]
+Menge:     [42,5] m²
+Preis:     [€8,40] /m²    [Katalogpreis: €8,40]
+Aufschlag: [15] %
+Endpreis:  €9,66 /m²
+Gesamt:    €410,55
+[💾 Speichern]  [🗑️ Löschen]
+
+--- KALKULATION LIVE (sticky card at bottom while editing) ---
+
+Always visible while scrolling positions:
+┌────────────────────────────────────────┐
+│  47 Positionen          €12.400 netto │
+│  Material: ~€4.200      Marge: 24% 🟢 │
+│                                        │
+│  [📄 Vorschau]    [💾 Speichern]       │
+└────────────────────────────────────────┘
+
+Updates LIVE as positions are added/changed/removed.
+Marge calculation: (Angebotssumme - geschätzte Kosten) / Angebotssumme
+
+--- ROOMS MANAGEMENT ---
+
+[+ Raum hinzufügen]:
+Raum hinzufügen
+Vorschläge:
+[🚿 Bad] [🍳 Küche] [🛋️ Wohnzimmer]
+[🛏️ Schlafzimmer] [👶 Kinderzimmer] [🚪 Flur]
+[🏠 Außen] [📦 Abstellraum] [🪜 Keller]
+Oder eigener Name:
+┌────────────────────────────────────┐
+│                                    │
+└────────────────────────────────────┘
+
+Tap suggestion → room created instantly.
+Rooms draggable to reorder (long press + drag).
+
+--- AUFSCHLAG/PREIS STRATEGIE ---
+
+Global setting in offer header (expandable):
+Kalkulation
+Globaler Aufschlag: [15] %
+Gilt für alle Katalogpositionen.
+☐ Auf gerundeten Preis runden (€0,10)
+☑️ Einzelpreis-Aufschlag anzeigen
+
+Can be overridden per position.
+
+--- VORSCHAU (PDF Preview) ---
+
+Tap [📄 Vorschau]:
+- Shows offer as it would print
+- Uses Briefpapier settings (logo, header, footer)
+- Position table with Pos.Nr, Beschreibung, Menge, EP, GP
+- Room headers as section dividers
+- Sum block at bottom
+
+Scrollable inline preview OR fullscreen.
+[PDF herunterladen] [📧 Per Email senden] [← Zurück]
+
+--- SPEICHERN FLOW ---
+
+[💾 Speichern] options:
+● Als Entwurf speichern
+○ Zur Freigabe einreichen
+
+"Zur Freigabe" → creates approval item in Freigaben for GF.
+
+--- DESIGN RULES ---
+
+- Katalog-Suche: FAST. Debounce 200ms, results appear instantly.
+- Position numbers auto-increment per room (01.01, 01.02...)
+- Room numbers auto-increment (01=Bad, 02=Küche...)
+- Drag to reorder rooms AND positions within rooms
+- Swipe left on position → 🗑️ delete (with undo toast)
+- Langtext from catalog pre-filled but always editable
+- Price always shows Katalogpreis as reference even if overridden
+- Marge indicator updates real-time
+- Auto-save every 30s (small "Gespeichert ✓" indicator)
+
+All zinc-900 cards. Amber actions. German labels.
+Touch targets 48px+.
+Keyboard: numeric for quantities/prices.
+Das ist der dickste Screen der ganzen App — der Angebots-Editor. Wenn der sitzt, hast du den Kern deines Business digitalisiert.
+Zum Thema Desktop: Sag Replit einfach am Ende:
+Make the app responsive. On screens wider than 768px:
+- Replace bottom tab bar with left sidebar (240px, zinc-900)
+- Show split view: list left, detail right
+- Wider cards, 2-3 column grids where useful
+- Keep same dark mode design language

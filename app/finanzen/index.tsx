@@ -5,11 +5,14 @@ import {
   ScrollView,
   Platform,
   Pressable,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 
@@ -215,6 +218,462 @@ const KOSTEN_SEGMENTS = [
   { label: "Sonstiges", percent: 8, color: Colors.raw.zinc500, amount: 2892 },
 ];
 
+const MONTH_LABELS = ["Jan", "Feb", "M\u00E4r", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+const CURRENT_MONTH_INDEX = 1;
+
+interface MonthPlan {
+  plan: number;
+  ist: number | null;
+  status: "done" | "current" | "future";
+}
+
+const DEFAULT_PLAN_2026: number[] = [42000, 45000, 50000, 48000, 52000, 55000, 50000, 45000, 52000, 55000, 48000, 38000];
+const IST_2026: (number | null)[] = [48000, 36000, null, null, null, null, null, null, null, null, null, null];
+
+function getMonthStatus(i: number): "done" | "current" | "future" {
+  if (i < CURRENT_MONTH_INDEX) return "done";
+  if (i === CURRENT_MONTH_INDEX) return "current";
+  return "future";
+}
+
+function getIstColor(ist: number, plan: number): string {
+  const ratio = ist / plan;
+  if (ratio >= 1) return Colors.raw.emerald500;
+  if (ratio >= 0.8) return Colors.raw.amber500;
+  return Colors.raw.rose500;
+}
+
+function getIstIndicator(ist: number, plan: number): { label: string; color: string } {
+  const diff = ((ist - plan) / plan) * 100;
+  const sign = diff >= 0 ? "+" : "";
+  const ratio = ist / plan;
+  let color = Colors.raw.emerald500;
+  if (ratio < 1 && ratio >= 0.8) color = Colors.raw.amber500;
+  else if (ratio < 0.8) color = Colors.raw.rose500;
+  return { label: `${sign}${diff.toFixed(0)}%`, color };
+}
+
+function PlanVsIstChart({ months, visibleCount }: { months: MonthPlan[]; visibleCount: number }) {
+  const visible = months.slice(0, visibleCount);
+  const maxVal = Math.max(...visible.map((m) => Math.max(m.plan, m.ist ?? 0)));
+
+  return (
+    <View style={pvStyles.chartArea}>
+      {visible.map((m, i) => {
+        const planH = maxVal > 0 ? (m.plan / maxVal) * 100 : 0;
+        const istH = m.ist !== null && maxVal > 0 ? (m.ist / maxVal) * 100 : 0;
+        const istColor = m.ist !== null ? getIstColor(m.ist, m.plan) : Colors.raw.zinc700;
+
+        return (
+          <View key={i} style={pvStyles.chartCol}>
+            <View style={pvStyles.barsContainer}>
+              <View style={[pvStyles.planBar, { height: `${planH}%` }]} />
+              {m.status !== "future" && m.ist !== null ? (
+                <View
+                  style={[
+                    pvStyles.istBar,
+                    { height: `${istH}%`, backgroundColor: istColor },
+                    m.status === "current" && pvStyles.istBarCurrent,
+                  ]}
+                />
+              ) : (
+                <View style={[pvStyles.istBarEmpty, { height: `${planH * 0.3}%` }]} />
+              )}
+            </View>
+            <Text style={[pvStyles.monthLabel, i === CURRENT_MONTH_INDEX && pvStyles.monthLabelActive]}>
+              {MONTH_LABELS[i]}
+            </Text>
+            {m.ist !== null && m.status !== "future" ? (
+              <Text style={[pvStyles.monthValue, { color: getIstColor(m.ist, m.plan) }]}>
+                {formatEuroK(m.ist)}
+              </Text>
+            ) : (
+              <Text style={pvStyles.monthValueFuture}>{formatEuroK(m.plan)}</Text>
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function PlanVsIstSummary({ months }: { months: MonthPlan[] }) {
+  const ytdPlan = months.filter((m) => m.status !== "future").reduce((s, m) => s + m.plan, 0);
+  const ytdIst = months.filter((m) => m.ist !== null).reduce((s, m) => s + (m.ist ?? 0), 0);
+  const diff = ytdIst - ytdPlan;
+  const diffPct = ytdPlan > 0 ? ((diff / ytdPlan) * 100).toFixed(1) : "0";
+  const jahresplan = months.reduce((s, m) => s + m.plan, 0);
+
+  const completedMonths = months.filter((m) => m.ist !== null);
+  const avgMonthly = completedMonths.length > 0 ? ytdIst / completedMonths.length : 0;
+  const remainingMonths = 12 - completedMonths.length;
+  const prognose = ytdIst + avgMonthly * remainingMonths;
+
+  const diffColor = diff >= 0 ? Colors.raw.emerald500 : Math.abs(diff / ytdPlan) < 0.05 ? Colors.raw.amber500 : Colors.raw.rose500;
+  const diffSign = diff >= 0 ? "+" : "";
+
+  return (
+    <View style={pvStyles.summaryContainer}>
+      <View style={pvStyles.summaryRow}>
+        <Text style={pvStyles.summaryLabel}>YTD Plan</Text>
+        <Text style={pvStyles.summaryValue}>{formatEuro(ytdPlan)}</Text>
+      </View>
+      <View style={pvStyles.summaryRow}>
+        <Text style={pvStyles.summaryLabel}>YTD Ist</Text>
+        <Text style={pvStyles.summaryValue}>{formatEuro(ytdIst)}</Text>
+      </View>
+      <View style={pvStyles.summaryRow}>
+        <Text style={pvStyles.summaryLabel}>Differenz</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text style={[pvStyles.summaryValue, { color: diffColor }]}>{diffSign}{formatEuro(Math.abs(diff))}</Text>
+          <View style={[pvStyles.diffBadge, { backgroundColor: diffColor + "18" }]}>
+            <Text style={[pvStyles.diffBadgeText, { color: diffColor }]}>{diffSign}{diffPct}%</Text>
+          </View>
+        </View>
+      </View>
+      <View style={[pvStyles.summaryRow, { borderTopWidth: 1, borderTopColor: Colors.raw.zinc800, paddingTop: 12, marginTop: 4 }]}>
+        <Text style={pvStyles.summaryLabel}>Jahresplan</Text>
+        <Text style={pvStyles.summaryValue}>{formatEuro(jahresplan)}</Text>
+      </View>
+      <View style={pvStyles.summaryRow}>
+        <Text style={pvStyles.summaryLabel}>Prognose</Text>
+        <Text style={[pvStyles.summaryValue, { color: Colors.raw.zinc300 }]}>{formatEuro(Math.round(prognose))}</Text>
+      </View>
+    </View>
+  );
+}
+
+function PlanEditSheet({
+  visible,
+  onClose,
+  planValues,
+  onSave,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  planValues: number[];
+  onSave: (values: number[]) => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [editValues, setEditValues] = useState<string[]>(planValues.map((v) => v.toString()));
+
+  const handleUpdate = useCallback((index: number, text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, "");
+    setEditValues((prev) => {
+      const next = [...prev];
+      next[index] = cleaned;
+      return next;
+    });
+  }, []);
+
+  const total = useMemo(() => editValues.reduce((s, v) => s + (parseInt(v) || 0), 0), [editValues]);
+
+  const handleSave = useCallback(() => {
+    if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    onSave(editValues.map((v) => parseInt(v) || 0));
+    onClose();
+  }, [editValues, onSave, onClose]);
+
+  const formatDisplay = (val: string) => {
+    const n = parseInt(val) || 0;
+    return "\u20AC" + n.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <View style={pvEditStyles.overlay}>
+          <View style={[pvEditStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={pvEditStyles.handle} />
+            <View style={pvEditStyles.sheetHeader}>
+              <Text style={pvEditStyles.sheetTitle}>Monatsplanung 2026</Text>
+              <Pressable onPress={onClose} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+                <Ionicons name="close" size={24} color={Colors.raw.zinc400} />
+              </Pressable>
+            </View>
+            <ScrollView style={pvEditStyles.sheetScroll} showsVerticalScrollIndicator={false}>
+              {MONTH_LABELS.map((label, i) => {
+                const status = getMonthStatus(i);
+                return (
+                  <View key={i} style={pvEditStyles.monthRow}>
+                    <View style={pvEditStyles.monthLeft}>
+                      <Text style={pvEditStyles.monthName}>{label}</Text>
+                      {status === "done" && (
+                        <View style={pvEditStyles.statusBadge}>
+                          <Ionicons name="checkmark-circle" size={14} color={Colors.raw.emerald500} />
+                          <Text style={[pvEditStyles.statusText, { color: Colors.raw.emerald500 }]}>abgeschlossen</Text>
+                        </View>
+                      )}
+                      {status === "current" && (
+                        <View style={pvEditStyles.statusBadge}>
+                          <Ionicons name="time" size={14} color={Colors.raw.amber500} />
+                          <Text style={[pvEditStyles.statusText, { color: Colors.raw.amber500 }]}>laufend</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={pvEditStyles.inputWrap}>
+                      <Text style={pvEditStyles.euroSign}>{"\u20AC"}</Text>
+                      <TextInput
+                        style={pvEditStyles.input}
+                        value={editValues[i]}
+                        onChangeText={(t) => handleUpdate(i, t)}
+                        keyboardType="number-pad"
+                        selectTextOnFocus
+                        placeholderTextColor={Colors.raw.zinc600}
+                      />
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <View style={pvEditStyles.totalRow}>
+              <Text style={pvEditStyles.totalLabel}>Gesamt</Text>
+              <Text style={pvEditStyles.totalValue}>{formatEuro(total)}</Text>
+            </View>
+            <Pressable
+              onPress={handleSave}
+              style={({ pressed }) => [pvEditStyles.saveBtn, { opacity: pressed ? 0.85 : 1 }]}
+              testID="plan-save-btn"
+            >
+              <Feather name="save" size={18} color="#000" />
+              <Text style={pvEditStyles.saveBtnText}>Speichern</Text>
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const pvStyles = StyleSheet.create({
+  chartArea: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    height: 140,
+    marginBottom: 16,
+  },
+  chartCol: { alignItems: "center", flex: 1 },
+  barsContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 2,
+    flex: 1,
+    width: "100%",
+    justifyContent: "center",
+  },
+  planBar: {
+    width: 12,
+    backgroundColor: Colors.raw.zinc600 + "99",
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+  },
+  istBar: {
+    width: 12,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+  },
+  istBarCurrent: {
+    borderTopWidth: 2,
+    borderTopColor: Colors.raw.white,
+    borderStyle: "dashed",
+  },
+  istBarEmpty: {
+    width: 12,
+    backgroundColor: Colors.raw.zinc700 + "40",
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+  },
+  monthLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: Colors.raw.zinc500,
+    marginTop: 6,
+  },
+  monthLabelActive: {
+    color: Colors.raw.amber500,
+    fontFamily: "Inter_700Bold",
+  },
+  monthValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 9,
+    marginTop: 2,
+  },
+  monthValueFuture: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 9,
+    color: Colors.raw.zinc600,
+    marginTop: 2,
+  },
+  summaryContainer: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.raw.zinc800,
+    paddingTop: 16,
+    gap: 8,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  summaryLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.raw.zinc400,
+  },
+  summaryValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.raw.white,
+  },
+  diffBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  diffBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+  },
+  chartLegend: {
+    flexDirection: "row",
+    gap: 16,
+    marginBottom: 16,
+    justifyContent: "center",
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.raw.zinc400,
+  },
+});
+
+const pvEditStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: Colors.raw.zinc900,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    maxHeight: "85%",
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.raw.zinc600,
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 20,
+    color: Colors.raw.white,
+  },
+  sheetScroll: { maxHeight: 400 },
+  monthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  monthLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  monthName: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.raw.white,
+    width: 36,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  statusText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+  },
+  inputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 120,
+  },
+  euroSign: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.zinc400,
+    marginRight: 4,
+  },
+  input: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.raw.white,
+    flex: 1,
+    padding: 0,
+  },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: Colors.raw.zinc700,
+    paddingTop: 16,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  totalLabel: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.raw.zinc300,
+  },
+  totalValue: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 18,
+    color: Colors.raw.white,
+  },
+  saveBtn: {
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 14,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  saveBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#000",
+  },
+});
+
 export default function FinanzenScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -222,6 +681,17 @@ export default function FinanzenScreen() {
 
   const [month, setMonth] = useState("Februar 2026");
   const [postenTab, setPostenTab] = useState<"forderungen" | "verbindlichkeiten">("forderungen");
+  const [planYear, setPlanYear] = useState(2026);
+  const [planValues, setPlanValues] = useState<number[]>([...DEFAULT_PLAN_2026]);
+  const [planEditVisible, setPlanEditVisible] = useState(false);
+
+  const monthsData: MonthPlan[] = useMemo(() => {
+    return planValues.map((plan, i) => ({
+      plan,
+      ist: IST_2026[i],
+      status: getMonthStatus(i),
+    }));
+  }, [planValues]);
 
   const postenData = postenTab === "forderungen" ? FORDERUNGEN : VERBINDLICHKEITEN;
   const totalOpen = FORDERUNGEN.reduce((s, f) => s + f.amount, 0) + VERBINDLICHKEITEN.reduce((s, v) => s + v.amount, 0);
@@ -330,6 +800,92 @@ export default function FinanzenScreen() {
             </View>
           </View>
         </View>
+
+        <View style={[styles.sectionHeader, { marginTop: 24 }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+            <Text style={styles.sectionTitle}>Umsatz Plan vs. Ist</Text>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setPlanEditVisible(true);
+              }}
+              style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, marginLeft: 10 })}
+              testID="plan-edit-btn"
+            >
+              <Feather name="edit-2" size={16} color={Colors.raw.zinc400} />
+            </Pressable>
+          </View>
+          <Pressable
+            onPress={() => {
+              if (Platform.OS !== "web") Haptics.selectionAsync();
+            }}
+            style={({ pressed }) => [styles.yearSelector, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Text style={styles.yearText}>{planYear}</Text>
+            <Ionicons name="chevron-down" size={14} color={Colors.raw.zinc400} />
+          </Pressable>
+        </View>
+        <View style={styles.card}>
+          <View style={pvStyles.chartArea}>
+            {monthsData.slice(0, 6).map((m, i) => {
+              const visible = monthsData.slice(0, 6);
+              const maxVal = Math.max(...visible.map((mv) => Math.max(mv.plan, mv.ist ?? 0)));
+              const planH = maxVal > 0 ? (m.plan / maxVal) * 100 : 0;
+              const istH = m.ist !== null && maxVal > 0 ? (m.ist / maxVal) * 100 : 0;
+              const istColor = m.ist !== null ? getIstColor(m.ist, m.plan) : Colors.raw.zinc700;
+
+              return (
+                <View key={i} style={pvStyles.chartCol}>
+                  <View style={pvStyles.barsContainer}>
+                    <View style={[pvStyles.planBar, { height: `${planH}%` }]} />
+                    {m.status !== "future" && m.ist !== null ? (
+                      <View
+                        style={[
+                          pvStyles.istBar,
+                          { height: `${istH}%`, backgroundColor: istColor },
+                          m.status === "current" && pvStyles.istBarCurrent,
+                        ]}
+                      />
+                    ) : (
+                      <View style={[pvStyles.istBarEmpty, { height: `${planH * 0.15}%` }]} />
+                    )}
+                  </View>
+                  <Text style={[pvStyles.monthLabel, i === CURRENT_MONTH_INDEX && pvStyles.monthLabelActive]}>
+                    {MONTH_LABELS[i]}
+                  </Text>
+                  {m.ist !== null && m.status !== "future" ? (() => {
+                    const ind = getIstIndicator(m.ist!, m.plan);
+                    return (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginTop: 2 }}>
+                        <Text style={[pvStyles.monthValue, { color: ind.color }]}>{formatEuroK(m.ist!)}</Text>
+                      </View>
+                    );
+                  })() : (
+                    <Text style={pvStyles.monthValueFuture}>geplant</Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+          <View style={pvStyles.chartLegend}>
+            <View style={pvStyles.legendItem}>
+              <View style={[pvStyles.legendDot, { backgroundColor: Colors.raw.zinc600 + "99" }]} />
+              <Text style={pvStyles.legendText}>Plan (Soll)</Text>
+            </View>
+            <View style={pvStyles.legendItem}>
+              <View style={[pvStyles.legendDot, { backgroundColor: Colors.raw.emerald500 }]} />
+              <Text style={pvStyles.legendText}>Ist</Text>
+            </View>
+          </View>
+          <PlanVsIstSummary months={monthsData} />
+        </View>
+
+        <PlanEditSheet
+          visible={planEditVisible}
+          onClose={() => setPlanEditVisible(false)}
+          planValues={planValues}
+          onSave={setPlanValues}
+        />
 
         <View style={[styles.sectionHeader, { marginTop: 24 }]}>
           <Text style={styles.sectionTitle}>Offene Posten</Text>
@@ -490,6 +1046,16 @@ const styles = StyleSheet.create({
 
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   sectionTitle: { fontFamily: "Inter_800ExtraBold", fontSize: 20, color: Colors.raw.white },
+  yearSelector: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.raw.zinc800,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  yearText: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.zinc300 },
 
   card: {
     backgroundColor: Colors.raw.zinc900,
