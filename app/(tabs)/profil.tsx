@@ -12,6 +12,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useState } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { useRole, type UserRole } from "@/contexts/RoleContext";
 
 interface ToggleSetting {
   key: string;
@@ -81,10 +82,73 @@ const toggleStyles = StyleSheet.create({
   label: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc300 },
 });
 
+function RoleSwitcher() {
+  const { role, setRole, actualRole, isImpersonating } = useRole();
+  if (actualRole !== "gf") return null;
+
+  const roles: { key: UserRole; icon: string; label: string }[] = [
+    { key: "gf", icon: "briefcase", label: "Geschäftsführer" },
+    { key: "bauleiter", icon: "clipboard", label: "Bauleiter" },
+    { key: "monteur", icon: "construct", label: "Monteur" },
+  ];
+
+  return (
+    <>
+      <Text style={styles.sectionLabel}>Ansicht wechseln</Text>
+      <View style={styles.card}>
+        <Text style={rsStyles.hint}>Nur zum Testen verschiedener Rollen</Text>
+        <View style={rsStyles.row}>
+          {roles.map((r) => {
+            const isActive = role === r.key;
+            return (
+              <Pressable
+                key={r.key}
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  setRole(r.key);
+                }}
+                style={[rsStyles.btn, isActive && rsStyles.btnActive]}
+                testID={`role-${r.key}`}
+              >
+                <Ionicons
+                  name={r.icon as any}
+                  size={18}
+                  color={isActive ? "#000" : Colors.raw.zinc400}
+                />
+                <Text style={[rsStyles.btnText, isActive && rsStyles.btnTextActive]}>
+                  {r.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    </>
+  );
+}
+
+const rsStyles = StyleSheet.create({
+  hint: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc600, paddingVertical: 10 },
+  row: { gap: 6, paddingBottom: 10 },
+  btn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.zinc800,
+  },
+  btnActive: { backgroundColor: Colors.raw.amber500 },
+  btnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc400 },
+  btnTextActive: { color: "#000", fontFamily: "Inter_700Bold" },
+});
+
 export default function ProfilScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+  const { role, user, sees, isImpersonating } = useRole();
 
   const [toggles, setToggles] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
@@ -96,11 +160,28 @@ export default function ProfilScreen() {
     setToggles((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const statsForRole = {
+    gf: [
+      { value: "47", label: "Projekte", sub: "gesamt" },
+      { value: "\u20AC182k", label: "Umsatz", sub: "2026" },
+    ],
+    bauleiter: [
+      { value: "5", label: "Projekte", sub: "aktiv" },
+      { value: "12", label: "Begehungen", sub: "gesamt" },
+    ],
+    monteur: [
+      { value: "142h", label: "Stunden", sub: "Feb" },
+      { value: "1", label: "Projekt", sub: "aktiv" },
+    ],
+  };
+
+  const stats = statsForRole[role];
+
   return (
     <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: topInset + 20, paddingBottom: bottomInset + 100 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: topInset + 20 + (isImpersonating ? 36 : 0), paddingBottom: bottomInset + 100 }]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.title}>Profil</Text>
@@ -109,60 +190,71 @@ export default function ProfilScreen() {
           <View style={styles.avatarCircle}>
             <Ionicons name="person" size={32} color={Colors.raw.amber500} />
           </View>
-          <Text style={styles.profileName}>Dennis</Text>
-          <Text style={styles.profileEmail}>dennis@bauloewen.de</Text>
-          <Text style={styles.profileRole}>Gesch\u00E4ftsf\u00FChrer</Text>
+          <Text style={styles.profileName}>{user.name}</Text>
+          <Text style={styles.profileEmail}>{user.email}</Text>
+          <Text style={styles.profileRole}>{user.roleLabel}</Text>
           <View style={styles.profileDivider} />
           <Text style={styles.companyName}>Deine Baul\u00F6wen GmbH</Text>
           <Text style={styles.companySince}>Seit Januar 2025</Text>
         </View>
 
         <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>47</Text>
-            <Text style={styles.statLabel}>Projekte</Text>
-            <Text style={styles.statSub}>gesamt</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>\u20AC182k</Text>
-            <Text style={styles.statLabel}>Umsatz</Text>
-            <Text style={styles.statSub}>2026</Text>
-          </View>
+          {stats.map((stat) => (
+            <View key={stat.label} style={styles.statCard}>
+              <Text style={styles.statValue}>{stat.value}</Text>
+              <Text style={styles.statLabel}>{stat.label}</Text>
+              <Text style={styles.statSub}>{stat.sub}</Text>
+            </View>
+          ))}
         </View>
+
+        <RoleSwitcher />
 
         <Text style={styles.sectionLabel}>Benachrichtigungen</Text>
         <View style={styles.card}>
-          {NOTIFICATION_SETTINGS.map((s, i) => (
+          {NOTIFICATION_SETTINGS
+            .filter((setting) => {
+              if (role === "monteur") return setting.key === "push";
+              if (role === "bauleiter") return setting.key !== "margin" && setting.key !== "payment";
+              return true;
+            })
+            .map((s, i, arr) => (
             <View key={s.key}>
               <SettingToggle setting={s} value={toggles[s.key]} onToggle={() => toggleSetting(s.key)} />
-              {i < NOTIFICATION_SETTINGS.length - 1 && <View style={styles.divider} />}
+              {i < arr.length - 1 && <View style={styles.divider} />}
             </View>
           ))}
         </View>
 
-        <Text style={styles.sectionLabel}>Team</Text>
-        <View style={styles.card}>
-          {TEAM.map((member, i) => (
-            <View key={member.name}>
-              <View style={styles.teamRow}>
-                <View style={styles.teamAvatar}>
-                  <Ionicons name={member.icon as any} size={18} color={Colors.raw.amber500} />
+        {role !== "monteur" && (
+          <>
+            <Text style={styles.sectionLabel}>Team</Text>
+            <View style={styles.card}>
+              {TEAM.map((member, i) => (
+                <View key={member.name}>
+                  <View style={styles.teamRow}>
+                    <View style={styles.teamAvatar}>
+                      <Ionicons name={member.icon as any} size={18} color={Colors.raw.amber500} />
+                    </View>
+                    <View>
+                      <Text style={styles.teamName}>{member.name}</Text>
+                      <Text style={styles.teamRole}>{member.role}</Text>
+                    </View>
+                  </View>
+                  {i < TEAM.length - 1 && <View style={styles.divider} />}
                 </View>
-                <View>
-                  <Text style={styles.teamName}>{member.name}</Text>
-                  <Text style={styles.teamRole}>{member.role}</Text>
-                </View>
-              </View>
-              {i < TEAM.length - 1 && <View style={styles.divider} />}
+              ))}
+              <View style={styles.divider} />
+              <Pressable style={({ pressed }) => [styles.addRow, { opacity: pressed ? 0.7 : 1 }]}>
+                <Ionicons name="add-circle" size={20} color={Colors.raw.amber500} />
+                <Text style={styles.addText}>Mitarbeiter einladen</Text>
+              </Pressable>
             </View>
-          ))}
-          <View style={styles.divider} />
-          <Pressable style={({ pressed }) => [styles.addRow, { opacity: pressed ? 0.7 : 1 }]}>
-            <Ionicons name="add-circle" size={20} color={Colors.raw.amber500} />
-            <Text style={styles.addText}>Mitarbeiter einladen</Text>
-          </Pressable>
-        </View>
+          </>
+        )}
 
+        {role === "gf" && (
+          <>
         <Text style={styles.sectionLabel}>Firma</Text>
         <View style={styles.card}>
           <View style={styles.infoRow}>
@@ -238,6 +330,8 @@ export default function ProfilScreen() {
             </View>
           ))}
         </View>
+          </>
+        )}
 
         <Text style={styles.sectionLabel}>App</Text>
         <View style={styles.card}>
