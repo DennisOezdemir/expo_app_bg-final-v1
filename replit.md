@@ -29,6 +29,7 @@ Preferred communication style: Simple, everyday language.
   - `katalog.tsx` — WABS catalog: Gewerke → Positionen → Position detail with pricing and material requirements
   - `team.tsx` — Team management: member list + invite modal with role/Gewerk selection
   - `briefpapier.tsx` — Briefpapier editor: logo upload, layout controls, header/footer config, color picker, live preview, and document templates
+  - `import.tsx` — Bulk data import: 6 import types (Projekte, Kunden, Lieferanten, Produkte, Katalog/GAEB, Rechnungen/PDF), multi-step wizard (Upload → Mapping → Preview → Import), GAEB file parsing, PDF AI recognition
 
 ### Backend (Express.js)
 
