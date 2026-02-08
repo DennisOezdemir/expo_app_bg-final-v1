@@ -53,8 +53,7 @@ const INTEGRATIONS: Integration[] = [
   { name: "Google Drive", connected: true, icon: "folder" },
   { name: "Telegram", connected: true, icon: "send" },
   { name: "Superchat", connected: true, icon: "chatbubbles" },
-  { name: "easybill", connected: false, icon: "receipt" },
-  { name: "GoCardless", connected: false, icon: "card" },
+  { name: "Lexware", connected: false, icon: "receipt" },
 ];
 
 function SettingToggle({ setting, value, onToggle }: { setting: ToggleSetting; value: boolean; onToggle: () => void }) {
