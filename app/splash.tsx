@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Platform, Dimensions } from "react-native";
+import { View, Text, StyleSheet, Pressable, Platform, Dimensions, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -142,7 +142,7 @@ export default function SplashScreen() {
       <View style={styles.center}>
         <View style={styles.logoArea}>
           <Animated.View style={[styles.helmetWrap, helmetStyle]}>
-            <Ionicons name="construct" size={64} color={Colors.raw.amber500} />
+            <Image source={require("@/assets/images/logo.png")} style={{ width: 72, height: 72 }} resizeMode="contain" />
           </Animated.View>
 
           <View style={styles.sparkContainer}>

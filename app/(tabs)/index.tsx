@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, ScrollView, Platform, Pressable } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Platform, Pressable, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
@@ -344,7 +344,8 @@ export default function StartScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.greetingSection}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 4 }}>
+            <Image source={require("@/assets/images/logo.png")} style={{ width: 36, height: 36 }} resizeMode="contain" />
             <Text style={styles.greeting}>{greeting}</Text>
             {!isOnline && <OfflineBadge cacheAge={getCacheAge("projekte")} />}
           </View>

@@ -8,6 +8,7 @@ import {
   Platform,
   ActivityIndicator,
   Modal,
+  Image,
   ScrollView,
   KeyboardAvoidingView,
   Alert,
@@ -445,7 +446,7 @@ export default function LoginScreen() {
         >
           <View style={styles.logoSection}>
             <View style={styles.logoWrap}>
-              <Ionicons name="construct" size={44} color={Colors.raw.amber500} />
+              <Image source={require("@/assets/images/logo.png")} style={{ width: 56, height: 56 }} resizeMode="contain" />
             </View>
             <Text style={styles.logoText}>BAUGENIUS</Text>
             <Text style={styles.tagline}>Von Sklave zu Chef.</Text>
