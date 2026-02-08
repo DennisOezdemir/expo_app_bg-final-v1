@@ -233,12 +233,32 @@ export default function LoginScreen() {
       </View>
 
       <Pressable
-        style={styles.magicBtn}
+        style={({ pressed }) => [styles.socialBtn, { opacity: pressed ? 0.85 : 1 }]}
+        onPress={() => {}}
+        testID="login-google"
+      >
+        <View style={styles.socialIconWrap}>
+          <Text style={styles.googleG}>G</Text>
+        </View>
+        <Text style={styles.socialBtnText}>Mit Google anmelden</Text>
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.socialBtn, { opacity: pressed ? 0.85 : 1, marginTop: 10 }]}
+        onPress={() => {}}
+        testID="login-apple"
+      >
+        <Ionicons name="logo-apple" size={20} color="#000" />
+        <Text style={styles.socialBtnText}>Mit Apple anmelden</Text>
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.magicBtn, { opacity: pressed ? 0.85 : 1, marginTop: 10 }]}
         onPress={() => { setScreen("magic"); setMagicSent(false); setMagicEmail(""); }}
         testID="login-magic-link"
       >
         <Ionicons name="key-outline" size={18} color={Colors.raw.zinc300} />
-        <Text style={styles.magicBtnText}>Mit Zugangslink anmelden</Text>
+        <Text style={styles.magicBtnText}>Zugangslink per Email</Text>
       </Pressable>
     </Animated.View>
   );
@@ -612,15 +632,40 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.raw.zinc600,
   },
+  socialBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    height: 48,
+    gap: 10,
+  },
+  socialIconWrap: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  googleG: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: "#4285F4",
+  },
+  socialBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: "#1a1a1a",
+  },
   magicBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "transparent",
+    backgroundColor: Colors.raw.zinc800,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.raw.zinc700,
-    paddingVertical: 16,
+    height: 48,
     gap: 10,
   },
   magicBtnText: {
