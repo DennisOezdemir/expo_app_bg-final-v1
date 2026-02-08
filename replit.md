@@ -21,6 +21,13 @@ Preferred communication style: Simple, everyday language.
 - **UI Libraries**: expo-blur, expo-glass-effect, expo-linear-gradient, expo-haptics for native feel. react-native-gesture-handler for touch handling. react-native-keyboard-controller for keyboard management
 - **Error Handling**: Custom `ErrorBoundary` class component wrapping the entire app with a styled `ErrorFallback` component
 - **Native Tab Bar**: Uses `expo-router/unstable-native-tabs` (NativeTabs) with SF Symbols on iOS, with a fallback custom tab bar for non-liquid-glass platforms
+- **Role-Based Access**: RoleContext (`contexts/RoleContext.tsx`) supports 3 personas: GF (Geschäftsführer), Bauleiter, Monteur. GF has full access including settings. Role switcher available on Profil screen for GF only
+- **Debug Console**: DebugLogContext + DebugConsole component. Sidebar on web, bottom sheet on mobile. Only visible for GF role in `__DEV__` mode. Auto-logs API calls with latency tracking via `setDebugLogFn()` bridge in `lib/query-client.ts`
+- **Master Data Screens** (GF only, under `app/einstellungen/`):
+  - `firma.tsx` — Company settings: Firmendaten, Steuer & Recht, Bankverbindung, Zahlungsbedingungen
+  - `lieferanten.tsx` — Supplier management: list view with search + detail view with contact, Konditionen, Bestellweg, orders
+  - `katalog.tsx` — WABS catalog: Gewerke → Positionen → Position detail with pricing and material requirements
+  - `team.tsx` — Team management: member list + invite modal with role/Gewerk selection
 
 ### Backend (Express.js)
 
