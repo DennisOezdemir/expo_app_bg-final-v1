@@ -361,7 +361,15 @@ export default function FinanzenScreen() {
           {postenData.map((item, i) => {
             const dotColor = item.status === "red" ? Colors.raw.rose500 : item.status === "yellow" ? Colors.raw.amber500 : Colors.raw.emerald500;
             return (
-              <View key={item.ref} style={[styles.postenRow, i < postenData.length - 1 && styles.postenRowBorder]}>
+              <Pressable
+                key={item.ref}
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push(`/rechnung/${item.ref}` as any);
+                }}
+                style={({ pressed }) => [styles.postenRow, i < postenData.length - 1 && styles.postenRowBorder, { opacity: pressed ? 0.85 : 1 }]}
+                testID={`invoice-${item.ref}`}
+              >
                 <View style={styles.postenLeft}>
                   <View style={styles.postenHeader}>
                     <View style={[styles.postenDot, { backgroundColor: dotColor }]} />
@@ -374,13 +382,13 @@ export default function FinanzenScreen() {
                   <Text style={styles.postenAmount}>{formatEuro(item.amount)}</Text>
                   <Text style={[styles.postenDays, { color: dotColor }]}>{item.days}</Text>
                   {item.action && (
-                    <Pressable style={({ pressed }) => [styles.postenAction, { opacity: pressed ? 0.7 : 1 }]}>
+                    <View style={styles.postenAction}>
                       <Text style={styles.postenActionText}>{item.action}</Text>
                       <Ionicons name="arrow-forward" size={12} color={Colors.raw.amber500} />
-                    </Pressable>
+                    </View>
                   )}
                 </View>
-              </View>
+              </Pressable>
             );
           })}
         </View>
