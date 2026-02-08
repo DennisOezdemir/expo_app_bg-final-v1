@@ -17,13 +17,17 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { RoleProvider } from "@/contexts/RoleContext";
 import { DebugLogProvider } from "@/contexts/DebugLogContext";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back" }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false, animation: "none" }} />
+      <Stack.Screen name="splash" options={{ headerShown: false, animation: "fade" }} />
+      <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="project/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="begehung/[type]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="planung/index" options={{ headerShown: false, animation: "slide_from_right" }} />
@@ -76,16 +80,18 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <RoleProvider>
-          <DebugLogProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <KeyboardProvider>
-                <StatusBar style="light" />
-                <RootLayoutNav />
-              </KeyboardProvider>
-            </GestureHandlerRootView>
-          </DebugLogProvider>
-        </RoleProvider>
+        <AuthProvider>
+          <RoleProvider>
+            <DebugLogProvider>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <KeyboardProvider>
+                  <StatusBar style="light" />
+                  <RootLayoutNav />
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </DebugLogProvider>
+          </RoleProvider>
+        </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

@@ -14,6 +14,7 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import Colors from "@/constants/colors";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ToggleSetting {
   key: string;
@@ -150,6 +151,7 @@ export default function ProfilScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const { role, user, sees, isImpersonating } = useRole();
+  const { logout } = useAuth();
 
   const [toggles, setToggles] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
@@ -341,7 +343,14 @@ export default function ProfilScreen() {
             <Ionicons name="chevron-forward" size={16} color={Colors.raw.amber500} />
           </Pressable>
           <View style={styles.divider} />
-          <Pressable style={({ pressed }) => [styles.logoutRow, { opacity: pressed ? 0.7 : 1 }]}>
+          <Pressable
+            style={({ pressed }) => [styles.logoutRow, { opacity: pressed ? 0.7 : 1 }]}
+            onPress={async () => {
+              await logout();
+              router.replace("/login" as any);
+            }}
+            testID="logout-btn"
+          >
             <Text style={styles.logoutText}>Abmelden</Text>
           </Pressable>
         </View>
