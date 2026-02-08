@@ -263,6 +263,7 @@ export default function ProfilScreen() {
             { icon: "people", label: "Team", sub: "4 Mitarbeiter", route: "/einstellungen/team" },
             { icon: "cube", label: "Lieferanten", sub: "21 Lieferanten", route: "/einstellungen/lieferanten" },
             { icon: "list", label: "Katalog", sub: "WABS \u2022 620 Positionen", route: "/einstellungen/katalog" },
+            { icon: "document-text", label: "Briefpapier", sub: "Angebote, Rechnungen, Protokolle", route: "/einstellungen/briefpapier" },
           ] as const).map((item, i, arr) => (
             <View key={item.route}>
               <Pressable

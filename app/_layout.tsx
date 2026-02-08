@@ -40,6 +40,7 @@ function RootLayoutNav() {
       <Stack.Screen name="einstellungen/lieferanten" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="einstellungen/katalog" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="einstellungen/team" options={{ headerShown: false, animation: "slide_from_right" }} />
+      <Stack.Screen name="einstellungen/briefpapier" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen
         name="assign-material"
         options={{

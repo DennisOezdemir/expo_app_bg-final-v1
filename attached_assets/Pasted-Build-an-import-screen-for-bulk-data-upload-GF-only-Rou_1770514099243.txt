@@ -1,0 +1,141 @@
+Build an import screen for bulk data upload. GF only.
+
+Route: /einstellungen/import
+
+HEADER:
+- "Daten importieren" large bold
+- "Projekte, Kontakte, Katalog und mehr"
+
+IMPORT TYPES (card grid, 2 columns):
+
+┌──────────────┐ ┌──────────────┐
+│ 📋           │ │ 👥           │
+│ Projekte     │ │ Kunden       │
+│ CSV/Excel    │ │ CSV/Excel    │
+├──────────────┤ ├──────────────┤
+│ 🏪           │ │ 📦           │
+│ Lieferanten  │ │ Produkte     │
+│ CSV/Excel    │ │ CSV/Excel    │
+├──────────────┤ ├──────────────┤
+│ 📖           │ │ 🧾           │
+│ Katalog      │ │ Rechnungen   │
+│ GAEB/CSV     │ │ PDF bulk     │
+└──────────────┘ └──────────────┘
+
+TAP a type → Import Dialog:
+
+--- IMPORT DIALOG ---
+
+Step 1: Upload
+┌────────────────────────────────────────┐
+│                                        │
+│         📁                             │
+│                                        │
+│    Datei hierher ziehen                │
+│    oder                                │
+│    [Datei auswählen]                   │
+│                                        │
+│    CSV, XLSX, XLS • Max 10MB           │
+│                                        │
+└────────────────────────────────────────┘
+
+Drag & drop zone on desktop. File picker on mobile.
+After upload: filename + size shown, [X] to remove.
+
+Step 2: Mapping (after file uploaded)
+Spalten-Zuordnung
+Deine Datei          →  BG Feld
+─────────────────────────────────
+"Firma"              →  [Firmenname ▾]
+"Str."               →  [Straße ▾]
+"PLZ"                →  [PLZ ▾]
+"Ort"                →  [Ort ▾]
+"Tel"                →  [Telefon ▾]
+"Ansprech."          →  [Ansprechpartner ▾]
+"Column 7"           →  [-- Ignorieren -- ▾]
+
+Auto-mapping: BG tries to match column names automatically.
+Manual override: dropdown per column.
+"Ignorieren" option for unneeded columns.
+
+Step 3: Preview
+Vorschau (erste 5 Einträge)
+✅ SAGA GWG — Beispielstr. 1, Hamburg
+✅ GWG Hamburg — Musterweg 5, Hamburg
+⚠️ BDS — Straße fehlt!
+✅ Privat Müller — Hauptstr. 12, Bergedorf
+🔴 [Leerzeile] — wird übersprungen
+─────────────────────────────
+Gesamt: 48 Zeilen
+✅ 45 gültig
+⚠️ 2 unvollständig (werden importiert mit Warnung)
+🔴 1 ungültig (wird übersprungen)
+
+Step 4: Import
+┌────────────────────────────────┐
+│  📥 45 Einträge importieren    │  ← amber
+└────────────────────────────────┘
+☐ Duplikate überschreiben
+☐ Nur neue hinzufügen (Standard)
+
+Progress:
+Importiere... 23 von 45
+████████████░░░░░░░░ 51%
+
+Done:
+✅ Import abgeschlossen!
+45 importiert
+2 mit Warnungen
+1 übersprungen
+[📋 Bericht ansehen]  [✅ Fertig]
+
+--- SPECIAL: GAEB IMPORT (for Katalog) ---
+
+GAEB = German standard for construction catalogs.
+Accepts .x83, .x84, .d83, .d84 files.
+
+After upload:
+GAEB Datei erkannt
+Format: GAEB XML 3.2
+Leistungsverzeichnis: "SAGA WBS Katalog 2026"
+Positionen: 620
+Gewerke: 6
+Vorschau:
+01.01.0010  Wandflächen grundieren    €3,20/m²
+01.01.0020  Wandflächen streichen     €4,80/m²
+01.01.0030  Raufaser tapezieren       €8,40/m²
+...
+[📥 620 Positionen importieren]
+
+--- SPECIAL: PDF BULK IMPORT (for Rechnungen) ---
+Rechnungen importieren
+Mehrere PDFs gleichzeitig hochladen:
+┌────────────────────────────────────────┐
+│  📁 PDFs hierher ziehen               │
+│     oder                               │
+│  [Dateien auswählen]                   │
+│  Mehrfachauswahl möglich               │
+└────────────────────────────────────────┘
+Hochgeladen: 12 PDFs
+📄 Rechnung_MEGA_2026-001.pdf    1.2MB  ✅
+📄 Rechnung_Sueding_4521.pdf     0.8MB  ✅
+📄 Lieferschein_Wuerth.pdf       0.4MB  ⚠️ Kein Rechnungsformat?
+...
+[🤖 KI-Erkennung starten]
+
+After AI processing:
+🤖 KI-Erkennung abgeschlossen
+✅ MEGA eG — RE-4521 — €709,80    [Prüfen →]
+✅ Süding — RE-8834 — €53,10      [Prüfen →]
+⚠️ Würth — Lieferschein erkannt   [Zuordnen →]
+...
+[📥 Alle übernehmen]  [Einzeln prüfen]
+
+DESIGN:
+Drag & drop zone: dashed 2px border, zinc-800 bg, zinc-600 border.
+On drag-over: amber border, amber/10 bg, "Loslassen zum Hochladen".
+Progress bars: amber fill.
+Validation: green checkmark, yellow warning, red error.
+zinc-900 cards, rounded-2xl.
+German labels.
+Step indicator: 1 → 2 → 3 → 4 (dots or progress bar).
