@@ -506,7 +506,9 @@ export default function MaterialScreen() {
               </Text>
             </View>
             <Pressable
+              onPress={() => router.push("/bestellung" as any)}
               style={({ pressed }) => [styles.cartButton, { opacity: pressed ? 0.7 : 1 }]}
+              testID="cart-button"
             >
               <Ionicons name="cart" size={22} color={Colors.raw.zinc400} />
               <View style={styles.cartBadge}>
@@ -575,10 +577,12 @@ export default function MaterialScreen() {
 
       <View style={[styles.stickyBar, { paddingBottom: Platform.OS === "web" ? 34 : insets.bottom + 8 }]}>
         <Pressable
+          onPress={() => router.push("/bestellung" as any)}
           style={({ pressed }) => [
             styles.stickyBarButton,
             { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
           ]}
+          testID="cart-sticky-bar"
         >
           <View style={styles.stickyBarLeft}>
             <Ionicons name="cart" size={20} color="#fff" />
