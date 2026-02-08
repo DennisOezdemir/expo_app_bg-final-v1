@@ -1,0 +1,168 @@
+Build a role-based access system with 3 personas. Each user sees only what they need.
+
+--- ROLE DEFINITIONS ---
+
+GESCHÄFTSFÜHRER (Dennis):
+- Sees EVERYTHING
+- Focus: Marge, Geld, Entscheidungen
+- All tiles visible
+- Can approve/reject
+- Can see all projects, all financials
+- Voice assistant full access
+
+BAULEITER/IN (Ayse):
+- Sees: Projekte, Material, Planung, Begehungen, Chat, Fotos, Angebote
+- NOT: Financials, Marge-Zahlen, Rechnungen, Mahnungen
+- Can: Material bestellen (needs approval), Begehungen durchführen, Team planen
+- Cannot: Freigeben, Preise ändern, Rechnungen senden
+
+MONTEUR (Mehmet):
+- Sees: Meine Projekte (nur zugewiesene), Fotos, Chat, Zeiterfassung
+- NOT: Material-Preise, Marge, Angebote, Financials, Planung, Freigaben
+- Can: Fotos machen, Zeiten buchen, Chat schreiben, Mängel melden
+- Cannot: Bestellen, Freigeben, Planen, Rechnungen sehen
+
+--- HOME SCREEN PER ROLE ---
+
+GF (Dennis):
+┌──────────┐ ┌──────────┐
+│ Projekte │ │Freigaben │
+│ 12 aktiv │ │    3     │
+├──────────┤ ├──────────┤
+│ Material │ │ Planung  │
+│ 5 offen  │ │  KW 6    │
+├──────────┤ ├──────────┤
+│ Angebote │ │Financials│
+│ 4 offen  │ │   24%    │
+└──────────┘ └──────────┘
+
+BAULEITER (Ayse):
+┌──────────┐ ┌──────────┐
+│ Projekte │ │ Material │
+│ 5 aktiv  │ │ 3 offen  │
+├──────────┤ ├──────────┤
+│ Planung  │ │Begehungen│
+│  KW 6    │ │ 2 offen  │
+├──────────┤ ├──────────┤
+│  📸      │ │ Angebote │
+│Schnellf. │ │ 4 offen  │
+└──────────┘ └──────────┘
+
+MONTEUR (Mehmet):
+┌──────────────────────┐
+│    Mein Projekt      │
+│  Schwentnerring 13c  │
+│  Maler • Tag 5/10    │
+└──────────────────────┘
+┌──────────┐ ┌──────────┐
+│   📸     │ │    ⏰    │
+│  Foto    │ │  Zeiten  │
+├──────────┤ ├──────────┤
+│   💬     │ │    ⚠️    │
+│  Chat    │ │  Mangel  │
+└──────────┘ └──────────┘
+
+--- BOTTOM TAB BAR PER ROLE ---
+
+GF:      🏠 Start | 📋 Projekte | ✅ Freigaben | 📦 Material | 👤 Profil
+Bauleiter: 🏠 Start | 📋 Projekte | 📦 Material | 📅 Planung | 👤 Profil
+Monteur:  🏠 Start | 📋 Mein Job | 📸 Foto | ⏰ Zeiten | 👤 Profil
+
+--- PROJECT DETAIL PER ROLE ---
+
+GF sees:
+- Margin hero card (full numbers)
+- All quick actions
+- Alerts with € amounts
+- Positionen with prices
+- Budget info
+
+Bauleiter sees:
+- Progress hero (no margin, no €)
+- Quick actions: Material, Team, Foto, Chat (no Auftrag)
+- Alerts without € amounts
+- Positionen without prices
+- Begehungen section prominent
+
+Monteur sees:
+- Simple progress bar
+- Quick actions: Foto, Chat, Mangel only
+- Today's tasks: "Wände spachteln Wohnzimmer"
+- Checklist: what to do today
+- No prices, no budget, no margin anywhere
+
+--- ROLE SWITCHER (for Dennis testing) ---
+
+In Profil/Settings, only visible for GF role:
+Ansicht wechseln (nur zum Testen):
+[👔 Geschäftsführer] [👩‍💼 Bauleiter] [👷 Monteur]
+
+Tap → instantly switches view without logout.
+Banner at top when viewing as other role:
+"👁️ Du siehst die Ansicht als Bauleiter" [Zurück zu GF]
+
+--- MONTEUR SPECIFIC SCREENS ---
+
+"MEIN JOB" (replaces Projekte for Monteur):
+Heute • Montag 10. Feb
+📍 Schwentnerring 13c EG Links
+Maler • Tag 5
+AUFGABEN HEUTE:
+☐ Wände spachteln — Wohnzimmer
+☐ Decke grundieren — Flur
+☐ Raufaser kleben — Schlafzimmer
+☑️ Tiefgrund — Küche ✅
+MATERIAL VOR ORT:
+✅ Spachtelmasse — da
+✅ Tiefgrund — da
+⚠️ Vliesraufaser — fehlt! [Melden →]
+ZEIT HEUTE:
+⏰ 07:15 eingestempelt
+4:32h gearbeitet
+[Pause] [Feierabend]
+
+"ZEITERFASSUNG":
+┌────────────────────────────────┐
+│  ⏰ LÄUFT — 4:32:15           │
+│  Seit 07:15 Uhr               │
+│                                │
+│  📍 Schwentnerring 13c         │
+│                                │
+│  ┌────────┐  ┌────────────┐   │
+│  │☕ Pause │  │🏠 Feierabend│   │
+│  └────────┘  └────────────┘   │
+└────────────────────────────────┘
+DIESE WOCHE:
+Mo  7:15 — 16:00   8:00h  ✅
+Di  7:30 — 15:45   7:30h  ✅
+Mi  7:15 — ...     4:32h  ⏰ läuft
+Do  —              —      geplant
+Fr  —              —      geplant
+────────────────────────────
+Gesamt:            20:02h
+
+--- DATA FILTERING ---
+
+Role is stored in Supabase auth.users metadata or a roles table:
+user_roles:
+user_id UUID
+role TEXT — 'gf', 'bauleiter', 'monteur'
+assigned_projects UUID[] — for monteur: only their projects
+
+Every query filters by role:
+- Monteur: WHERE project_id IN (assigned_projects)
+- Bauleiter: all projects, but price columns excluded
+- GF: no filter
+
+--- IMPORTANT RULES ---
+
+1. Monteur NEVER sees € amounts — not in material, not in positions, nowhere
+2. Bauleiter sees material prices (needs it for ordering) but NOT project margin or financials
+3. Only GF can approve/reject in Freigaben
+4. Monteur photos auto-tagged with their name
+5. Zeiterfassung only visible for Monteur (GF sees it aggregated in Planung)
+6. Voice assistant adapts: Monteur can ask "Was muss ich heute machen?" but NOT "Wie ist die Marge?"
+
+All same design language: zinc-900, dark mode, amber accent.
+Monteur gets BIGGER buttons (gloves!), LESS text, MORE icons.
+German labels everywhere.

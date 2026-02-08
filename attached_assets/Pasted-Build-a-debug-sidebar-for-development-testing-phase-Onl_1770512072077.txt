@@ -1,0 +1,127 @@
+Build a debug sidebar for development/testing phase. Only visible for GF role.
+
+TOGGLE:
+- Small 🐛 bug icon in top bar, next to notification bell
+- Tap → sidebar slides in from right (320px wide)
+- Tap again or swipe right → closes
+- Persists across screen navigation
+
+SIDEBAR LAYOUT:
+┌──────────────────────────┐
+│ 🐛 Debug Console    [X]  │
+├──────────────────────────┤
+│                          │
+│ FILTER:                  │
+│ [Alle] [API] [Events]   │
+│ [Errors] [Auth]         │
+│                          │
+│ ─── 00:47:32 ───         │
+│                          │
+│ 🟢 GET /projects         │
+│    200 OK • 142ms        │
+│    12 rows               │
+│                          │
+│ 🟢 GET /project_materials│
+│    200 OK • 89ms         │
+│    160 rows              │
+│                          │
+│ 🟡 RPC search_products   │
+│    200 OK • 340ms ⚠️ slow│
+│    "vliesraufaser"       │
+│                          │
+│ 🔴 POST /approvals       │
+│    403 Forbidden         │
+│    RLS policy blocked    │
+│    user: monteur_mehmet  │
+│                          │
+│ ⚡ EVENT fired            │
+│    MATERIAL_ASSIGNED     │
+│    project: BL-2026-003  │
+│    product: Erfurt Vlies │
+│                          │
+│ 🤖 CLAUDE API             │
+│    Token: 1.240 in/380 out│
+│    Latency: 2.1s         │
+│    "Thermostatköpfe..."  │
+│                          │
+│ ─── 00:47:15 ───         │
+│                          │
+│ 🟢 AUTH login             │
+│    dennis@bauloewen.de   │
+│    role: gf              │
+│                          │
+├──────────────────────────┤
+│ 🔍 Filter...             │
+│                          │
+│ [📋 Copy All] [🗑️ Clear] │
+└──────────────────────────┘
+
+LOG ENTRY TYPES:
+
+API CALLS (green/red):
+- Method + endpoint
+- Status code + latency
+- Row count or error message
+- Tap → expand to show full request/response JSON
+
+EVENTS (⚡ amber):
+- Event type
+- Project context
+- Payload summary
+- Tap → full payload JSON
+
+ERRORS (🔴 rose):
+- Error message
+- Stack trace (collapsed)
+- Affected component
+- Tap → copy error to clipboard
+
+AUTH (🔵 blue):
+- Login/logout
+- Role changes
+- Permission checks
+
+CLAUDE/AI (🤖 purple):
+- Token usage in/out
+- Latency
+- Query preview
+- Tap → full prompt + response
+
+SUPABASE REALTIME (📡 cyan):
+- Subscription events
+- Channel joins/leaves
+- Broadcast messages
+
+FEATURES:
+- Auto-scroll to bottom (latest)
+- Pause auto-scroll button ⏸️
+- Search/filter across all logs
+- Copy single entry (tap and hold)
+- Copy all (for bug reports)
+- Clear button
+- Timestamp on every entry
+- Color-coded by type
+- Latency warnings: >200ms yellow, >500ms red
+- Counter in 🐛 icon: shows error count (red badge)
+
+FEEDBACK INPUT (bottom of sidebar):
+┌──────────────────────────┐
+│ 💬 Feedback/Bug...  [➤]  │
+└──────────────────────────┘
+- Type a note → saves to Supabase table `debug_feedback`
+- Auto-attaches: current screen, timestamp, last 10 log entries
+- Shows: "✅ Feedback gespeichert"
+
+MOBILE:
+- Not a sidebar but a bottom sheet (full width, 60% height)
+- Same content, same toggle via 🐛 icon
+- Swipe down to close
+
+ONLY VISIBLE:
+- When user role = 'gf'
+- AND app is in dev/staging mode
+- Hidden in production (env flag)
+
+zinc-900 sidebar bg.
+Mono font for all log entries.
+Compact line height — max info, min space.
