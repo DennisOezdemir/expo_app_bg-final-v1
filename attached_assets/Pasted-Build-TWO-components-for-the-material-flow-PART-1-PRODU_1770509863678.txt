@@ -1,0 +1,100 @@
+Build TWO components for the material flow:
+
+--- PART 1: PRODUCT ASSIGNMENT BOTTOM SHEET ---
+
+Triggered when user taps "Zuordnen →" on an open material item.
+Bottom sheet slides up (70% screen height).
+
+HEADER:
+- "Vliesraufaser zuordnen" bold
+- "Bedarf: 12 Rollen (25m)" zinc-400
+- "Für: 8 Positionen (Wohnzimmer, Flur, Schlafzimmer)" zinc-400
+- X close button top right
+
+SEARCH:
+┌────────────────────────────────────┐
+│ 🔍 Produkt suchen...              │
+└────────────────────────────────────┘
+
+SUGGESTIONS (sorted by use_count, favorites first):
+⭐ Erfurt Vlies Rauhfaser 52        €18,90
+MEGA • Art. 4523100
+3x verwendet
+[WÄHLEN]
+Marburg Patent Vlies              €22,50
+Delmes • Art. 9871
+1x verwendet
+[WÄHLEN]
+Brillux Vliesfaser 120           €24,80
+Brillux Direkt • Art. VF120
+Neu
+[WÄHLEN]
+
+[➕ Neues Produkt anlegen]
+→ Opens inline form: Name, Lieferant (dropdown), Artikelnr, Preis, Einheit
+→ Save → auto-selects
+
+AFTER SELECTION:
+- "✅ Erfurt Vlies Rauhfaser zugeordnet"
+- Green flash
+- Sheet closes
+- Material row updates: ⚠️ → ✅ MEGA
+- Gewerk progress bar updates
+
+--- PART 2: WARENKORB / BESTELLÜBERSICHT ---
+
+Accessed via 🛒 icon on material screen. Shows all confirmed materials ready to order.
+
+HEADER:
+- Back arrow ←
+- "Bestellung" large bold
+- "BL-2026-003 • Schwentnerring" zinc-400
+
+GROUPED BY SUPPLIER:
+🏪 MEGA eG
+Kd.Nr: 48291 📋 (tap to copy)
+📞 040-123456  📧 bestellung@mega.de
+12x Vliesraufaser Erfurt 52      €226,80
+12x Vlieskleber 16kg             €311,40
+4x Dispersionsfarbe 10L         €171,60
+2x Tiefgrund 5L                  €57,80
+─────────────────────────────────
+Summe netto:                     €767,60
+┌────────────────────────────────┐
+│  📧 Bestellung senden          │
+└────────────────────────────────┘
+🏪 Süding & Soeken
+Kd.Nr: S-1192
+📞 040-789012
+2x Eckventil DN15               €17,60
+1x Siphon Ablauf                €11,90
+4x Flexschlauch 3/8             €23,60
+─────────────────────────────────
+Summe netto:                      €53,10
+┌────────────────────────────────┐
+│  📧 Bestellung senden          │
+└────────────────────────────────┘
+
+BOTTOM STICKY:
+┌────────────────────────────────────────┐
+│  GESAMT: €820,70 netto                │
+│  Budget-Rest nach Bestellung: €539,30 │
+│                                        │
+│  Budget: ████████████░░ 87% 🟡        │
+└────────────────────────────────────────┘
+
+"Bestellung senden" opens confirmation:
+- "Bestellung an MEGA senden?"
+- "12 Artikel • €767,60 netto"
+- [Abbrechen] [✅ Senden]
+- After send: email draft opens OR auto-sends via n8n
+
+EDIT IN CART:
+- Swipe left on item → [🗑️ Entfernen]
+- Tap quantity → edit inline
+- Tap price → override (warning: "⚠️ Abweichung vom Katalogpreis")
+
+All zinc-900 cards, rounded-2xl.
+Supplier grouped, not material grouped.
+Kundennummer prominent — for phone orders.
+German labels.

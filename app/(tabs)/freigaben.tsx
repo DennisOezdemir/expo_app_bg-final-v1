@@ -27,6 +27,7 @@ import {
   GestureDetector,
 } from "react-native-gesture-handler";
 import { useState, useCallback, useMemo } from "react";
+import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
@@ -125,12 +126,14 @@ function SwipeableCard({
   approval,
   onApprove,
   onReject,
+  onViewDetails,
   isTop,
   stackIndex,
 }: {
   approval: Approval;
   onApprove: () => void;
   onReject: () => void;
+  onViewDetails: () => void;
   isTop: boolean;
   stackIndex: number;
 }) {
@@ -264,10 +267,12 @@ function SwipeableCard({
           <Text style={cardStyles.created}>{approval.createdAgo}</Text>
 
           <Pressable
+            onPress={onViewDetails}
             style={({ pressed }) => [
               cardStyles.detailsButton,
               { opacity: pressed ? 0.7 : 1 },
             ]}
+            testID="details-button"
           >
             <Ionicons name="document-text-outline" size={16} color={Colors.raw.amber500} />
             <Text style={cardStyles.detailsButtonText}>Details ansehen</Text>
@@ -493,6 +498,7 @@ const emptyStyles = StyleSheet.create({
 export default function FreigabenScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
+  const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
@@ -578,6 +584,7 @@ export default function FreigabenScreen() {
                   stackIndex={stackIndex}
                   onApprove={() => handleDismiss(approval.id)}
                   onReject={() => handleDismiss(approval.id)}
+                  onViewDetails={() => router.push(`/freigabe/${approval.id}` as any)}
                 />
               );
             })
