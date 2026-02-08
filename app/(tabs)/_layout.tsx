@@ -4,8 +4,10 @@ import { NativeTabs, Icon, Label, Badge } from "expo-router/unstable-native-tabs
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View, Text } from "react-native";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
-import React from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import React, { useState } from "react";
 import Colors from "@/constants/colors";
+import { FAB, AssistantOverlay } from "@/components/BGAssistant";
 
 function NativeTabLayout() {
   return (
@@ -157,8 +159,21 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
+  const [assistantVisible, setAssistantVisible] = useState(false);
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === "web";
+  const tabBarHeight = isWeb ? 84 : (Platform.OS === "ios" ? 49 + insets.bottom : 56);
+  const fabBottom = tabBarHeight + 16;
+
+  const useLiquidGlass = isLiquidGlassAvailable();
+
+  return (
+    <View style={{ flex: 1 }}>
+      {useLiquidGlass ? <NativeTabLayout /> : <ClassicTabLayout />}
+      <View style={{ position: "absolute", right: 20, bottom: fabBottom, zIndex: 50 }}>
+        <FAB onPress={() => setAssistantVisible(true)} />
+      </View>
+      <AssistantOverlay visible={assistantVisible} onClose={() => setAssistantVisible(false)} />
+    </View>
+  );
 }

@@ -293,12 +293,8 @@ export function FAB({ onPress }: { onPress: () => void }) {
 
 const fabStyles = StyleSheet.create({
   container: {
-    position: "absolute",
-    right: 20,
-    bottom: 0,
     width: 56,
     height: 56,
-    zIndex: 50,
   },
   pulse: {
     position: "absolute",
