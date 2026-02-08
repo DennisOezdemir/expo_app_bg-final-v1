@@ -634,12 +634,12 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<Ionicons name="clipboard" size={24} color={Colors.raw.amber500} />}
             label="Auftrag"
-            onPress={() => router.push({ pathname: "/auftrag/[id]", params: { id: id || "1" } })}
+            onPress={() => router.push({ pathname: "/begehung/[type]", params: { type: "erstbegehung", tab: "auftrag" } })}
           />
           <QuickAction
             icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
             label="Material"
-            onPress={() => router.push({ pathname: "/auftrag/[id]", params: { id: id || "1", tab: "material" } })}
+            onPress={() => router.push({ pathname: "/begehung/[type]", params: { type: "erstbegehung", tab: "material" } })}
           />
           <QuickAction
             icon={<Ionicons name="people" size={24} color={Colors.raw.amber500} />}

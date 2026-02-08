@@ -974,7 +974,7 @@ const sectionStyles = StyleSheet.create({
 });
 
 export default function BegehungDetailScreen() {
-  const { type } = useLocalSearchParams<{ type: string }>();
+  const { type, tab } = useLocalSearchParams<{ type: string; tab?: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -983,7 +983,8 @@ export default function BegehungDetailScreen() {
   const meta = TYPE_LABELS[typeKey] || TYPE_LABELS.zwischenbegehung;
   const showMaengel = typeKey !== "erstbegehung";
 
-  const [activeTab, setActiveTab] = useState<"checkliste" | "auftrag" | "material">("checkliste");
+  const initialTab = tab === "auftrag" ? "auftrag" : tab === "material" ? "material" : "checkliste";
+  const [activeTab, setActiveTab] = useState<"checkliste" | "auftrag" | "material">(initialTab);
 
   const [items, setItems] = useState<CheckItem[]>(
     () => CHECKLISTS[typeKey] || CHECKLISTS.zwischenbegehung
