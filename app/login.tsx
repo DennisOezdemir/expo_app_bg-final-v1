@@ -175,7 +175,7 @@ export default function LoginScreen() {
     setInviteLoading(true);
     await completeInvite(inviteName, invitePassword);
     setTimeout(() => {
-      router.replace("/(tabs)" as any);
+      try { router.replace("/(tabs)" as any); } catch {}
     }, 500);
   };
 
