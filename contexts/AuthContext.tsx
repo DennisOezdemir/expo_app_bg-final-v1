@@ -8,6 +8,7 @@ interface AuthContextValue {
   user: { name: string; email: string; role: string; gewerk?: string } | null;
   isInvite: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  socialLogin: (provider: "google" | "apple") => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   markSplashSeen: () => Promise<void>;
   setInviteMode: (invite: boolean) => void;
@@ -63,6 +64,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: true };
   };
 
+  const socialLogin = async (provider: "google" | "apple"): Promise<{ success: boolean; error?: string }> => {
+    await new Promise(r => setTimeout(r, 1000));
+    const providerEmail = provider === "google" ? "dennis@gmail.com" : "dennis@icloud.com";
+    const userData = { name: "Dennis Müller", email: providerEmail, role: "GF" };
+    setUser(userData);
+    setIsAuthenticated(true);
+    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(userData));
+    return { success: true };
+  };
+
   const logout = async () => {
     setIsAuthenticated(false);
     setUser(null);
@@ -100,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     isInvite,
     login,
+    socialLogin,
     logout,
     markSplashSeen,
     setInviteMode,

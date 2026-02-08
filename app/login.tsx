@@ -32,7 +32,7 @@ type Screen = "login" | "magic" | "invite" | "biometric";
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { login, sendMagicLink, sendPasswordReset, completeInvite, isInvite } = useAuth();
+  const { login, socialLogin, sendMagicLink, sendPasswordReset, completeInvite, isInvite } = useAuth();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -44,6 +44,7 @@ export default function LoginScreen() {
   const [passwordError, setPasswordError] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [socialLoadingProvider, setSocialLoadingProvider] = useState<"google" | "apple" | null>(null);
   const [success, setSuccess] = useState(false);
 
   const [magicEmail, setMagicEmail] = useState("");
@@ -94,6 +95,25 @@ export default function LoginScreen() {
   const flashStyle = useAnimatedStyle(() => ({
     opacity: successFlash.value,
   }));
+
+  const handleSocialLogin = async (provider: "google" | "apple") => {
+    if (socialLoadingProvider || loading) return;
+    setSocialLoadingProvider(provider);
+    const result = await socialLogin(provider);
+    if (result.success) {
+      setSuccess(true);
+      successFlash.value = withSequence(
+        withTiming(0.3, { duration: 200 }),
+        withTiming(0, { duration: 300 })
+      );
+      setTimeout(() => {
+        router.replace("/(tabs)" as any);
+      }, 600);
+    } else {
+      setSocialLoadingProvider(null);
+      setLoginError(result.error || "Anmeldung fehlgeschlagen");
+    }
+  };
 
   const handleLogin = async () => {
     if (!isFormValid || loading) return;
@@ -234,22 +254,36 @@ export default function LoginScreen() {
 
       <Pressable
         style={({ pressed }) => [styles.socialBtn, { opacity: pressed ? 0.85 : 1 }]}
-        onPress={() => {}}
+        onPress={() => handleSocialLogin("google")}
+        disabled={!!socialLoadingProvider || loading}
         testID="login-google"
       >
-        <View style={styles.socialIconWrap}>
-          <Text style={styles.googleG}>G</Text>
-        </View>
-        <Text style={styles.socialBtnText}>Mit Google anmelden</Text>
+        {socialLoadingProvider === "google" ? (
+          <ActivityIndicator size="small" color="#4285F4" />
+        ) : (
+          <>
+            <View style={styles.socialIconWrap}>
+              <Text style={styles.googleG}>G</Text>
+            </View>
+            <Text style={styles.socialBtnText}>Mit Google anmelden</Text>
+          </>
+        )}
       </Pressable>
 
       <Pressable
         style={({ pressed }) => [styles.socialBtn, { opacity: pressed ? 0.85 : 1, marginTop: 10 }]}
-        onPress={() => {}}
+        onPress={() => handleSocialLogin("apple")}
+        disabled={!!socialLoadingProvider || loading}
         testID="login-apple"
       >
-        <Ionicons name="logo-apple" size={20} color="#000" />
-        <Text style={styles.socialBtnText}>Mit Apple anmelden</Text>
+        {socialLoadingProvider === "apple" ? (
+          <ActivityIndicator size="small" color="#000" />
+        ) : (
+          <>
+            <Ionicons name="logo-apple" size={20} color="#000" />
+            <Text style={styles.socialBtnText}>Mit Apple anmelden</Text>
+          </>
+        )}
       </Pressable>
 
       <Pressable
