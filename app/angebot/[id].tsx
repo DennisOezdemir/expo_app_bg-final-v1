@@ -544,7 +544,7 @@ export default function AngebotScreen() {
       <View style={[styles.stickyActions, { paddingBottom: bottomInset + 12 }]}>
         {status === "entwurf" && (
           <>
-            <Pressable style={({ pressed }) => [styles.actionOutline, { flex: 1, opacity: pressed ? 0.85 : 1 }]}>
+            <Pressable onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: params.id } })} style={({ pressed }) => [styles.actionOutline, { flex: 1, opacity: pressed ? 0.85 : 1 }]}>
               <Feather name="edit-2" size={18} color={Colors.raw.amber500} />
               <Text style={styles.actionOutlineText}>Bearbeiten</Text>
             </Pressable>

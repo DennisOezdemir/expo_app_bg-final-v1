@@ -396,6 +396,9 @@ function OfferCard({ offer, onPress }: { offer: Offer; onPress: () => void }) {
               if (Platform.OS !== "web") {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               }
+              if (a.label === "Bearbeiten") {
+                router.push({ pathname: "/angebot/editor", params: { offerId: offer.id } });
+              }
             }}
             style={({ pressed }) => [
               cardStyles.actionBtn,
@@ -653,6 +656,7 @@ export default function AngeboteListScreen() {
         </Pressable>
         <View style={{ flex: 1 }} />
         <Pressable
+          onPress={() => router.push("/angebot/editor")}
           style={({ pressed }) => [s.newBtn, { opacity: pressed ? 0.8 : 1 }]}
           testID="new-offer-btn"
         >

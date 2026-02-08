@@ -36,6 +36,7 @@ function RootLayoutNav() {
       <Stack.Screen name="chat/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="foto/index" options={{ headerShown: false, animation: "slide_from_bottom" }} />
       <Stack.Screen name="angebot/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+      <Stack.Screen name="angebot/editor" options={{ headerShown: false, animation: "slide_from_bottom" }} />
       <Stack.Screen name="angebote/index" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="finanzen/index" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="rechnung/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
