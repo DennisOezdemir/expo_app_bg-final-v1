@@ -562,8 +562,10 @@ export default function ProjectDetailScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const marginPercent = 18;
-  const marginColor = marginPercent < 20 ? Colors.raw.rose500 : Colors.raw.emerald500;
+  const angebotValue = 12400;
+  const ergebnisValue = 2232;
+  const marginPercent = Math.round((ergebnisValue / angebotValue) * 100);
+  const marginColor = marginPercent >= 20 ? "#22C55E" : marginPercent >= 10 ? "#F59E0B" : "#EF4444";
 
   return (
     <View style={styles.container}>
@@ -602,20 +604,15 @@ export default function ProjectDetailScreen() {
         </View>
 
         <SectionCard>
-          <View style={styles.marginCenter}>
-            <MarginRing percent={marginPercent} color={marginColor} />
-          </View>
           <View style={styles.marginBreakdown}>
             <View style={styles.marginCol}>
               <Text style={styles.marginLabel}>Angebot</Text>
               <Text style={styles.marginValue}>{"\u20AC"}12.400</Text>
             </View>
-            <View style={styles.marginDivider} />
             <View style={styles.marginCol}>
-              <Text style={styles.marginLabel}>Kosten</Text>
-              <Text style={styles.marginValue}>{"\u20AC"}10.168</Text>
+              <Text style={styles.marginLabel}>Marge</Text>
+              <Text style={[styles.marginValueLarge, { color: marginColor }]}>{marginPercent}%</Text>
             </View>
-            <View style={styles.marginDivider} />
             <View style={styles.marginCol}>
               <Text style={styles.marginLabel}>Ergebnis</Text>
               <Text style={[styles.marginValue, { color: marginColor }]}>
@@ -848,9 +845,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.raw.zinc500,
   },
-  marginCenter: {
-    alignItems: "center",
-  },
   marginBreakdown: {
     flexDirection: "row",
     alignItems: "center",
@@ -862,19 +856,18 @@ const styles = StyleSheet.create({
   },
   marginLabel: {
     fontFamily: "Inter_500Medium",
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.raw.zinc500,
     marginBottom: 4,
   },
   marginValue: {
     fontFamily: "Inter_700Bold",
-    fontSize: 16,
+    fontSize: 20,
     color: Colors.raw.white,
   },
-  marginDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: Colors.raw.zinc800,
+  marginValueLarge: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 20,
   },
   qaScroll: {
     marginBottom: 16,

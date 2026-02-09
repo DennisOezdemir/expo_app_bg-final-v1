@@ -1,0 +1,52 @@
+ÄNDERUNG: Material-Tab (Erstbegehung → Material Tab)
+
+KONTEXT: Aktuell zeigt der Material-Tab eine flache Liste einzelner Artikel 
+mit Status-Badges (GELIEFERT, BESTELLT, VERBRAUCHT). 
+Darüber gibt es 4 Status-Zähler (Offen/Bestellt/Geliefert/Verbraucht).
+
+WAS ÄNDERN:
+
+1. Die 4 Status-Zähler oben (Offen 4 / Bestellt 3 / Geliefert 4 / Verbraucht 1) 
+   BLEIBEN wie sie sind. Nicht anfassen.
+
+2. Der Titel "Materialliste" mit dem + Button BLEIBT. Nicht anfassen.
+
+3. ERSETZE die flache Artikelliste DARUNTER durch eine gruppierte Gewerk-Liste.
+   Jedes Gewerk ist eine aufklappbare Accordion-Sektion:
+
+   LAYOUT PRO GEWERK (zugeklappt):
+   ┌─────────────────────────────────────────────────┐
+   │ 🔥 Sanitär           8 Artikel    €890    ▼    │
+   │ ███████░░░ 62% geliefert                       │
+   └─────────────────────────────────────────────────┘
+
+   - Links: Gewerk-Icon + Name (bold, weiß, 15px)
+   - Mitte-rechts: Artikelanzahl (grau, 12px) + Gesamtkosten (weiß, 14px bold)
+   - Darunter: schmaler Fortschrittsbalken (Farbe #F59E0B für bestellt, 
+     #22C55E für geliefert, grau für offen)
+   - Rechts: Chevron ▼ zum Aufklappen
+
+4. Wenn man ein Gewerk antippt, klappt es auf und zeigt die Einzelartikel 
+   GENAU wie sie jetzt schon aussehen (mit Status-Badge, Menge, Lieferant, Datum).
+   
+5. Die Gewerke und ihre Icons (verwende diese Emoji):
+   - 🔥 Sanitär
+   - 🔧 Heizung  
+   - 🧱 Fliesen / Maurer
+   - ⚡ Elektro
+   - 🎨 Maler
+   - 🪚 Tischler
+   - 🏗️ Boden / Bodenbelag
+   - 📦 Allgemein
+
+6. Die Mock-Daten: Verteile die bestehenden Artikel auf die Gewerke:
+   - Sanitär: Waschtisch monti..., WC montieren
+   - Fliesen: Wandfliesen Bad, Bodenfliesen Bad, Fliesenkleber Flex S1
+   - Maler: Erfurt Vlies Rauhfaser 52, Dispersionsfarbe weiß, Tiefengrund LF
+   - Boden: Laminat Eiche Natur NK32
+
+7. NICHTS ANDERES auf diesem Screen ändern.
+   Nicht den Header (Erstbegehung / BL-2026-003).
+   Nicht die Tabs (Checkliste / Auftrag / Material).
+   Nicht die Status-Zähler oben.
+   NUR die Artikelliste durch die Gewerk-Accordion-Liste ersetzen.
