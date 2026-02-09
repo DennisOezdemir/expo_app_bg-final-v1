@@ -1,0 +1,111 @@
+ÄNDERUNG: Erstbegehung → Auftrag Tab (Raum-Sektionen)
+
+KONTEXT: Im Auftrag-Tab gibt es aufklappbare Raum-Sektionen 
+(Bad, Küche, Wohnzimmer, etc.). Jede Sektion zeigt nummerierte 
+Positionen (01 Wandfliesen Bad, 02 Bodenfliesen Bad, etc.) 
+mit Status-Badges.
+
+WAS HINZUFÜGEN:
+
+1. UNTER der letzten Position JEDER Raum-Sektion kommt ein neues Feld.
+   Platzierung: direkt nach dem letzten Artikel, noch innerhalb 
+   der aufgeklappten Raum-Sektion, VOR dem nächsten Raum-Header.
+
+   Layout des Feldes (zugeklappt / Ruhezustand):
+   ┌─────────────────────────────────────────────────┐
+   │  ＋  Zusatzleistung erfassen                     │
+   └─────────────────────────────────────────────────┘
+   - Gestrichelte Border (#333333), kein Hintergrund
+   - Text in #F59E0B (orange), 14px
+   - Das + Icon ebenfalls orange
+
+2. Wenn man auf "+ Zusatzleistung erfassen" tippt, öffnet sich 
+   INLINE (kein neuer Screen, kein Modal) ein Formular-Bereich 
+   direkt an dieser Stelle. Der Bereich expanded nach unten.
+
+   Layout des aufgeklappten Formulars:
+   ┌─────────────────────────────────────────────────┐
+   │  Zusatzleistung erfassen                    ✕   │
+   │                                                 │
+   │  🔍 Katalogposition suchen...                   │
+   │  ┌─────────────────────────────────────────┐    │
+   │  │  Suchfeld (Freitext)                    │    │
+   │  └─────────────────────────────────────────┘    │
+   │                                                 │
+   │  (Suchergebnisse erscheinen hier als Liste)     │
+   │  ┌─────────────────────────────────────────┐    │
+   │  │ 2.1 Tapeten entfernen   Maler   €185,63 │    │
+   │  │ 2.4 Nikotin Sperrgrund  Maler   €185,63 │    │
+   │  │ 5.4 Estrich spachteln   Boden   €143,40 │    │
+   │  └─────────────────────────────────────────┘    │
+   │                                                 │
+   │  Ausgewählt: 2.1 Tapeten entfernen              │
+   │                                                 │
+   │  Anmerkung (optional):                          │
+   │  ┌─────────────────────────────────────────┐    │
+   │  │  Freitext...                            │    │
+   │  └─────────────────────────────────────────┘    │
+   │                                                 │
+   │  📷 Foto aufnehmen *                            │
+   │  ┌────────┐                                     │
+   │  │        │  (Platzhalter oder Vorschaubild)    │
+   │  │  📷    │                                     │
+   │  │        │                                     │
+   │  └────────┘                                     │
+   │  * Pflichtfeld                                  │
+   │                                                 │
+   │  ┌─────────────────────────────────────────┐    │
+   │  │      Zusatzleistung hinzufügen          │    │
+   │  └─────────────────────────────────────────┘    │
+   │  Button: Hintergrund #F59E0B, Text schwarz,     │
+   │  bold. DISABLED (ausgegraut) solange kein Foto. │
+   └─────────────────────────────────────────────────┘
+
+3. Das Suchfeld: Wenn der User tippt (z.B. "Tapete"), werden 
+   Mock-Ergebnisse gefiltert aus dieser Liste:
+   
+   Mock-Katalogdaten (hardcode diese als Array):
+   - { nr: "1.1", text: "Deckenanstrich streichen", gewerk: "Maler", preis: 99.00 }
+   - { nr: "1.4", text: "Putzschäden Decke instand setzen", gewerk: "Maler", preis: 60.16 }
+   - { nr: "1.5", text: "Rauhfasertapete Decke", gewerk: "Maler", preis: 123.74 }
+   - { nr: "2.1", text: "Tapeten entfernen und Wände glätten", gewerk: "Maler", preis: 185.63 }
+   - { nr: "2.4", text: "Nikotin Isoliergrund streichen", gewerk: "Maler", preis: 185.63 }
+   - { nr: "5.4", text: "Estrich spachteln und ausgleichen", gewerk: "Boden", preis: 143.40 }
+   - { nr: "5.6", text: "PVC Design-Belag verlegen", gewerk: "Boden", preis: 610.85 }
+   - { nr: "10.2", text: "Fensterbank liefern und montieren", gewerk: "Tischler", preis: 131.44 }
+   - { nr: "16.1", text: "Türblatt lackieren", gewerk: "Tischler", preis: 74.25 }
+   - { nr: "20.2", text: "Flachheizkörper lackieren", gewerk: "Heizung", preis: 61.88 }
+   - { nr: "29.1", text: "Lichtschalter liefern und montieren", gewerk: "Elektro", preis: 24.16 }
+   - { nr: "30.2", text: "Doppelsteckdose liefern und montieren", gewerk: "Elektro", preis: 32.21 }
+   
+   Suche filtert nach "text" Feld (contains, case-insensitive).
+   Maximal 5 Ergebnisse anzeigen.
+
+4. Suchergebnis-Zeilen: Wenn man eine Zeile antippt, wird sie 
+   als "Ausgewählt" markiert (orange Hintergrund, kurz), und 
+   der Text "Ausgewählt: [Nr] [Text]" erscheint unter dem Suchfeld.
+
+5. Foto-Bereich: Der 📷 Button öffnet KEINEN echten Kamera-Dialog 
+   (ist Mock). Beim Antippen soll ein Platzhalter-Bild erscheinen 
+   (grauer Kasten mit "foto_001.jpg" Text darin, 80x80px).
+   Darunter steht "* Pflichtfeld" in rot (#EF4444, 11px).
+
+6. Der "Zusatzleistung hinzufügen" Button ist DISABLED (opacity 0.4) 
+   solange NICHT beide Bedingungen erfüllt sind:
+   - Eine Katalogposition ist ausgewählt
+   - Ein Foto ist "aufgenommen" (Platzhalter sichtbar)
+   
+   Wenn beide erfüllt: Button wird aktiv (volle opacity).
+
+7. Nach Tippen auf den aktiven Button:
+   - Formular klappt zu
+   - Die neue Zusatzleistung erscheint ALS NEUE POSITION am Ende 
+     der Raum-Liste, mit einem orangenen Badge "ZUSATZ" statt 
+     der normalen Status-Badges
+   - Das + Zusatzleistung Feld erscheint wieder darunter 
+     (für weitere Einträge)
+
+8. NICHTS ANDERES auf diesem Screen ändern.
+   Nicht den Header. Nicht die SOLL/IST Werte oben.
+   Nicht die Filter-Buttons. Nicht die bestehenden Positionen.
+   NUR das neue Feld unter jeder Raum-Sektion hinzufügen.
