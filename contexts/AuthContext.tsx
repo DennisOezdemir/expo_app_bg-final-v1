@@ -1,50 +1,78 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "@/lib/supabase";
+import type { User } from "@supabase/supabase-js";
+
+interface AppUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  gewerk?: string;
+}
 
 interface AuthContextValue {
   isAuthenticated: boolean;
   splashSeen: boolean;
   isLoading: boolean;
-  user: { name: string; email: string; role: string; gewerk?: string } | null;
+  user: AppUser | null;
   isInvite: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   socialLogin: (provider: "google" | "apple") => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   markSplashSeen: () => Promise<void>;
   setInviteMode: (invite: boolean) => void;
-  completeInvite: (name: string, password: string) => Promise<{ success: boolean }>;
-  sendMagicLink: (email: string) => Promise<{ success: boolean }>;
-  sendPasswordReset: (email: string) => Promise<{ success: boolean }>;
+  completeInvite: (name: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  sendMagicLink: (email: string) => Promise<{ success: boolean; error?: string }>;
+  sendPasswordReset: (email: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const SPLASH_KEY = "baugenius_splash_seen";
-const AUTH_KEY = "baugenius_auth_user";
+
+function mapSupabaseUser(user: User): AppUser {
+  const meta = user.user_metadata ?? {};
+  return {
+    id: user.id,
+    name: meta.full_name || meta.name || user.email?.split("@")[0] || "Benutzer",
+    email: user.email || "",
+    role: meta.role || "GF",
+    gewerk: meta.gewerk,
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [splashSeen, setSplashSeen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [user, setUser] = useState<AuthContextValue["user"]>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [isInvite, setIsInvite] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const [splashFlag, authData] = await Promise.all([
-          AsyncStorage.getItem(SPLASH_KEY),
-          AsyncStorage.getItem(AUTH_KEY),
-        ]);
-        if (splashFlag === "true") setSplashSeen(true);
-        if (authData) {
-          const parsed = JSON.parse(authData);
-          setUser(parsed);
-          setIsAuthenticated(true);
-        }
-      } catch {}
+    AsyncStorage.getItem(SPLASH_KEY).then((val) => {
+      if (val === "true") setSplashSeen(true);
+    });
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser(mapSupabaseUser(session.user));
+        setIsAuthenticated(true);
+      }
       setIsLoading(false);
-    })();
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(mapSupabaseUser(session.user));
+        setIsAuthenticated(true);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const markSplashSeen = async () => {
@@ -53,54 +81,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    await new Promise(r => setTimeout(r, 1200));
-    if (password.length < 8) {
-      return { success: false, error: "Email oder Passwort falsch" };
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      return { success: false, error: error.message === "Invalid login credentials"
+        ? "Email oder Passwort falsch"
+        : error.message };
     }
-    const userData = { name: "Dennis Müller", email, role: "GF" };
-    setUser(userData);
-    setIsAuthenticated(true);
-    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(userData));
     return { success: true };
   };
 
   const socialLogin = async (provider: "google" | "apple"): Promise<{ success: boolean; error?: string }> => {
-    await new Promise(r => setTimeout(r, 1000));
-    const providerEmail = provider === "google" ? "dennis@gmail.com" : "dennis@icloud.com";
-    const userData = { name: "Dennis Müller", email: providerEmail, role: "GF" };
-    setUser(userData);
-    setIsAuthenticated(true);
-    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(userData));
+    const { error } = await supabase.auth.signInWithOAuth({ provider });
+    if (error) {
+      return { success: false, error: error.message };
+    }
     return { success: true };
   };
 
   const logout = async () => {
-    setIsAuthenticated(false);
-    setUser(null);
-    await AsyncStorage.removeItem(AUTH_KEY);
+    await supabase.auth.signOut();
     await AsyncStorage.removeItem(SPLASH_KEY);
     setSplashSeen(false);
   };
 
   const setInviteMode = (invite: boolean) => setIsInvite(invite);
 
-  const completeInvite = async (name: string, password: string): Promise<{ success: boolean }> => {
-    await new Promise(r => setTimeout(r, 1000));
-    const userData = { name, email: "monteur@bauloewen.de", role: "Monteur", gewerk: "Maler" };
-    setUser(userData);
-    setIsAuthenticated(true);
+  const completeInvite = async (name: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const { error } = await supabase.auth.updateUser({
+      password,
+      data: { full_name: name },
+    });
+    if (error) {
+      return { success: false, error: error.message };
+    }
     setIsInvite(false);
-    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(userData));
     return { success: true };
   };
 
-  const sendMagicLink = async (email: string): Promise<{ success: boolean }> => {
-    await new Promise(r => setTimeout(r, 800));
+  const sendMagicLink = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    const { error } = await supabase.auth.signInWithOtp({ email });
+    if (error) {
+      return { success: false, error: error.message };
+    }
     return { success: true };
   };
 
-  const sendPasswordReset = async (email: string): Promise<{ success: boolean }> => {
-    await new Promise(r => setTimeout(r, 800));
+  const sendPasswordReset = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) {
+      return { success: false, error: error.message };
+    }
     return { success: true };
   };
 

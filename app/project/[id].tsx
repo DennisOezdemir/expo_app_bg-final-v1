@@ -5,6 +5,7 @@ import {
   ScrollView,
   Platform,
   Pressable,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -14,72 +15,53 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as Haptics from "expo-haptics";
-import Svg, { Circle } from "react-native-svg";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-const RING_SIZE = 150;
-const STROKE_WIDTH = 12;
-const RADIUS = (RING_SIZE - STROKE_WIDTH) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+// --- Types ---
 
-function MarginRing({ percent, color }: { percent: number; color: string }) {
-  const strokeDashoffset = CIRCUMFERENCE * (1 - percent / 100);
-  return (
-    <View style={ringStyles.container}>
-      <Svg width={RING_SIZE} height={RING_SIZE} style={ringStyles.svg}>
-        <Circle
-          cx={RING_SIZE / 2}
-          cy={RING_SIZE / 2}
-          r={RADIUS}
-          stroke={Colors.raw.zinc800}
-          strokeWidth={STROKE_WIDTH}
-          fill="none"
-        />
-        <Circle
-          cx={RING_SIZE / 2}
-          cy={RING_SIZE / 2}
-          r={RADIUS}
-          stroke={color}
-          strokeWidth={STROKE_WIDTH}
-          fill="none"
-          strokeDasharray={`${CIRCUMFERENCE}`}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          rotation="-90"
-          origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
-        />
-      </Svg>
-      <View style={ringStyles.center}>
-        <Text style={[ringStyles.value, { color }]}>{percent}%</Text>
-      </View>
-    </View>
-  );
+interface ProjectData {
+  id: string;
+  project_number: string;
+  name: string;
+  display_name: string | null;
+  object_street: string;
+  object_zip: string;
+  object_city: string;
+  object_floor: string | null;
+  status: string | null;
+  budget_net: number | null;
+  progress_percent: number | null;
+  planned_start: string | null;
+  planned_end: string | null;
+  client_id: string | null;
 }
 
-const ringStyles = StyleSheet.create({
-  container: {
-    width: RING_SIZE,
-    height: RING_SIZE,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  svg: {
-    position: "absolute",
-  },
-  center: {
-    alignItems: "center",
-  },
-  value: {
-    fontFamily: "Inter_800ExtraBold",
-    fontSize: 42,
-    lineHeight: 46,
-  },
-});
+interface OfferData {
+  total_net: number | null;
+  status: string | null;
+}
+
+interface InspectionData {
+  id: string;
+  protocol_type: string;
+  inspection_date: string;
+  status: string | null;
+}
+
+interface MessageData {
+  id: string;
+  message_type: string;
+  text: string | null;
+  sender_id: string | null;
+  created_at: string;
+}
+
+// --- Reusable Components ---
 
 function QuickAction({
   icon,
@@ -224,26 +206,43 @@ const shStyles = StyleSheet.create({
 
 type BegehungStatus = "erledigt" | "geplant" | "offen";
 
-interface Begehung {
-  name: string;
-  status: BegehungStatus;
-  date?: string;
-}
-
-const BEGEHUNGEN: Begehung[] = [
-  { name: "Erstbegehung", status: "erledigt", date: "03.02.2026" },
-  { name: "Zwischenbegehung", status: "geplant", date: "10.02." },
-  { name: "Abnahme", status: "offen" },
-];
-
 const BEGEHUNG_CONFIG: Record<BegehungStatus, { dot: string; label: string }> = {
   erledigt: { dot: Colors.raw.emerald500, label: "erledigt" },
   geplant: { dot: Colors.raw.amber500, label: "geplant" },
   offen: { dot: Colors.raw.zinc600, label: "nicht geplant" },
 };
 
-function BegehungRow({ item }: { item: Begehung }) {
-  const cfg = BEGEHUNG_CONFIG[item.status];
+function mapInspectionStatus(dbStatus: string | null): BegehungStatus {
+  if (!dbStatus) return "offen";
+  const s = dbStatus.toLowerCase();
+  if (s === "completed" || s === "finalized") return "erledigt";
+  if (s === "scheduled" || s === "in_progress" || s === "draft") return "geplant";
+  return "offen";
+}
+
+function mapProtocolType(type: string): string {
+  const map: Record<string, string> = {
+    initial: "Erstbegehung",
+    interim: "Zwischenbegehung",
+    final: "Abnahme",
+  };
+  return map[type.toLowerCase()] || type;
+}
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function formatTime(dateStr: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+}
+
+function BegehungRow({ name, status, date }: { name: string; status: BegehungStatus; date: string }) {
+  const cfg = BEGEHUNG_CONFIG[status];
   const typeMap: Record<string, string> = {
     Erstbegehung: "erstbegehung",
     Zwischenbegehung: "zwischenbegehung",
@@ -253,7 +252,7 @@ function BegehungRow({ item }: { item: Begehung }) {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    router.push({ pathname: "/begehung/[type]", params: { type: typeMap[item.name] || "zwischenbegehung" } });
+    router.push({ pathname: "/begehung/[type]", params: { type: typeMap[name] || "zwischenbegehung" } });
   };
   return (
     <Pressable
@@ -263,22 +262,22 @@ function BegehungRow({ item }: { item: Begehung }) {
       <View style={bgStyles.left}>
         <View style={[bgStyles.dot, { backgroundColor: cfg.dot }]} />
         <View>
-          <Text style={bgStyles.name}>{item.name}</Text>
+          <Text style={bgStyles.name}>{name}</Text>
           <Text style={bgStyles.meta}>
-            {item.date ? `${item.date} \u2022 ` : ""}
+            {date ? `${date} \u2022 ` : ""}
             {cfg.label}
           </Text>
         </View>
       </View>
-      {item.status === "erledigt" && (
+      {status === "erledigt" && (
         <Ionicons name="checkmark-circle" size={20} color={Colors.raw.emerald500} />
       )}
-      {item.status === "geplant" && (
+      {status === "geplant" && (
         <View style={bgStyles.startBtn}>
           <Text style={bgStyles.startText}>Starten</Text>
         </View>
       )}
-      {item.status === "offen" && (
+      {status === "offen" && (
         <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
       )}
     </Pressable>
@@ -329,201 +328,6 @@ const bgStyles = StyleSheet.create({
   },
 });
 
-interface GanttBar {
-  label: string;
-  color: string;
-  startPercent: number;
-  widthPercent: number;
-}
-
-const GANTT_BARS: GanttBar[] = [
-  { label: "Maler KW6-7", color: Colors.raw.emerald500, startPercent: 0, widthPercent: 53 },
-  { label: "Boden KW7", color: Colors.raw.amber500, startPercent: 27, widthPercent: 26 },
-  { label: "Sanit\u00E4r KW8", color: Colors.raw.zinc600, startPercent: 53, widthPercent: 27 },
-];
-
-const TODAY_PERCENT = 30;
-
-interface Message {
-  sender: string;
-  text: string;
-  time: string;
-  icon: string;
-  iconColor: string;
-}
-
-const MESSAGES: Message[] = [
-  { sender: "Mehmet", text: "Fliesen sind da", time: "14:32", icon: "construct", iconColor: Colors.raw.amber500 },
-  { sender: "Ayse", text: "[Foto] Wasserfleck K\u00FCche", time: "11:20", icon: "camera", iconColor: "#3b82f6" },
-  { sender: "BG", text: "Material bestellt bei MEGA", time: "09:00", icon: "flash", iconColor: Colors.raw.emerald500 },
-];
-
-function AlertCard({ text, onPress }: { text: string; onPress?: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        alertStyles.card,
-        { opacity: pressed ? 0.85 : 1 },
-      ]}
-    >
-      <View style={alertStyles.left}>
-        <Ionicons name="warning" size={16} color={Colors.raw.rose500} />
-        <Text style={alertStyles.text}>{text}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={14} color={Colors.raw.rose400} />
-    </Pressable>
-  );
-}
-
-const alertStyles = StyleSheet.create({
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.raw.zinc800,
-  },
-  left: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-  },
-  text: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: Colors.raw.rose400,
-    flex: 1,
-  },
-});
-
-function AccordionSection({
-  title,
-  count,
-  items,
-}: {
-  title: string;
-  count: number;
-  items: { name: string; amount?: string }[];
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <View style={accStyles.container}>
-      <Pressable
-        onPress={() => {
-          if (Platform.OS !== "web") {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }
-          setOpen(!open);
-        }}
-        style={({ pressed }) => [
-          accStyles.header,
-          { opacity: pressed ? 0.85 : 1 },
-        ]}
-      >
-        <View style={accStyles.headerLeft}>
-          <Text style={accStyles.headerTitle}>{title}</Text>
-          <View style={accStyles.countBadge}>
-            <Text style={accStyles.countText}>{count} Pos.</Text>
-          </View>
-        </View>
-        <Ionicons
-          name={open ? "chevron-up" : "chevron-down"}
-          size={18}
-          color={Colors.raw.zinc500}
-        />
-      </Pressable>
-      {open && (
-        <View style={accStyles.body}>
-          {items.map((item, i) => (
-            <View
-              key={i}
-              style={[
-                accStyles.item,
-                i < items.length - 1 && accStyles.itemBorder,
-              ]}
-            >
-              <View style={accStyles.itemDot} />
-              <Text style={accStyles.itemText}>{item.name}</Text>
-              {item.amount && (
-                <Text style={accStyles.itemAmount}>{item.amount}</Text>
-              )}
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-const accStyles = StyleSheet.create({
-  container: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.raw.zinc800,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-  },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  headerTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: Colors.raw.white,
-  },
-  countBadge: {
-    backgroundColor: Colors.raw.zinc800,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  countText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    color: Colors.raw.zinc500,
-  },
-  body: {
-    paddingBottom: 4,
-  },
-  item: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 11,
-    paddingLeft: 4,
-    gap: 12,
-  },
-  itemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.raw.zinc800 + "60",
-  },
-  itemDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.raw.amber500,
-  },
-  itemText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: Colors.raw.zinc300,
-    flex: 1,
-  },
-  itemAmount: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    color: Colors.raw.zinc500,
-  },
-});
-
 function DocumentRow({ name }: { name: string }) {
   return (
     <Pressable
@@ -556,16 +360,124 @@ const docStyles = StyleSheet.create({
   },
 });
 
+// --- Main Screen ---
+
 export default function ProjectDetailScreen() {
-  const { id } = useLocalSearchParams();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const angebotValue = 12400;
-  const ergebnisValue = 2232;
-  const marginPercent = Math.round((ergebnisValue / angebotValue) * 100);
+  const [project, setProject] = useState<ProjectData | null>(null);
+  const [clientName, setClientName] = useState<string>("—");
+  const [offers, setOffers] = useState<OfferData[]>([]);
+  const [inspections, setInspections] = useState<InspectionData[]>([]);
+  const [messages, setMessages] = useState<MessageData[]>([]);
+  const [totalCosts, setTotalCosts] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
+
+    const [projectRes, offersRes, inspectionsRes, messagesRes, costsRes] = await Promise.all([
+      supabase
+        .from("projects")
+        .select("id, project_number, name, display_name, object_street, object_zip, object_city, object_floor, status, budget_net, progress_percent, planned_start, planned_end, client_id")
+        .eq("id", id)
+        .single(),
+      supabase
+        .from("offers")
+        .select("total_net, status")
+        .eq("project_id", id),
+      supabase
+        .from("inspection_protocols")
+        .select("id, protocol_type, inspection_date, status")
+        .eq("project_id", id)
+        .order("inspection_date", { ascending: true }),
+      supabase
+        .from("project_messages")
+        .select("id, message_type, text, sender_id, created_at")
+        .eq("project_id", id)
+        .order("created_at", { ascending: false })
+        .limit(5),
+      supabase
+        .from("purchase_invoices")
+        .select("total_net")
+        .eq("project_id", id),
+    ]);
+
+    if (projectRes.error) {
+      setError(projectRes.error.message);
+      setLoading(false);
+      return;
+    }
+
+    setProject(projectRes.data);
+    setOffers(offersRes.data ?? []);
+    setInspections(inspectionsRes.data ?? []);
+    setMessages(messagesRes.data ?? []);
+
+    const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
+    setTotalCosts(costs);
+
+    // Fetch client name if client_id exists
+    if (projectRes.data.client_id) {
+      const { data: clientData } = await supabase
+        .from("clients")
+        .select("company_name")
+        .eq("id", projectRes.data.client_id)
+        .single();
+      if (clientData?.company_name) {
+        setClientName(clientData.company_name);
+      }
+    }
+
+    setLoading(false);
+  }, [id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerState]}>
+        <ActivityIndicator size="large" color={Colors.raw.amber500} />
+      </View>
+    );
+  }
+
+  if (error || !project) {
+    return (
+      <View style={[styles.container, styles.centerState]}>
+        <Ionicons name="cloud-offline-outline" size={48} color={Colors.raw.zinc700} />
+        <Text style={styles.errorText}>Fehler beim Laden</Text>
+        {error && <Text style={styles.errorDetail}>{error}</Text>}
+        <Pressable
+          onPress={fetchData}
+          style={({ pressed }) => [styles.retryButton, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Text style={styles.retryText}>Erneut versuchen</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // Compute financials
+  const angebotValue = offers.reduce((sum, o) => sum + (Number(o.total_net) || 0), 0);
+  const ergebnisValue = angebotValue - totalCosts;
+  const marginPercent = angebotValue > 0 ? Math.round((ergebnisValue / angebotValue) * 100) : 0;
   const marginColor = marginPercent >= 20 ? "#22C55E" : marginPercent >= 10 ? "#F59E0B" : "#EF4444";
+
+  const addressLine = [
+    project.object_street,
+    project.object_floor,
+  ].filter(Boolean).join("\n");
+
+  const unreadMessages = messages.length;
 
   return (
     <View style={styles.container}>
@@ -580,7 +492,7 @@ export default function ProjectDetailScreen() {
         >
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
-        <Text style={styles.projectCode}>BL-2026-003</Text>
+        <Text style={styles.projectCode}>{project.project_number}</Text>
       </View>
 
       <ScrollView
@@ -596,10 +508,10 @@ export default function ProjectDetailScreen() {
       >
         <View style={styles.heroSection}>
           <Text style={styles.heroAddress}>
-            Schwentnerring 13c{"\n"}EG Links
+            {addressLine || project.display_name || project.name}
           </Text>
           <Text style={styles.heroClient}>
-            SAGA GWG  {"\u2022"}  Maler+Boden
+            {clientName}
           </Text>
         </View>
 
@@ -607,16 +519,24 @@ export default function ProjectDetailScreen() {
           <View style={styles.marginBreakdown}>
             <View style={styles.marginCol}>
               <Text style={styles.marginLabel}>Angebot</Text>
-              <Text style={styles.marginValue}>{"\u20AC"}12.400</Text>
+              <Text style={styles.marginValue}>
+                {angebotValue > 0
+                  ? `\u20AC${Math.round(angebotValue).toLocaleString("de-DE")}`
+                  : "—"}
+              </Text>
             </View>
             <View style={styles.marginCol}>
               <Text style={styles.marginLabel}>Marge</Text>
-              <Text style={[styles.marginValueLarge, { color: marginColor }]}>{marginPercent}%</Text>
+              <Text style={[styles.marginValueLarge, { color: angebotValue > 0 ? marginColor : Colors.raw.zinc500 }]}>
+                {angebotValue > 0 ? `${marginPercent}%` : "—"}
+              </Text>
             </View>
             <View style={styles.marginCol}>
               <Text style={styles.marginLabel}>Ergebnis</Text>
-              <Text style={[styles.marginValue, { color: marginColor }]}>
-                {"\u20AC"}2.232
+              <Text style={[styles.marginValue, { color: angebotValue > 0 ? marginColor : Colors.raw.zinc500 }]}>
+                {angebotValue > 0
+                  ? `\u20AC${Math.round(ergebnisValue).toLocaleString("de-DE")}`
+                  : "—"}
               </Text>
             </View>
           </View>
@@ -655,74 +575,57 @@ export default function ProjectDetailScreen() {
           />
         </ScrollView>
 
+        {/* Begehungen */}
         <SectionCard>
           <SectionHeader title="Begehungen" rightIcon="add-circle-outline" />
-          {BEGEHUNGEN.map((b, i) => (
-            <BegehungRow key={i} item={b} />
-          ))}
+          {inspections.length > 0 ? (
+            inspections.map((ins) => (
+              <BegehungRow
+                key={ins.id}
+                name={mapProtocolType(ins.protocol_type)}
+                status={mapInspectionStatus(ins.status)}
+                date={formatDate(ins.inspection_date)}
+              />
+            ))
+          ) : (
+            <Text style={styles.emptySection}>Keine Begehungen vorhanden</Text>
+          )}
         </SectionCard>
 
-        <Pressable
-          onPress={() => {
-            if (Platform.OS !== "web") {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }
-            router.push({ pathname: "/planung/[id]", params: { id: id || "1" } });
-          }}
-          style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
-        >
-          <SectionCard>
-            <SectionHeader title="Planung" rightIcon="arrow-forward" />
-            <View style={styles.ganttContainer}>
-              <View style={styles.ganttTodayLine} />
-              {GANTT_BARS.map((bar, i) => (
-                <View key={i} style={styles.ganttRow}>
-                  <Text style={styles.ganttLabel}>{bar.label}</Text>
-                  <View style={styles.ganttTrack}>
-                    <View
-                      style={[
-                        styles.ganttBar,
-                        {
-                          backgroundColor: bar.color,
-                          left: `${bar.startPercent}%`,
-                          width: `${bar.widthPercent}%`,
-                        },
-                      ]}
-                    />
-                  </View>
-                </View>
-              ))}
-              <View style={styles.ganttFooter}>
-                <Text style={styles.ganttDate}>Start: 03.02.</Text>
-                <Text style={styles.ganttMid}>Tag 5 von 15</Text>
-                <Text style={styles.ganttDate}>Ende: 21.02.</Text>
-              </View>
-            </View>
-          </SectionCard>
-        </Pressable>
-
+        {/* Nachrichten */}
         <SectionCard>
-          <SectionHeader title="Nachrichten" badge="4" />
-          {MESSAGES.map((msg, i) => (
-            <View
-              key={i}
-              style={[
-                styles.msgRow,
-                i < MESSAGES.length - 1 && styles.msgBorder,
-              ]}
-            >
-              <View style={[styles.msgIcon, { backgroundColor: msg.iconColor + "18" }]}>
-                <Ionicons name={msg.icon as any} size={16} color={msg.iconColor} />
+          <SectionHeader
+            title="Nachrichten"
+            badge={unreadMessages > 0 ? String(unreadMessages) : undefined}
+          />
+          {messages.length > 0 ? (
+            messages.map((msg, i) => (
+              <View
+                key={msg.id}
+                style={[
+                  styles.msgRow,
+                  i < messages.length - 1 && styles.msgBorder,
+                ]}
+              >
+                <View style={[styles.msgIcon, { backgroundColor: Colors.raw.amber500 + "18" }]}>
+                  <Ionicons
+                    name={msg.message_type === "photo" ? "camera" : "chatbubble"}
+                    size={16}
+                    color={Colors.raw.amber500}
+                  />
+                </View>
+                <View style={styles.msgBody}>
+                  <Text style={styles.msgSender}>{msg.message_type}</Text>
+                  <Text style={styles.msgText} numberOfLines={1}>
+                    {msg.text || "(Kein Text)"}
+                  </Text>
+                </View>
+                <Text style={styles.msgTime}>{formatTime(msg.created_at)}</Text>
               </View>
-              <View style={styles.msgBody}>
-                <Text style={styles.msgSender}>{msg.sender}</Text>
-                <Text style={styles.msgText} numberOfLines={1}>
-                  {msg.text}
-                </Text>
-              </View>
-              <Text style={styles.msgTime}>{msg.time}</Text>
-            </View>
-          ))}
+            ))
+          ) : (
+            <Text style={styles.emptySection}>Keine Nachrichten</Text>
+          )}
           <Pressable
             onPress={() => {
               if (Platform.OS !== "web") {
@@ -740,56 +643,16 @@ export default function ProjectDetailScreen() {
           </Pressable>
         </SectionCard>
 
-        <SectionCard style={{ backgroundColor: Colors.raw.rose500 + "0D" }}>
-          <SectionHeader title="Warnungen" />
-          <AlertCard text="Material 'Vliesraufaser' fehlt" />
-          <AlertCard text="1 Freigabe offen" />
-          <AlertCard text="Keine Zeiterfassung seit 2 Tagen" />
-        </SectionCard>
-
-        <SectionCard>
-          <SectionHeader title="Positionen" badge="47" />
-          <AccordionSection
-            title="Badezimmer"
-            count={3}
-            items={[
-              { name: "W\u00E4nde spachteln & streichen", amount: "\u20AC860" },
-              { name: "Boden verlegen (Vinyl)", amount: "\u20AC1.240" },
-              { name: "Decke streichen", amount: "\u20AC420" },
-            ]}
-          />
-          <AccordionSection
-            title="K\u00FCche"
-            count={5}
-            items={[
-              { name: "W\u00E4nde tapezieren (Vlies)", amount: "\u20AC980" },
-              { name: "Decke streichen", amount: "\u20AC380" },
-              { name: "Boden schleifen", amount: "\u20AC560" },
-              { name: "Boden versiegeln", amount: "\u20AC440" },
-              { name: "Sockelleisten montieren", amount: "\u20AC220" },
-            ]}
-          />
-          <AccordionSection
-            title="Wohnzimmer"
-            count={8}
-            items={[
-              { name: "Altbelag entfernen", amount: "\u20AC340" },
-              { name: "Untergrund vorbereiten", amount: "\u20AC280" },
-              { name: "W\u00E4nde spachteln Q3", amount: "\u20AC720" },
-              { name: "W\u00E4nde streichen 2x", amount: "\u20AC640" },
-              { name: "Decke streichen", amount: "\u20AC380" },
-              { name: "Boden verlegen (Parkett)", amount: "\u20AC1.860" },
-              { name: "Sockelleisten montieren", amount: "\u20AC240" },
-              { name: "Endreinigung", amount: "\u20AC180" },
-            ]}
-          />
-        </SectionCard>
-
+        {/* Dokumente */}
         <SectionCard>
           <SectionHeader title="Dokumente" />
-          <DocumentRow name="Auftrag.pdf" />
-          <DocumentRow name="Angebot v1" />
-          <DocumentRow name="Protokoll Erstbegehung 03.02." />
+          {offers.length > 0 && <DocumentRow name="Angebot" />}
+          {inspections.some((i) => i.status === "completed" || i.status === "finalized") && (
+            <DocumentRow name="Protokoll Begehung" />
+          )}
+          {(offers.length === 0 && inspections.length === 0) && (
+            <Text style={styles.emptySection}>Keine Dokumente</Text>
+          )}
         </SectionCard>
       </ScrollView>
     </View>
@@ -800,6 +663,33 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.raw.zinc950,
+  },
+  centerState: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  errorText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 16,
+    color: Colors.raw.zinc600,
+  },
+  errorDetail: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc600,
+  },
+  retryButton: {
+    marginTop: 8,
+    backgroundColor: Colors.raw.amber500,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#000",
   },
   backRow: {
     position: "absolute",
@@ -879,61 +769,11 @@ const styles = StyleSheet.create({
     gap: 12,
     flexDirection: "row",
   },
-  ganttContainer: {
-    position: "relative",
-  },
-  ganttTodayLine: {
-    position: "absolute",
-    left: `${TODAY_PERCENT + 30}%`,
-    top: 0,
-    bottom: 30,
-    width: 2,
-    backgroundColor: Colors.raw.amber500,
-    zIndex: 2,
-    borderRadius: 1,
-    opacity: 0.7,
-  },
-  ganttRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-    gap: 10,
-  },
-  ganttLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: Colors.raw.zinc400,
-    width: 80,
-  },
-  ganttTrack: {
-    flex: 1,
-    height: 20,
-    backgroundColor: Colors.raw.zinc800,
-    borderRadius: 6,
-    position: "relative",
-    overflow: "hidden",
-  },
-  ganttBar: {
-    position: "absolute",
-    top: 0,
-    height: 20,
-    borderRadius: 6,
-  },
-  ganttFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  ganttDate: {
+  emptySection: {
     fontFamily: "Inter_400Regular",
-    fontSize: 12,
+    fontSize: 14,
     color: Colors.raw.zinc600,
-  },
-  ganttMid: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    color: Colors.raw.amber500,
+    paddingVertical: 12,
   },
   msgRow: {
     flexDirection: "row",

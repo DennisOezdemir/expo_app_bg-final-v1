@@ -1,16 +1,16 @@
-import { StyleSheet, Text, View, ScrollView, Platform, Pressable, FlatList } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Platform, Pressable, FlatList, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
+import { supabase } from "@/lib/supabase";
+import { mapDbStatus, type ProjectStatus } from "@/lib/status";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-type ProjectStatus = "kritisch" | "achtung" | "laeuft" | "fertig";
 
 interface Project {
   id: string;
@@ -32,92 +32,18 @@ const STATUS_CONFIG: Record<ProjectStatus, { color: string; label: string }> = {
   fertig: { color: Colors.raw.zinc500, label: "Fertig" },
 };
 
-const PROJECTS: Project[] = [
-  {
-    id: "1",
-    code: "BL-2026-001",
-    name: "Wohnanlage Seeblick",
-    address: "Seestrasse 42, Zürich",
-    status: "laeuft",
-    progress: 72,
-    budget: "2.4M",
-    deadline: "15. Jun 2026",
-    team: 14,
-    phase: "Rohbau",
-  },
-  {
-    id: "2",
-    code: "BL-2026-003",
-    name: "Bürogebäude Mitte",
-    address: "Hauptstrasse 15, Bern",
-    status: "achtung",
-    progress: 45,
-    budget: "1.8M",
-    deadline: "30. Aug 2026",
-    team: 9,
-    phase: "Fundament",
-  },
-  {
-    id: "3",
-    code: "BL-2026-007",
-    name: "Parkhaus Nord",
-    address: "Industrieweg 8, Basel",
-    status: "kritisch",
-    progress: 18,
-    budget: "3.1M",
-    deadline: "01. Mär 2026",
-    team: 22,
-    phase: "Planung",
-  },
-  {
-    id: "4",
-    code: "BL-2026-012",
-    name: "Kita Sonnenschein",
-    address: "Gartenweg 3, Luzern",
-    status: "laeuft",
-    progress: 89,
-    budget: "980K",
-    deadline: "20. Apr 2026",
-    team: 6,
-    phase: "Innenausbau",
-  },
-  {
-    id: "5",
-    code: "BL-2025-044",
-    name: "Lagerhalle Ost",
-    address: "Hafenstrasse 21, Winterthur",
-    status: "fertig",
-    progress: 100,
-    budget: "1.2M",
-    deadline: "12. Jan 2026",
-    team: 8,
-    phase: "Abnahme",
-  },
-  {
-    id: "6",
-    code: "BL-2026-015",
-    name: "Sanierung Altstadt",
-    address: "Marktplatz 7, St. Gallen",
-    status: "kritisch",
-    progress: 31,
-    budget: "4.5M",
-    deadline: "10. Feb 2026",
-    team: 18,
-    phase: "Abbruch",
-  },
-  {
-    id: "7",
-    code: "BL-2026-018",
-    name: "Turnhalle Westpark",
-    address: "Sportweg 12, Aarau",
-    status: "laeuft",
-    progress: 56,
-    budget: "1.6M",
-    deadline: "15. Sep 2026",
-    team: 11,
-    phase: "Rohbau",
-  },
-];
+function formatBudget(budgetNet: number | null): string {
+  if (budgetNet == null) return "—";
+  if (budgetNet >= 1_000_000) return `${(budgetNet / 1_000_000).toFixed(1).replace(".", ",")}M`;
+  if (budgetNet >= 1_000) return `${Math.round(budgetNet / 1_000)}K`;
+  return `${Math.round(budgetNet)} €`;
+}
+
+function formatDeadline(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 type FilterKey = "alle" | "kritisch" | "achtung" | "laeuft" | "fertig";
 
@@ -220,9 +146,11 @@ function ProjectCard({ project }: { project: Project }) {
           <Feather name="calendar" size={13} color={Colors.raw.zinc500} />
           <Text style={styles.metaText}>{project.deadline}</Text>
         </View>
-        <View style={styles.phasePill}>
-          <Text style={styles.phaseText}>{project.phase}</Text>
-        </View>
+        {project.phase ? (
+          <View style={styles.phasePill}>
+            <Text style={styles.phaseText}>{project.phase}</Text>
+          </View>
+        ) : null}
       </View>
     </AnimatedPressable>
   );
@@ -233,6 +161,44 @@ export default function ProjekteScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 84 : 90;
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchProjects = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from("projects")
+      .select("id, project_number, name, display_name, object_street, object_zip, object_city, status, progress_percent, budget_net, planned_end, assigned_team")
+      .order("created_at", { ascending: false });
+
+    if (err) {
+      setError(err.message);
+      setLoading(false);
+      return;
+    }
+
+    const mapped: Project[] = (data ?? []).map((p) => ({
+      id: p.id,
+      code: p.project_number ?? "—",
+      name: p.display_name || p.name || "Unbenannt",
+      address: [p.object_street, `${p.object_zip} ${p.object_city}`].filter(Boolean).join(", "),
+      status: mapDbStatus(p.status),
+      progress: p.progress_percent ?? 0,
+      budget: formatBudget(p.budget_net),
+      deadline: formatDeadline(p.planned_end),
+      team: 0,
+      phase: "",
+    }));
+
+    setProjects(mapped);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   const handleFilter = useCallback((key: FilterKey) => {
     if (Platform.OS !== "web") {
@@ -242,11 +208,11 @@ export default function ProjekteScreen() {
   }, []);
 
   const filtered = activeFilter === "alle"
-    ? PROJECTS
-    : PROJECTS.filter((p) => p.status === activeFilter);
+    ? projects
+    : projects.filter((p) => p.status === activeFilter);
 
-  const kritischCount = PROJECTS.filter((p) => p.status === "kritisch").length;
-  const aktivCount = PROJECTS.filter((p) => p.status !== "fertig").length;
+  const kritischCount = projects.filter((p) => p.status === "kritisch").length;
+  const aktivCount = projects.filter((p) => p.status !== "fertig").length;
 
   return (
     <View style={styles.container}>
@@ -286,20 +252,38 @@ export default function ProjekteScreen() {
         </ScrollView>
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ProjectCard project={item} />}
-        contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + 20 }]}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={filtered.length > 0}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="folder-open-outline" size={48} color={Colors.raw.zinc700} />
-            <Text style={styles.emptyText}>Keine Projekte gefunden</Text>
-          </View>
-        }
-      />
+      {loading ? (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color={Colors.raw.amber500} />
+        </View>
+      ) : error ? (
+        <View style={styles.centerState}>
+          <Ionicons name="cloud-offline-outline" size={48} color={Colors.raw.zinc700} />
+          <Text style={styles.emptyText}>Fehler beim Laden</Text>
+          <Text style={[styles.emptyText, { fontSize: 13, color: Colors.raw.zinc600 }]}>{error}</Text>
+          <Pressable
+            onPress={fetchProjects}
+            style={({ pressed }) => [styles.retryButton, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Text style={styles.retryText}>Erneut versuchen</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <ProjectCard project={item} />}
+          contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + 20 }]}
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={filtered.length > 0}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons name="folder-open-outline" size={48} color={Colors.raw.zinc700} />
+              <Text style={styles.emptyText}>Keine Projekte gefunden</Text>
+            </View>
+          }
+        />
+      )}
     </View>
   );
 }
@@ -483,6 +467,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.raw.zinc400,
   },
+  centerState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
@@ -493,5 +483,17 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 16,
     color: Colors.raw.zinc600,
+  },
+  retryButton: {
+    marginTop: 8,
+    backgroundColor: Colors.raw.amber500,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#000",
   },
 });
