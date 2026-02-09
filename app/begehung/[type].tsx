@@ -71,7 +71,20 @@ interface BaustelleMaterial {
   status: "offen" | "bestellt" | "geliefert" | "verbraucht";
   deliveryDate?: string;
   note?: string;
+  trade: string;
+  price: number;
 }
+
+const GEWERK_CONFIG: Record<string, { icon: string; iconSet: "ionicons" | "mci" }> = {
+  "Sanitär": { icon: "water", iconSet: "ionicons" },
+  "Heizung": { icon: "flame", iconSet: "ionicons" },
+  "Fliesen": { icon: "apps", iconSet: "ionicons" },
+  "Elektro": { icon: "flash", iconSet: "ionicons" },
+  "Maler": { icon: "color-palette", iconSet: "ionicons" },
+  "Tischler": { icon: "hammer", iconSet: "ionicons" },
+  "Boden": { icon: "layers", iconSet: "ionicons" },
+  "Allgemein": { icon: "cube", iconSet: "ionicons" },
+};
 
 const STATUS_CONFIG: Record<PosStatus, { label: string; color: string; icon: string }> = {
   offen: { label: "Offen", color: Colors.raw.zinc600, icon: "radio-button-off" },
@@ -230,18 +243,18 @@ const INITIAL_ROOMS: AuftragRoom[] = [
 ];
 
 const INITIAL_MATERIALS: BaustelleMaterial[] = [
-  { id: "mat1", name: "Erfurt Vlies Rauhfaser 52", supplier: "MEGA", qty: 12, unit: "Rollen", status: "geliefert", deliveryDate: "03.02." },
-  { id: "mat2", name: "Dispersionsfarbe wei\u00DF 12,5L", supplier: "MEGA", qty: 4, unit: "Eimer", status: "geliefert", deliveryDate: "03.02." },
-  { id: "mat3", name: "Wandfliesen 30\u00D760 wei\u00DF matt", supplier: "Fliesenmax", qty: 32, unit: "m\u00B2", status: "geliefert", deliveryDate: "04.02." },
-  { id: "mat4", name: "Bodenfliesen 60\u00D760 grau", supplier: "Fliesenmax", qty: 8, unit: "m\u00B2", status: "geliefert", deliveryDate: "04.02." },
-  { id: "mat5", name: "Fliesenkleber Flex S1 25kg", supplier: "Fliesenmax", qty: 6, unit: "Sack", status: "verbraucht" },
-  { id: "mat6", name: "Tiefengrund LF 10L", supplier: "MEGA", qty: 2, unit: "Kanister", status: "bestellt", deliveryDate: "10.02." },
-  { id: "mat7", name: "Laminat Eiche Natur NK32", supplier: "Delmes", qty: 42, unit: "m\u00B2", status: "bestellt", deliveryDate: "12.02." },
-  { id: "mat8", name: "Trittschalld\u00E4mmung 2mm", supplier: "Delmes", qty: 42, unit: "m\u00B2", status: "bestellt", deliveryDate: "12.02." },
-  { id: "mat9", name: "Sockelleisten Eiche 58mm", supplier: "Delmes", qty: 45, unit: "lfm", status: "offen" },
-  { id: "mat10", name: "Silikon Bad transparent", supplier: "MEGA", qty: 3, unit: "Kartuschen", status: "offen" },
-  { id: "mat11", name: "Parkettlack seidenmatt 5L", supplier: "Brillux", qty: 2, unit: "Gebinde", status: "offen" },
-  { id: "mat12", name: "Spachtelmasse Q3 fein 25kg", supplier: "MEGA", qty: 4, unit: "Sack", status: "offen" },
+  { id: "mat1", name: "Erfurt Vlies Rauhfaser 52", supplier: "MEGA", qty: 12, unit: "Rollen", status: "geliefert", deliveryDate: "03.02.", trade: "Maler", price: 156 },
+  { id: "mat2", name: "Dispersionsfarbe wei\u00DF 12,5L", supplier: "MEGA", qty: 4, unit: "Eimer", status: "geliefert", deliveryDate: "03.02.", trade: "Maler", price: 220 },
+  { id: "mat3", name: "Wandfliesen 30\u00D760 wei\u00DF matt", supplier: "Fliesenmax", qty: 32, unit: "m\u00B2", status: "geliefert", deliveryDate: "04.02.", trade: "Fliesen", price: 768 },
+  { id: "mat4", name: "Bodenfliesen 60\u00D760 grau", supplier: "Fliesenmax", qty: 8, unit: "m\u00B2", status: "geliefert", deliveryDate: "04.02.", trade: "Fliesen", price: 264 },
+  { id: "mat5", name: "Fliesenkleber Flex S1 25kg", supplier: "Fliesenmax", qty: 6, unit: "Sack", status: "verbraucht", trade: "Fliesen", price: 108 },
+  { id: "mat6", name: "Tiefengrund LF 10L", supplier: "MEGA", qty: 2, unit: "Kanister", status: "bestellt", deliveryDate: "10.02.", trade: "Maler", price: 58 },
+  { id: "mat7", name: "Laminat Eiche Natur NK32", supplier: "Delmes", qty: 42, unit: "m\u00B2", status: "bestellt", deliveryDate: "12.02.", trade: "Boden", price: 1260 },
+  { id: "mat8", name: "Trittschalld\u00E4mmung 2mm", supplier: "Delmes", qty: 42, unit: "m\u00B2", status: "bestellt", deliveryDate: "12.02.", trade: "Boden", price: 126 },
+  { id: "mat9", name: "Sockelleisten Eiche 58mm", supplier: "Delmes", qty: 45, unit: "lfm", status: "offen", trade: "Boden", price: 315 },
+  { id: "mat10", name: "Silikon Bad transparent", supplier: "MEGA", qty: 3, unit: "Kartuschen", status: "offen", trade: "Sanit\u00E4r", price: 24 },
+  { id: "mat11", name: "Parkettlack seidenmatt 5L", supplier: "Brillux", qty: 2, unit: "Gebinde", status: "offen", trade: "Maler", price: 140 },
+  { id: "mat12", name: "Spachtelmasse Q3 fein 25kg", supplier: "MEGA", qty: 4, unit: "Sack", status: "offen", trade: "Maler", price: 96 },
 ];
 
 function formatEuro(amount: number): string {
@@ -769,6 +782,8 @@ function AddMaterialSheet({
       qty: parseFloat(qty) || 1,
       unit,
       status: "offen",
+      trade: "Allgemein",
+      price: 0,
     });
     setName("");
     setSupplier("");
@@ -999,6 +1014,7 @@ export default function BegehungDetailScreen() {
   const [mangelSheet, setMangelSheet] = useState<AuftragPosition | null>(null);
   const [addMatVisible, setAddMatVisible] = useState(false);
   const [mangelRoomId, setMangelRoomId] = useState<string | null>(null);
+  const [expandedGewerke, setExpandedGewerke] = useState<Set<string>>(new Set());
 
   const checkedCount = useMemo(() => items.filter((i) => i.checked).length, [items]);
   const totalCount = items.length;
@@ -1119,6 +1135,37 @@ export default function BegehungDetailScreen() {
     if (matFilter === "alle") return materials;
     return materials.filter((m) => m.status === matFilter);
   }, [materials, matFilter]);
+
+  const gewerkGroups = useMemo(() => {
+    const groups: Record<string, BaustelleMaterial[]> = {};
+    filteredMaterials.forEach((m) => {
+      if (!groups[m.trade]) groups[m.trade] = [];
+      groups[m.trade].push(m);
+    });
+    const order = Object.keys(GEWERK_CONFIG);
+    return order
+      .filter((g) => groups[g] && groups[g].length > 0)
+      .map((g) => ({
+        trade: g,
+        items: groups[g],
+        totalPrice: groups[g].reduce((sum, m) => sum + m.price, 0),
+        deliveredPercent: groups[g].length > 0
+          ? Math.round((groups[g].filter((m) => m.status === "geliefert" || m.status === "verbraucht").length / groups[g].length) * 100)
+          : 0,
+      }));
+  }, [filteredMaterials]);
+
+  const toggleGewerk = useCallback((trade: string) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setExpandedGewerke((prev) => {
+      const next = new Set(prev);
+      if (next.has(trade)) next.delete(trade);
+      else next.add(trade);
+      return next;
+    });
+  }, []);
 
   const photoCount = 6;
 
@@ -1392,40 +1439,75 @@ export default function BegehungDetailScreen() {
         </Pressable>
       </View>
 
-      {filteredMaterials.map((mat) => {
-        const cfg = MAT_STATUS_CONFIG[mat.status];
+      {gewerkGroups.map((group) => {
+        const gewerkCfg = GEWERK_CONFIG[group.trade] || GEWERK_CONFIG["Allgemein"];
+        const isExpanded = expandedGewerke.has(group.trade);
+
         return (
-          <Pressable
-            key={mat.id}
-            style={styles.matRow}
-            onPress={() => cycleMaterialStatus(mat.id)}
-            testID={`mat-${mat.id}`}
-          >
-            <View style={[styles.matStatusIcon, { backgroundColor: cfg.color + "18" }]}>
-              <Ionicons name={cfg.icon as any} size={16} color={cfg.color} />
-            </View>
-            <View style={styles.matBody}>
-              <Text style={styles.matName} numberOfLines={1}>{mat.name}</Text>
-              <View style={styles.matMetaRow}>
-                <Text style={styles.matMeta}>{mat.qty} {mat.unit}</Text>
-                <View style={styles.matDot} />
-                <Text style={styles.matMeta}>{mat.supplier}</Text>
-                {mat.deliveryDate && (
-                  <>
-                    <View style={styles.matDot} />
-                    <Text style={styles.matMeta}>{mat.deliveryDate}</Text>
-                  </>
-                )}
+          <View key={group.trade} style={gwStyles.card} testID={`gewerk-${group.trade}`}>
+            <Pressable style={gwStyles.header} onPress={() => toggleGewerk(group.trade)}>
+              <View style={gwStyles.iconWrap}>
+                <Ionicons name={gewerkCfg.icon as any} size={18} color={Colors.raw.amber500} />
               </View>
-            </View>
-            <View style={[styles.matBadge, { backgroundColor: cfg.color + "18" }]}>
-              <Text style={[styles.matBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
-            </View>
-          </Pressable>
+              <View style={gwStyles.headerInfo}>
+                <View style={gwStyles.headerTop}>
+                  <Text style={gwStyles.tradeName}>{group.trade}</Text>
+                  <View style={gwStyles.headerRight}>
+                    <Text style={gwStyles.articleCount}>{group.items.length} Artikel</Text>
+                    <Text style={gwStyles.tradeTotal}>{"\u20AC"}{group.totalPrice.toLocaleString("de-DE")}</Text>
+                  </View>
+                  <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={16} color={Colors.raw.zinc500} />
+                </View>
+                <View style={gwStyles.progressRow}>
+                  <View style={gwStyles.progressBar}>
+                    <View style={[gwStyles.progressFill, { width: `${group.deliveredPercent}%`, backgroundColor: group.deliveredPercent === 100 ? Colors.raw.emerald500 : Colors.raw.amber500 }]} />
+                  </View>
+                  <Text style={[gwStyles.progressText, group.deliveredPercent === 100 && { color: Colors.raw.emerald500 }]}>{group.deliveredPercent}% geliefert</Text>
+                </View>
+              </View>
+            </Pressable>
+
+            {isExpanded && (
+              <View style={gwStyles.body}>
+                {group.items.map((mat) => {
+                  const cfg = MAT_STATUS_CONFIG[mat.status];
+                  return (
+                    <Pressable
+                      key={mat.id}
+                      style={styles.matRow}
+                      onPress={() => cycleMaterialStatus(mat.id)}
+                      testID={`mat-${mat.id}`}
+                    >
+                      <View style={[styles.matStatusIcon, { backgroundColor: cfg.color + "18" }]}>
+                        <Ionicons name={cfg.icon as any} size={16} color={cfg.color} />
+                      </View>
+                      <View style={styles.matBody}>
+                        <Text style={styles.matName} numberOfLines={1}>{mat.name}</Text>
+                        <View style={styles.matMetaRow}>
+                          <Text style={styles.matMeta}>{mat.qty} {mat.unit}</Text>
+                          <View style={styles.matDot} />
+                          <Text style={styles.matMeta}>{mat.supplier}</Text>
+                          {mat.deliveryDate && (
+                            <>
+                              <View style={styles.matDot} />
+                              <Text style={styles.matMeta}>{mat.deliveryDate}</Text>
+                            </>
+                          )}
+                        </View>
+                      </View>
+                      <View style={[styles.matBadge, { backgroundColor: cfg.color + "18" }]}>
+                        <Text style={[styles.matBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </View>
         );
       })}
 
-      {filteredMaterials.length === 0 && (
+      {gewerkGroups.length === 0 && (
         <Text style={styles.emptyMat}>Kein Material mit diesem Filter</Text>
       )}
     </>
@@ -2167,5 +2249,89 @@ const styles = StyleSheet.create({
     color: Colors.raw.zinc600,
     textAlign: "center",
     paddingVertical: 40,
+  },
+});
+
+const gwStyles = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  iconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.raw.amber500 + "18",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerInfo: {
+    flex: 1,
+  },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  tradeName: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.raw.white,
+    flex: 1,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  articleCount: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc500,
+  },
+  tradeTotal: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.raw.white,
+  },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  progressBar: {
+    flex: 1,
+    height: 5,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 5,
+    borderRadius: 3,
+  },
+  progressText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.raw.amber500,
+    minWidth: 75,
+    textAlign: "right",
+  },
+  body: {
+    paddingHorizontal: 14,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.raw.zinc800,
   },
 });
