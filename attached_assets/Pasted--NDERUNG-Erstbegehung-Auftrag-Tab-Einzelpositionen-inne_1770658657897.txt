@@ -1,0 +1,94 @@
+ÄNDERUNG: Erstbegehung → Auftrag Tab (Einzelpositionen innerhalb der Räume)
+
+KONTEXT: Innerhalb jeder aufgeklappten Raum-Sektion gibt es nummerierte 
+Positionen (01 Wandfliesen Bad, 02 Bodenfliesen Bad, etc.) mit Status-Badges 
+(ERLEDIGT, IN ARBEIT, OFFEN). Das sind die beauftragten Leistungen von SAGA.
+
+Bei der Erstbegehung geht der Bauleiter Raum für Raum durch und prüft:
+Stimmt die beauftragte Position mit der Realität überein?
+
+WAS ÄNDERN:
+
+1. JEDE bestehende Position bekommt RECHTS vom Status-Badge 
+   zwei kleine runde Buttons. Platzierung: ganz rechts in der Zeile, 
+   untereinander gestapelt (nicht nebeneinander, Platz ist knapp).
+
+   Layout einer Position aktuell:
+   ┌─────────────────────────────────────────────────┐
+   │ ● 01  Wandfliesen Bad                 ERLEDIGT  │
+   │       28 m² · Fliesen · €1.523,20               │
+   └─────────────────────────────────────────────────┘
+
+   Layout NEU:
+   ┌─────────────────────────────────────────────────┐
+   │ ● 01  Wandfliesen Bad           ERLEDIGT  ✅ ⚠️ │
+   │       28 m² · Fliesen · €1.523,20               │
+   └─────────────────────────────────────────────────┘
+
+   Die zwei Buttons:
+   - ✅ (bestätigt) — runder Button, 28px, Border #333333, 
+     Hintergrund transparent im Ruhezustand
+   - ⚠️ (Abweichung) — runder Button, 28px, Border #333333, 
+     Hintergrund transparent im Ruhezustand
+
+2. VERHALTEN beim Tippen auf ✅ (bestätigt):
+   - Button bekommt Hintergrund #22C55E (grün), Icon wird weiß
+   - Der andere Button (⚠️) wird zurückgesetzt falls aktiv
+   - Sonst passiert nichts weiter. Position ist bestätigt.
+
+3. VERHALTEN beim Tippen auf ⚠️ (Abweichung):
+   - Button bekommt Hintergrund #EF4444 (rot), Icon wird weiß
+   - Der andere Button (✅) wird zurückgesetzt falls aktiv
+   - UNTER der Position öffnet sich INLINE ein kleiner 
+     Abweichungs-Bereich (kein Modal, kein neuer Screen):
+
+   ┌─────────────────────────────────────────────────┐
+   │  Abweichung dokumentieren                       │
+   │                                                 │
+   │  Art der Abweichung:                            │
+   │  [Schlimmer als beschrieben] [Anders als beschr.]│
+   │  [Nicht vorgefunden]                            │
+   │                                                 │
+   │  Beschreibung:                                  │
+   │  ┌─────────────────────────────────────────┐    │
+   │  │  Freitext...                            │    │
+   │  └─────────────────────────────────────────┘    │
+   │                                                 │
+   │  📷 Foto aufnehmen *                            │
+   │  ┌────────┐                                     │
+   │  │  📷    │  * Pflichtfeld                      │
+   │  └────────┘                                     │
+   │                                                 │
+   │  ┌─────────────────────────────────────────┐    │
+   │  │        Abweichung speichern             │    │
+   │  └─────────────────────────────────────────┘    │
+   └─────────────────────────────────────────────────┘
+
+4. Die drei Abweichungs-Art Buttons sind Toggle-Chips:
+   - Hintergrund transparent, Border #333333, Text weiß im Ruhezustand
+   - Aktiv: Hintergrund #EF4444, Text weiß, bold
+   - Nur einer gleichzeitig auswählbar
+
+5. Das Foto funktioniert wie in der Zusatzleistung:
+   Mock — beim Tippen erscheint ein Platzhalter-Bild (grauer Kasten).
+   Foto ist Pflicht. "* Pflichtfeld" in rot darunter.
+
+6. Der "Abweichung speichern" Button ist DISABLED solange:
+   - Keine Abweichungs-Art gewählt
+   - Kein Foto aufgenommen
+   Wenn beides erfüllt: Button aktiv, Hintergrund #EF4444, Text weiß.
+
+7. Nach "Abweichung speichern":
+   - Inline-Bereich klappt zu
+   - Der ⚠️ Button bleibt rot
+   - Unter dem Preis der Position erscheint eine kleine Zeile:
+     "⚠️ Schlimmer als beschrieben · 1 Foto" in #EF4444, 11px
+
+8. ANFANGSZUSTAND: Alle Positionen haben beide Buttons im 
+   Ruhezustand (transparent). Keine Position ist initial 
+   bestätigt oder als Abweichung markiert.
+
+9. NICHTS ANDERES ändern.
+   Nicht den Header. Nicht SOLL/IST. Nicht die Filter-Buttons.
+   Nicht die Raum-Header. Nicht das Zusatzleistung-Feld.
+   NUR die zwei Buttons pro Position hinzufügen.
