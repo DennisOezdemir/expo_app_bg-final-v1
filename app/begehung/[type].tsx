@@ -56,6 +56,21 @@ interface AuftragPosition {
   isZusatz?: boolean;
 }
 
+type AbweichungsArt = "schlimmer" | "anders" | "nicht_vorgefunden";
+
+const ABWEICHUNGS_LABELS: Record<AbweichungsArt, string> = {
+  schlimmer: "Schlimmer als beschrieben",
+  anders: "Anders als beschr.",
+  nicht_vorgefunden: "Nicht vorgefunden",
+};
+
+interface BegehungPosState {
+  status: "none" | "confirmed" | "abweichung";
+  abweichungsArt?: AbweichungsArt;
+  beschreibung?: string;
+  photoCount?: number;
+}
+
 interface AuftragRoom {
   id: string;
   icon: string;
@@ -1045,6 +1060,12 @@ export default function BegehungDetailScreen() {
   const [mangelRoomId, setMangelRoomId] = useState<string | null>(null);
   const [expandedGewerke, setExpandedGewerke] = useState<Set<string>>(new Set());
 
+  const [begehungState, setBegehungState] = useState<Record<string, BegehungPosState>>({});
+  const [abweichungOpenPos, setAbweichungOpenPos] = useState<string | null>(null);
+  const [abweichungArt, setAbweichungArt] = useState<AbweichungsArt | null>(null);
+  const [abweichungBeschreibung, setAbweichungBeschreibung] = useState("");
+  const [abweichungPhotoTaken, setAbweichungPhotoTaken] = useState(false);
+
   const [zusatzOpenRoom, setZusatzOpenRoom] = useState<string | null>(null);
   const [zusatzSearch, setZusatzSearch] = useState("");
   const [zusatzSelected, setZusatzSelected] = useState<KatalogPosition | null>(null);
@@ -1133,6 +1154,76 @@ export default function BegehungDetailScreen() {
     setZusatzNote("");
     setZusatzPhotoTaken(false);
   }, []);
+
+  const handleConfirmPos = useCallback((posId: string) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    setBegehungState((prev) => {
+      const current = prev[posId];
+      if (current?.status === "confirmed") {
+        const next = { ...prev };
+        delete next[posId];
+        return next;
+      }
+      return { ...prev, [posId]: { status: "confirmed" } };
+    });
+    if (abweichungOpenPos === posId) {
+      setAbweichungOpenPos(null);
+    }
+  }, [abweichungOpenPos]);
+
+  const handleAbweichungToggle = useCallback((posId: string) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    const current = begehungState[posId];
+    if (current?.status === "abweichung" && abweichungOpenPos !== posId) {
+      return;
+    }
+    if (abweichungOpenPos === posId) {
+      setAbweichungOpenPos(null);
+      setAbweichungArt(null);
+      setAbweichungBeschreibung("");
+      setAbweichungPhotoTaken(false);
+      if (!current?.abweichungsArt) {
+        setBegehungState((prev) => {
+          const next = { ...prev };
+          delete next[posId];
+          return next;
+        });
+      }
+      return;
+    }
+    setBegehungState((prev) => ({
+      ...prev,
+      [posId]: { status: "abweichung" },
+    }));
+    setAbweichungOpenPos(posId);
+    setAbweichungArt(null);
+    setAbweichungBeschreibung("");
+    setAbweichungPhotoTaken(false);
+  }, [abweichungOpenPos, begehungState]);
+
+  const submitAbweichung = useCallback(() => {
+    if (!abweichungOpenPos || !abweichungArt || !abweichungPhotoTaken) return;
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+    setBegehungState((prev) => ({
+      ...prev,
+      [abweichungOpenPos]: {
+        status: "abweichung",
+        abweichungsArt: abweichungArt,
+        beschreibung: abweichungBeschreibung || undefined,
+        photoCount: 1,
+      },
+    }));
+    setAbweichungOpenPos(null);
+    setAbweichungArt(null);
+    setAbweichungBeschreibung("");
+    setAbweichungPhotoTaken(false);
+  }, [abweichungOpenPos, abweichungArt, abweichungBeschreibung, abweichungPhotoTaken]);
 
   const submitZusatzleistung = useCallback(() => {
     if (!zusatzSelected || !zusatzPhotoTaken || !zusatzOpenRoom) return;
