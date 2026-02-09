@@ -637,13 +637,9 @@ function AnimatedPosItem({
             </View>
           )}
         </View>
-        {pos.isZusatz ? (
+        {pos.isZusatz && (
           <View style={[posStyles.statusBadge, { backgroundColor: Colors.raw.amber500 + "18" }]}>
             <Text style={[posStyles.statusText, { color: Colors.raw.amber500 }]}>ZUSATZ</Text>
-          </View>
-        ) : (
-          <View style={[posStyles.statusBadge, { backgroundColor: cfg.color + "18" }]}>
-            <Text style={[posStyles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
           </View>
         )}
         <View style={posStyles.begehungBtns}>
