@@ -7,12 +7,10 @@ import {
   Pressable,
   TextInput,
   Platform,
-  Dimensions,
   Modal,
-  Animated as RNAnimated,
   Clipboard,
 } from "react-native";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons, Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import { useDebugLog, type LogFilter, type LogType, type DebugLogEntry } from "@/contexts/DebugLogContext";

@@ -10,15 +10,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons, Feather } from "@expo/vector-icons";
 import Animated, {
   FadeIn,
   FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withSequence,
-  withTiming,
 } from "react-native-reanimated";
 import { useState, useCallback, useMemo } from "react";
 import * as Haptics from "expo-haptics";
@@ -190,15 +185,6 @@ function formatEuroCents(amount: number): string {
     amount
       .toFixed(2)
       .replace(".", ",")
-      .replace(/\B(?=(\d{3})+(?!\d))/g, ".")
-  );
-}
-
-function formatEuroWhole(amount: number): string {
-  return (
-    "\u20AC" +
-    amount
-      .toFixed(0)
       .replace(/\B(?=(\d{3})+(?!\d))/g, ".")
   );
 }
@@ -632,7 +618,7 @@ export default function RechnungDetailScreen() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const statusDotColor =
+  const _statusDotColor =
     invoice.status === "ueberfaellig"
       ? Colors.raw.rose500
       : invoice.status === "bezahlt"

@@ -14,11 +14,10 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming,
   FadeIn,
   FadeOut,
 } from "react-native-reanimated";
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 
@@ -51,8 +50,8 @@ interface Meilenstein {
 }
 
 const TOTAL_DAYS = 15;
-const START_DATE = "03.02.2026";
-const END_DATE = "21.02.2026";
+const _START_DATE = "03.02.2026";
+const _END_DATE = "21.02.2026";
 const CURRENT_DAY = 5;
 
 const WEEKS = [
@@ -425,7 +424,7 @@ const ganttStyles = StyleSheet.create({
 });
 
 export default function PlanungScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: _id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -434,7 +433,7 @@ export default function PlanungScreen() {
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
-  const ganttScrollRef = useRef<ScrollView>(null);
+  const _ganttScrollRef = useRef<ScrollView>(null);
 
   const progressPercent = Math.round((CURRENT_DAY / TOTAL_DAYS) * 100);
   const onSchedule = true;

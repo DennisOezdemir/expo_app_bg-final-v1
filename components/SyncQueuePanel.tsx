@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, Pressable, ScrollView } from "react-native";
+import { StyleSheet, Text, View, Pressable } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { useOffline, type SyncQueueItem, type SyncItemType } from "@/contexts/OfflineContext";

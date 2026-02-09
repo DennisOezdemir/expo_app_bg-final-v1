@@ -7,7 +7,7 @@ import {
   Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons, Feather } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
@@ -107,8 +107,7 @@ export default function FotoTabScreen() {
 }
 
 function MaterialCommunityIcon({ name, size, color }: { name: string; size: number; color: string }) {
-  const MCI = require("@expo/vector-icons").MaterialCommunityIcons;
-  return <MCI name={name} size={size} color={color} />;
+  return <MaterialCommunityIcons name={name as any} size={size} color={color} />;
 }
 
 const s = StyleSheet.create({

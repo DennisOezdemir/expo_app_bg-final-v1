@@ -1,6 +1,4 @@
-import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
-import { NativeTabs, Icon, Label, Badge } from "expo-router/unstable-native-tabs";
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View, Text, Pressable } from "react-native";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
@@ -43,7 +41,7 @@ const badgeStyles = StyleSheet.create({
 });
 
 function ImpersonationBanner() {
-  const { role, user, isImpersonating, resetRole } = useRole();
+  const { role: _role, user, isImpersonating, resetRole } = useRole();
   if (!isImpersonating) return null;
 
   return (

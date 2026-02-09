@@ -8,7 +8,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 

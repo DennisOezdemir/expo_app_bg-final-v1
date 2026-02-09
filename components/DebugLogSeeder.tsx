@@ -6,7 +6,7 @@ import { useOffline } from "@/contexts/OfflineContext";
 
 export function DebugLogSeeder() {
   const { addLog, logs } = useDebugLog();
-  const { role } = useRole();
+  const { role: _role } = useRole();
   const { addToSyncQueue, syncQueue } = useOffline();
   const seeded = useRef(false);
   const syncSeeded = useRef(false);

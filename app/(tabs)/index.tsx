@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View, ScrollView, Platform, Pressable, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";

@@ -253,50 +253,6 @@ function getIstIndicator(ist: number, plan: number): { label: string; color: str
   return { label: `${sign}${diff.toFixed(0)}%`, color };
 }
 
-function PlanVsIstChart({ months, visibleCount }: { months: MonthPlan[]; visibleCount: number }) {
-  const visible = months.slice(0, visibleCount);
-  const maxVal = Math.max(...visible.map((m) => Math.max(m.plan, m.ist ?? 0)));
-
-  return (
-    <View style={pvStyles.chartArea}>
-      {visible.map((m, i) => {
-        const planH = maxVal > 0 ? (m.plan / maxVal) * 100 : 0;
-        const istH = m.ist !== null && maxVal > 0 ? (m.ist / maxVal) * 100 : 0;
-        const istColor = m.ist !== null ? getIstColor(m.ist, m.plan) : Colors.raw.zinc700;
-
-        return (
-          <View key={i} style={pvStyles.chartCol}>
-            <View style={pvStyles.barsContainer}>
-              <View style={[pvStyles.planBar, { height: `${planH}%` }]} />
-              {m.status !== "future" && m.ist !== null ? (
-                <View
-                  style={[
-                    pvStyles.istBar,
-                    { height: `${istH}%`, backgroundColor: istColor },
-                    m.status === "current" && pvStyles.istBarCurrent,
-                  ]}
-                />
-              ) : (
-                <View style={[pvStyles.istBarEmpty, { height: `${planH * 0.3}%` }]} />
-              )}
-            </View>
-            <Text style={[pvStyles.monthLabel, i === CURRENT_MONTH_INDEX && pvStyles.monthLabelActive]}>
-              {MONTH_LABELS[i]}
-            </Text>
-            {m.ist !== null && m.status !== "future" ? (
-              <Text style={[pvStyles.monthValue, { color: getIstColor(m.ist, m.plan) }]}>
-                {formatEuroK(m.ist)}
-              </Text>
-            ) : (
-              <Text style={pvStyles.monthValueFuture}>{formatEuroK(m.plan)}</Text>
-            )}
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 function PlanVsIstSummary({ months }: { months: MonthPlan[] }) {
   const ytdPlan = months.filter((m) => m.status !== "future").reduce((s, m) => s + m.plan, 0);
   const ytdIst = months.filter((m) => m.ist !== null).reduce((s, m) => s + (m.ist ?? 0), 0);
@@ -374,7 +330,7 @@ function PlanEditSheet({
     onClose();
   }, [editValues, onSave, onClose]);
 
-  const formatDisplay = (val: string) => {
+  const _formatDisplay = (val: string) => {
     const n = parseInt(val) || 0;
     return "\u20AC" + n.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   };
@@ -679,9 +635,9 @@ export default function FinanzenScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [month, setMonth] = useState("Februar 2026");
+  const [month, _setMonth] = useState("Februar 2026");
   const [postenTab, setPostenTab] = useState<"forderungen" | "verbindlichkeiten">("forderungen");
-  const [planYear, setPlanYear] = useState(2026);
+  const [planYear, _setPlanYear] = useState(2026);
   const [planValues, setPlanValues] = useState<number[]>([...DEFAULT_PLAN_2026]);
   const [planEditVisible, setPlanEditVisible] = useState(false);
 

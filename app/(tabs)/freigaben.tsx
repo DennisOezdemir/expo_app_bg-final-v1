@@ -5,7 +5,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Dimensions,
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -157,7 +156,7 @@ function SwipeableCard({
     translateX.value = withTiming(width * 1.2, { duration: 300, easing: Easing.out(Easing.cubic) }, () => {
       runOnJS(onApprove)();
     });
-  }, [onApprove, width]);
+  }, [onApprove, width, approveFlash, translateX]);
 
   const handleReject = useCallback(() => {
     if (Platform.OS !== "web") {
@@ -167,7 +166,7 @@ function SwipeableCard({
     translateX.value = withTiming(-width * 1.2, { duration: 300, easing: Easing.out(Easing.cubic) }, () => {
       runOnJS(onReject)();
     });
-  }, [onReject, width]);
+  }, [onReject, width, rejectFlash, translateX]);
 
   const panGesture = Gesture.Pan()
     .enabled(isTop && !disabled)
@@ -505,7 +504,7 @@ export default function FreigabenScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const router = useRouter();
-  const { isOnline, getCacheAge } = useOffline();
+  const { isOnline, getCacheAge: _getCacheAge } = useOffline();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 

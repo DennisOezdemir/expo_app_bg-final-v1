@@ -8,7 +8,6 @@ import {
   TextInput,
   Modal,
   KeyboardAvoidingView,
-  FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";

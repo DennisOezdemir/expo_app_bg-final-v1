@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
   Image,
   ScrollView,
   KeyboardAvoidingView,
-  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -21,9 +20,6 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withSequence,
-  withSpring,
-  runOnJS,
-  FadeIn,
 } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,7 +42,7 @@ export default function LoginScreen() {
   const [loginError, setLoginError] = useState("");
   const [loading, setLoading] = useState(false);
   const [socialLoadingProvider, setSocialLoadingProvider] = useState<"google" | "apple" | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [_success, setSuccess] = useState(false);
 
   const [magicEmail, setMagicEmail] = useState("");
   const [magicSent, setMagicSent] = useState(false);

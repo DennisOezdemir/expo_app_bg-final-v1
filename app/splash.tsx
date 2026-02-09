@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Platform, Dimensions, Image } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet, Pressable, Platform, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,8 +16,6 @@ import Animated, {
 } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
-
-const { width: SCREEN_W } = Dimensions.get("window");
 
 export default function SplashScreen() {
   const insets = useSafeAreaInsets();
@@ -84,6 +82,7 @@ export default function SplashScreen() {
       clearTimeout(skipTimer);
       clearTimeout(autoNav);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSkip = () => {

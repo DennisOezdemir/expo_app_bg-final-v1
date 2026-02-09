@@ -9,8 +9,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Ionicons,
-  MaterialCommunityIcons,
-  Feather,
 } from "@expo/vector-icons";
 import Animated, {
   useAnimatedStyle,
@@ -18,7 +16,7 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";

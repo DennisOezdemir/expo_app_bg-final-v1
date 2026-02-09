@@ -9,19 +9,11 @@ import {
   KeyboardAvoidingView,
   Modal,
   ScrollView,
-  Dimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  FadeIn,
-  FadeOut,
-} from "react-native-reanimated";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useState, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 
@@ -839,10 +831,10 @@ const modalStyles = StyleSheet.create({
 });
 
 export default function ChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: _id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
-  const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+  const _bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
   const [activeFilter, setActiveFilter] = useState("alle");
   const [inputText, setInputText] = useState("");
@@ -865,7 +857,7 @@ export default function ChatScreen() {
 
   const dateGroups = getDateGroups(filteredMessages);
 
-  const flatData: { type: "separator"; date: string; key: string }[] | { type: "message"; msg: ChatMessage; key: string }[] = [];
+  const _flatData: { type: "separator"; date: string; key: string }[] | { type: "message"; msg: ChatMessage; key: string }[] = [];
   const listData: any[] = [];
   dateGroups.forEach((group) => {
     listData.push({ type: "separator", date: group.date, key: `sep-${group.date}` });

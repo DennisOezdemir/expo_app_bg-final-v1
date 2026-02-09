@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   Modal,
-  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -18,16 +17,11 @@ import {
 import Animated, {
   FadeIn,
   FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
 } from "react-native-reanimated";
 import { useState, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
 import Colors from "@/constants/colors";
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface OrderItem {
   id: string;

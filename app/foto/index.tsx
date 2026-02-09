@@ -7,11 +7,10 @@ import {
   Pressable,
   TextInput,
   Modal,
-  Dimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -19,10 +18,8 @@ import Animated, {
   withSequence,
   withTiming,
   FadeIn,
-  FadeOut,
-  runOnJS,
 } from "react-native-reanimated";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 
@@ -275,7 +272,7 @@ export default function FotoScreen() {
   const [flashOn, setFlashOn] = useState(false);
 
   const captureScale = useSharedValue(1);
-  const captureAnimStyle = useAnimatedStyle(() => ({
+  const _captureAnimStyle = useAnimatedStyle(() => ({
     transform: [{ scale: captureScale.value }],
   }));
 
@@ -388,7 +385,7 @@ export default function FotoScreen() {
   }
 
   if (step === "camera") {
-    const activeTag = TAGS.find((t) => t.key === selectedTag)!;
+    const _activeTag = TAGS.find((t) => t.key === selectedTag)!;
     return (
       <View style={styles.cameraContainer}>
         <View style={styles.cameraPreview}>

@@ -7,7 +7,6 @@ import {
   ScrollView,
   TextInput,
   Modal,
-  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -19,20 +18,14 @@ import {
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
   withSequence,
-  runOnJS,
   FadeIn,
   FadeOut,
 } from "react-native-reanimated";
 import { useState, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-type ApprovalType = "angebot" | "material" | "nachtrag";
 
 interface Position {
   name: string;
@@ -272,7 +265,6 @@ const budgetStyles = StyleSheet.create({
 });
 
 function AngebotContent({ data }: { data: AngebotData }) {
-  const router = useRouter();
   return (
     <>
       <Card>
@@ -717,7 +709,7 @@ export default function FreigabeDetailScreen() {
   }, []);
 
   const handleRejectionSubmit = useCallback(
-    (reason: string) => {
+    (_reason: string) => {
       setRejectionVisible(false);
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);

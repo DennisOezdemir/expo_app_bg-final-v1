@@ -10,7 +10,7 @@ import {
   KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons, Feather } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useState, useRef, useEffect, useCallback } from "react";
 import Animated, {
   useAnimatedStyle,
@@ -94,7 +94,7 @@ function SoundWaveBar({ index }: { index: number }) {
       )
     );
     return () => cancelAnimation(height);
-  }, []);
+  }, [height, index]);
 
   const animStyle = useAnimatedStyle(() => ({
     height: height.value,
@@ -125,7 +125,7 @@ function TypingIndicator() {
       cancelAnimation(dot2);
       cancelAnimation(dot3);
     };
-  }, []);
+  }, [dot1, dot2, dot3]);
 
   const s1 = useAnimatedStyle(() => ({ opacity: interpolate(dot1.value, [0, 1], [0.3, 1]) }));
   const s2 = useAnimatedStyle(() => ({ opacity: interpolate(dot2.value, [0, 1], [0.3, 1]) }));
@@ -261,7 +261,7 @@ export function FAB({ onPress }: { onPress: () => void }) {
       true
     );
     return () => cancelAnimation(pulse);
-  }, []);
+  }, [pulse]);
 
   const pulseStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulse.value }],
@@ -393,7 +393,7 @@ export function AssistantOverlay({ visible, onClose }: { visible: boolean; onClo
         setIsThinking(false);
       }, 2000);
     }, 2500);
-  }, []);
+  }, [micScale]);
 
   const handleQuickAction = useCallback((action: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

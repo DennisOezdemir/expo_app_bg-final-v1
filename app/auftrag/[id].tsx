@@ -8,11 +8,10 @@ import {
   TextInput,
   Modal,
   KeyboardAvoidingView,
-  FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -536,7 +535,7 @@ const amStyles = StyleSheet.create({
 });
 
 export default function AuftragScreen() {
-  const { id, tab } = useLocalSearchParams();
+  const { id: _id, tab } = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;

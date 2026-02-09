@@ -8,7 +8,7 @@ import {
   Switch,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -84,7 +84,7 @@ const toggleStyles = StyleSheet.create({
 });
 
 function RoleSwitcher() {
-  const { role, setRole, actualRole, isImpersonating } = useRole();
+  const { role, setRole, actualRole, isImpersonating: _isImpersonating } = useRole();
   if (actualRole !== "gf") return null;
 
   const roles: { key: UserRole; icon: string; label: string }[] = [
@@ -149,7 +149,7 @@ export default function ProfilScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
-  const { role, user, sees, isImpersonating } = useRole();
+  const { role, user, sees: _sees, isImpersonating } = useRole();
   const { logout } = useAuth();
 
   const [toggles, setToggles] = useState<Record<string, boolean>>(() => {

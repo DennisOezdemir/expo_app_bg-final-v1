@@ -9,15 +9,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-  withSequence,
-} from "react-native-reanimated";
-import { useState, useCallback } from "react";
+import { Ionicons, Feather } from "@expo/vector-icons";
+import { useState } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 
@@ -346,7 +339,7 @@ const menuStyles = StyleSheet.create({
 });
 
 export default function AngebotScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: _id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;

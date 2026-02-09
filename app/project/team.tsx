@@ -9,7 +9,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 

@@ -12,15 +12,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-  withSequence,
-} from "react-native-reanimated";
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { Ionicons, Feather } from "@expo/vector-icons";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 
@@ -1164,7 +1157,7 @@ export default function OfferEditorScreen() {
   const [addPosVisible, setAddPosVisible] = useState(false);
   const [addPosRoomId, setAddPosRoomId] = useState<string | null>(null);
   const [editPosition, setEditPosition] = useState<OfferPosition | null>(null);
-  const [editPosRoomId, setEditPosRoomId] = useState<string | null>(null);
+  const [_editPosRoomId, setEditPosRoomId] = useState<string | null>(null);
   const [addRoomVisible, setAddRoomVisible] = useState(false);
   const [saveVisible, setSaveVisible] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState(false);
@@ -1227,11 +1220,11 @@ export default function OfferEditorScreen() {
   }, []);
 
   const addRoom = useCallback((name: string, icon: string) => {
-    const roomNr = String(rooms.length + 1).padStart(2, "0");
+    const _roomNr = String(rooms.length + 1).padStart(2, "0");
     setRooms((prev) => [...prev, { id: genId(), icon, name, positions: [], collapsed: false }]);
   }, [rooms.length]);
 
-  const handleSave = useCallback((mode: "draft" | "approval") => {
+  const handleSave = useCallback((_mode: "draft" | "approval") => {
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setSavedIndicator(true);
     setTimeout(() => {
@@ -1348,7 +1341,7 @@ export default function OfferEditorScreen() {
 
         {rooms.map((room, ri) => {
           const roomTotal = room.positions.reduce((s, p) => s + p.basePrice * (1 + p.markup / 100) * p.qty, 0);
-          const roomNr = String(ri + 1).padStart(2, "0");
+          const _roomNr = String(ri + 1).padStart(2, "0");
 
           return (
             <View key={room.id} style={s.roomCard}>

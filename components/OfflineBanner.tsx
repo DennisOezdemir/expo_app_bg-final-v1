@@ -7,8 +7,6 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withSpring,
-  withDelay,
-  withSequence,
 } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { useOffline } from "@/contexts/OfflineContext";
@@ -24,7 +22,7 @@ export function OfflineBanner() {
 
   useEffect(() => {
     bannerY.value = withSpring(isOnline ? -60 : 0, { damping: 15, stiffness: 120 });
-  }, [isOnline]);
+  }, [isOnline, bannerY]);
 
   useEffect(() => {
     if (showSyncToast) {
@@ -34,7 +32,7 @@ export function OfflineBanner() {
       toastY.value = withTiming(-60, { duration: 200 });
       toastOpacity.value = withTiming(0, { duration: 200 });
     }
-  }, [showSyncToast]);
+  }, [showSyncToast, toastY, toastOpacity]);
 
   const bannerStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: bannerY.value }],

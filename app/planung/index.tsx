@@ -11,15 +11,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import Animated, {
-  FadeIn,
-  FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from "react-native-reanimated";
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 
@@ -72,7 +64,7 @@ const WEEK_DATA: { kw: number; startDate: string; endDate: string; year: number;
 
 function getWeekDays(startDay: number, month: number, year: number): WeekDay[] {
   const dayNames = ["Mo", "Di", "Mi", "Do", "Fr"];
-  const monthNames = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+  const _monthNames = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
   return dayNames.map((d, i) => {
     const dayNum = startDay + i;
     const dt = new Date(year, month, dayNum);
@@ -715,7 +707,7 @@ function WeekGrid({
           scrollEnabled={false}
           contentContainerStyle={wgStyles.daysHeaderContent}
         >
-          {WEEK_DAYS.map((d, di) => (
+          {WEEK_DAYS.map((d, _di) => (
             <View key={d.key} style={[wgStyles.dayHeader, { width: DAY_COL_W }]}>
               <Text style={wgStyles.dayShort}>{d.short}</Text>
               <Text style={wgStyles.dayDate}>{d.dateStr}</Text>
