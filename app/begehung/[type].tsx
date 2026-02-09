@@ -542,10 +542,32 @@ function AnimatedPosItem({
   pos,
   onCycleStatus,
   onLongPress,
+  begehung,
+  onConfirm,
+  onAbweichungToggle,
+  abweichungFormOpen,
+  abweichungArt,
+  abweichungBeschreibung,
+  abweichungPhotoTaken,
+  onAbweichungArtChange,
+  onAbweichungBeschreibungChange,
+  onAbweichungPhotoTake,
+  onAbweichungSubmit,
 }: {
   pos: AuftragPosition;
   onCycleStatus: () => void;
   onLongPress: () => void;
+  begehung?: BegehungPosState;
+  onConfirm: () => void;
+  onAbweichungToggle: () => void;
+  abweichungFormOpen: boolean;
+  abweichungArt: AbweichungsArt | null;
+  abweichungBeschreibung: string;
+  abweichungPhotoTaken: boolean;
+  onAbweichungArtChange: (art: AbweichungsArt) => void;
+  onAbweichungBeschreibungChange: (text: string) => void;
+  onAbweichungPhotoTake: () => void;
+  onAbweichungSubmit: () => void;
 }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({
@@ -553,6 +575,10 @@ function AnimatedPosItem({
   }));
   const cfg = STATUS_CONFIG[pos.status];
   const total = pos.qty * pos.price;
+  const isConfirmed = begehung?.status === "confirmed";
+  const isAbweichung = begehung?.status === "abweichung";
+  const savedAbweichung = isAbweichung && begehung?.abweichungsArt;
+  const abweichungCanSubmit = !!abweichungArt && abweichungPhotoTaken;
 
   const handlePress = () => {
     if (Platform.OS !== "web") {
@@ -602,6 +628,14 @@ function AnimatedPosItem({
           {pos.note && (
             <Text style={posStyles.noteText} numberOfLines={1}>{pos.note}</Text>
           )}
+          {savedAbweichung && !abweichungFormOpen && (
+            <View style={posStyles.abweichungSavedRow}>
+              <Ionicons name="warning" size={12} color="#EF4444" />
+              <Text style={posStyles.abweichungSavedText}>
+                {ABWEICHUNGS_LABELS[begehung!.abweichungsArt!]} {"\u00B7"} {begehung!.photoCount} Foto
+              </Text>
+            </View>
+          )}
         </View>
         {pos.isZusatz ? (
           <View style={[posStyles.statusBadge, { backgroundColor: Colors.raw.amber500 + "18" }]}>
@@ -612,7 +646,99 @@ function AnimatedPosItem({
             <Text style={[posStyles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
           </View>
         )}
+        <View style={posStyles.begehungBtns}>
+          <Pressable
+            style={[
+              posStyles.begehungBtn,
+              isConfirmed && { backgroundColor: "#22C55E", borderColor: "#22C55E" },
+            ]}
+            onPress={(e) => { e.stopPropagation(); onConfirm(); }}
+            testID={`confirm-${pos.id}`}
+            hitSlop={4}
+          >
+            <Ionicons name="checkmark" size={14} color={isConfirmed ? "#fff" : Colors.raw.zinc500} />
+          </Pressable>
+          <Pressable
+            style={[
+              posStyles.begehungBtn,
+              isAbweichung && { backgroundColor: "#EF4444", borderColor: "#EF4444" },
+            ]}
+            onPress={(e) => { e.stopPropagation(); onAbweichungToggle(); }}
+            testID={`abweichung-${pos.id}`}
+            hitSlop={4}
+          >
+            <Ionicons name="warning" size={14} color={isAbweichung ? "#fff" : Colors.raw.zinc500} />
+          </Pressable>
+        </View>
       </Pressable>
+
+      {abweichungFormOpen && (
+        <View style={abwStyles.formWrap} testID={`abweichung-form-${pos.id}`}>
+          <Text style={abwStyles.formTitle}>Abweichung dokumentieren</Text>
+
+          <Text style={abwStyles.fieldLabel}>Art der Abweichung:</Text>
+          <View style={abwStyles.chipRow}>
+            {(["schlimmer", "anders", "nicht_vorgefunden"] as AbweichungsArt[]).map((art) => (
+              <Pressable
+                key={art}
+                style={[
+                  abwStyles.chip,
+                  abweichungArt === art && abwStyles.chipActive,
+                ]}
+                onPress={() => onAbweichungArtChange(art)}
+                testID={`abw-art-${art}`}
+              >
+                <Text style={[
+                  abwStyles.chipText,
+                  abweichungArt === art && abwStyles.chipTextActive,
+                ]}>{ABWEICHUNGS_LABELS[art]}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={abwStyles.fieldLabel}>Beschreibung:</Text>
+          <TextInput
+            style={abwStyles.noteInput}
+            placeholder="Freitext..."
+            placeholderTextColor={Colors.raw.zinc600}
+            value={abweichungBeschreibung}
+            onChangeText={onAbweichungBeschreibungChange}
+            multiline
+            testID={`abw-beschreibung-${pos.id}`}
+          />
+
+          <Pressable
+            style={abwStyles.photoBtn}
+            onPress={onAbweichungPhotoTake}
+            testID={`abw-photo-${pos.id}`}
+          >
+            <Ionicons name="camera" size={18} color={Colors.raw.amber500} />
+            <Text style={abwStyles.photoBtnText}>Foto aufnehmen</Text>
+          </Pressable>
+          {abweichungPhotoTaken ? (
+            <View style={abwStyles.photoPreview}>
+              <View style={abwStyles.photoPlaceholder}>
+                <Ionicons name="image" size={24} color={Colors.raw.zinc500} />
+                <Text style={abwStyles.photoFilename}>foto_001.jpg</Text>
+              </View>
+            </View>
+          ) : (
+            <Text style={abwStyles.pflichtText}>* Pflichtfeld</Text>
+          )}
+
+          <Pressable
+            style={[
+              abwStyles.submitBtn,
+              !abweichungCanSubmit && abwStyles.submitBtnDisabled,
+            ]}
+            onPress={onAbweichungSubmit}
+            disabled={!abweichungCanSubmit}
+            testID={`abw-submit-${pos.id}`}
+          >
+            <Text style={abwStyles.submitBtnText}>Abweichung speichern</Text>
+          </Pressable>
+        </View>
+      )}
     </Animated.View>
   );
 }
@@ -704,6 +830,139 @@ const posStyles = StyleSheet.create({
     fontSize: 10,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+  },
+  begehungBtns: {
+    gap: 6,
+    alignItems: "center",
+    marginLeft: 4,
+  },
+  begehungBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#333333",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  abweichungSavedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  abweichungSavedText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: "#EF4444",
+  },
+});
+
+const abwStyles = StyleSheet.create({
+  formWrap: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.raw.zinc800,
+    backgroundColor: Colors.raw.zinc900 + "80",
+  },
+  formTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.raw.white,
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.raw.zinc400,
+    marginBottom: 8,
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 14,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#333333",
+  },
+  chipActive: {
+    backgroundColor: "#EF4444",
+    borderColor: "#EF4444",
+  },
+  chipText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.raw.white,
+  },
+  chipTextActive: {
+    fontFamily: "Inter_700Bold",
+    color: Colors.raw.white,
+  },
+  noteInput: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.raw.white,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 60,
+    textAlignVertical: "top",
+    marginBottom: 14,
+  },
+  photoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  photoBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.amber500,
+  },
+  photoPreview: {
+    marginBottom: 14,
+  },
+  photoPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    backgroundColor: Colors.raw.zinc800,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  photoFilename: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.raw.zinc500,
+  },
+  pflichtText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: "#EF4444",
+    marginBottom: 14,
+  },
+  submitBtn: {
+    backgroundColor: "#EF4444",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  submitBtnDisabled: {
+    opacity: 0.4,
+  },
+  submitBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.raw.white,
   },
 });
 
@@ -1576,6 +1835,22 @@ export default function BegehungDetailScreen() {
                       setMangelRoomId(room.id);
                       setMangelSheet(pos);
                     }}
+                    begehung={begehungState[pos.id]}
+                    onConfirm={() => handleConfirmPos(pos.id)}
+                    onAbweichungToggle={() => handleAbweichungToggle(pos.id)}
+                    abweichungFormOpen={abweichungOpenPos === pos.id}
+                    abweichungArt={abweichungOpenPos === pos.id ? abweichungArt : null}
+                    abweichungBeschreibung={abweichungOpenPos === pos.id ? abweichungBeschreibung : ""}
+                    abweichungPhotoTaken={abweichungOpenPos === pos.id ? abweichungPhotoTaken : false}
+                    onAbweichungArtChange={setAbweichungArt}
+                    onAbweichungBeschreibungChange={setAbweichungBeschreibung}
+                    onAbweichungPhotoTake={() => {
+                      if (Platform.OS !== "web") {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                      setAbweichungPhotoTaken(true);
+                    }}
+                    onAbweichungSubmit={submitAbweichung}
                   />
                 ))}
                 {roomPositions.length === 0 && (
