@@ -641,6 +641,7 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<Ionicons name="people" size={24} color={Colors.raw.amber500} />}
             label="Team"
+            onPress={() => router.push("/project/team" as any)}
           />
           <QuickAction
             icon={<Ionicons name="camera" size={24} color={Colors.raw.amber500} />}

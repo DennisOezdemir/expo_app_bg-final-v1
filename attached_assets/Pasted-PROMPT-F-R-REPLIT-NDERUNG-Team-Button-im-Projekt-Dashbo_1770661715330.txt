@@ -1,0 +1,66 @@
+PROMPT FÜR REPLIT:
+
+ÄNDERUNG: Team-Button im Projekt-Dashboard öffnet einen neuen Screen
+
+KONTEXT: Im Projekt-Dashboard gibt es eine Icon-Leiste mit 
+Auftrag / Material / Team / Foto / Chat. Der Team-Button 
+hat aktuell keinen Dialog. Er soll einen einfachen Screen öffnen.
+
+WAS BAUEN:
+
+1. Tippen auf Team-Button öffnet einen neuen Screen.
+   Header: "← Team · BL-2026-003" (gleicher Style wie andere Screens)
+
+2. Oben eine Wochen-Ansicht (aktuelle KW):
+
+   ┌─────────────────────────────────────────────────┐
+   │  KW 6 · 03.02. - 07.02.2026                    │
+   │                                                 │
+   │  Mo  Di  Mi  Do  Fr                             │
+   │  3👷 3👷 2👷 2👷 --                             │
+   └─────────────────────────────────────────────────┘
+   
+   - Wochentage nebeneinander, darunter Anzahl Personen
+   - Aktueller Tag orange hervorgehoben (#F59E0B)
+   - 👷 ist ein kleines Worker-Icon oder einfach die Zahl
+   - "--" für nicht geplant
+
+3. Darunter die Team-Liste für den ausgewählten Tag:
+
+   ┌─────────────────────────────────────────────────┐
+   │  Heute · Montag 03.02.                          │
+   │                                                 │
+   │  🟢 Mehmet         Fliesen        07:00-16:00   │
+   │     Bad · Wandfliesen verlegen                  │
+   │                                                 │
+   │  🟢 Kevin          Maler          07:00-16:00   │
+   │     Wohnzimmer · Decke tapezieren               │
+   │                                                 │
+   │  🟢 Marcel         Bauleiter      09:00-12:00   │
+   │     Erstbegehung                                │
+   └─────────────────────────────────────────────────┘
+
+   Pro Person:
+   - Zeile 1: Status-Punkt (🟢 vor Ort / 🟡 unterwegs / ⚪ nicht da)
+     + Name (weiß, bold, 14px) + Gewerk (grau, 12px) + Uhrzeit (grau, 12px)
+   - Zeile 2: Raum + Aufgabe (grau, 12px), eingerückt
+
+4. Unten ein Button:
+
+   ┌─────────────────────────────────────────────────┐
+   │     + Mitarbeiter zuweisen                      │
+   └─────────────────────────────────────────────────┘
+   - Outline-Style, Border #333, Text #F59E0B
+   - Beim Tippen: noop (Mock, kommt später)
+
+5. Mock-Daten:
+   - Mehmet: Fliesen, Bad, 07:00-16:00, vor Ort
+   - Kevin: Maler, Wohnzimmer, 07:00-16:00, vor Ort
+   - Marcel: Bauleiter, Erstbegehung, 09:00-12:00, vor Ort
+
+6. Tippen auf einen Wochentag wechselt die Liste darunter.
+   Für andere Tage zeige 2 Personen (Mehmet + Kevin).
+   Do + Fr zeige nur Mehmet.
+
+7. NICHTS ANDERES ändern. Nur den neuen Screen hinter 
+   dem Team-Button bauen.
