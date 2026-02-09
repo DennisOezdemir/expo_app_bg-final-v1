@@ -553,6 +553,7 @@ function AnimatedPosItem({
   onAbweichungBeschreibungChange,
   onAbweichungPhotoTake,
   onAbweichungSubmit,
+  isErstbegehung,
 }: {
   pos: AuftragPosition;
   onCycleStatus: () => void;
@@ -568,6 +569,7 @@ function AnimatedPosItem({
   onAbweichungBeschreibungChange: (text: string) => void;
   onAbweichungPhotoTake: () => void;
   onAbweichungSubmit: () => void;
+  isErstbegehung: boolean;
 }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({
@@ -637,35 +639,41 @@ function AnimatedPosItem({
             </View>
           )}
         </View>
-        {pos.isZusatz && (
+        {pos.isZusatz ? (
           <View style={[posStyles.statusBadge, { backgroundColor: Colors.raw.amber500 + "18" }]}>
             <Text style={[posStyles.statusText, { color: Colors.raw.amber500 }]}>ZUSATZ</Text>
           </View>
+        ) : !isErstbegehung ? (
+          <View style={[posStyles.statusBadge, { backgroundColor: cfg.color + "18" }]}>
+            <Text style={[posStyles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+          </View>
+        ) : null}
+        {isErstbegehung && (
+          <View style={posStyles.begehungBtns}>
+            <Pressable
+              style={[
+                posStyles.begehungBtn,
+                isConfirmed && { backgroundColor: "#22C55E", borderColor: "#22C55E" },
+              ]}
+              onPress={(e) => { e.stopPropagation(); onConfirm(); }}
+              testID={`confirm-${pos.id}`}
+              hitSlop={4}
+            >
+              <Ionicons name="checkmark" size={14} color={isConfirmed ? "#fff" : Colors.raw.zinc500} />
+            </Pressable>
+            <Pressable
+              style={[
+                posStyles.begehungBtn,
+                isAbweichung && { backgroundColor: "#EF4444", borderColor: "#EF4444" },
+              ]}
+              onPress={(e) => { e.stopPropagation(); onAbweichungToggle(); }}
+              testID={`abweichung-${pos.id}`}
+              hitSlop={4}
+            >
+              <Ionicons name="warning" size={14} color={isAbweichung ? "#fff" : Colors.raw.zinc500} />
+            </Pressable>
+          </View>
         )}
-        <View style={posStyles.begehungBtns}>
-          <Pressable
-            style={[
-              posStyles.begehungBtn,
-              isConfirmed && { backgroundColor: "#22C55E", borderColor: "#22C55E" },
-            ]}
-            onPress={(e) => { e.stopPropagation(); onConfirm(); }}
-            testID={`confirm-${pos.id}`}
-            hitSlop={4}
-          >
-            <Ionicons name="checkmark" size={14} color={isConfirmed ? "#fff" : Colors.raw.zinc500} />
-          </Pressable>
-          <Pressable
-            style={[
-              posStyles.begehungBtn,
-              isAbweichung && { backgroundColor: "#EF4444", borderColor: "#EF4444" },
-            ]}
-            onPress={(e) => { e.stopPropagation(); onAbweichungToggle(); }}
-            testID={`abweichung-${pos.id}`}
-            hitSlop={4}
-          >
-            <Ionicons name="warning" size={14} color={isAbweichung ? "#fff" : Colors.raw.zinc500} />
-          </Pressable>
-        </View>
       </Pressable>
 
       {abweichungFormOpen && (
@@ -1847,6 +1855,7 @@ export default function BegehungDetailScreen() {
                       setAbweichungPhotoTaken(true);
                     }}
                     onAbweichungSubmit={submitAbweichung}
+                    isErstbegehung={typeKey === "erstbegehung"}
                   />
                 ))}
                 {roomPositions.length === 0 && (
