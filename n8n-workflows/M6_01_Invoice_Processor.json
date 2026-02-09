@@ -480,6 +480,86 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [-1808, 432]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get parsed data from previous node\nconst parsed = $input.first().json;\n\n// Check if we have binary data (attachment path only)\nlet binary = {};\ntry {\n  const downloadNode = $('📎 Download Binary').first();\n  binary = downloadNode.binary || {};\n} catch (e) {\n  // Inline path - no binary available, that's fine\n}\n\n// Pass everything through\nconst result = { json: { ...parsed } };\nif (Object.keys(binary).length > 0) {\n  result.binary = binary;\n}\nreturn [result];"
+      },
+      "id": "a1b2c3d4-7777-4000-8000-000000000007",
+      "name": "🔧 Prep Validator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [32, 400]
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "text": "Du bist ein Daten-Validator für Rechnungen.\n\nAKTUELLES DATUM: {{ $now.format('yyyy-MM-dd') }}\n\nEXTRAHIERTE DATEN (von anderer AI):\n{{ JSON.stringify({\n  rechnung_datum: $json.rechnung_datum,\n  rechnung_nummer: $json.rechnung_nummer,\n  lieferant_name: $json.lieferant_name,\n  summe_brutto: $json.summe_brutto,\n  summe_netto: $json.summe_netto,\n  mwst_prozent: $json.mwst_prozent,\n  positionen_count: $json.positionen_count,\n  extraction_source: $json.extraction_source\n}) }}\n\nPRÜFE die extrahierten Daten:\n\n1. DATUM: Jahr muss 2020-2030 sein. Bei \"24\" oder \"26\" → 2024/2026, NICHT 2014\n2. BETRÄGE: brutto >= netto. Bei mwst_prozent > 0: brutto ≈ netto × (1 + mwst/100) (±2€). Bei mwst_prozent = 0: brutto = netto\n3. LIEFERANT + RECHNUNGSNUMMER: Plausibel?\n4. Bei extraction_source EMAIL_BODY: Beträge und Währung prüfen (USD vs EUR)\n\nAUSGABE NUR JSON:\n{\"valid\":true,\"corrections\":{},\"confidence\":0.95,\"issues\":[]}\n\nBei Korrekturen:\n{\"valid\":false,\"corrections\":{\"rechnung_datum\":\"2024-01-26\"},\"confidence\":0.85,\"issues\":[\"Jahr korrigiert: 2014→2024\"]}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-8888-4000-8000-000000000008",
+      "name": "🔍 Gemini Validator",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get original parsed data\nconst parsed = $('📋 Parse JSON').first().json;\n\n// Get Gemini response\nconst geminiResponse = $input.first().json;\n\nlet result = { ...parsed };\n\n// Parse Gemini response\nlet validatorData;\ntry {\n  const text = geminiResponse.content?.parts?.[0]?.text || \n               geminiResponse.text || \n               JSON.stringify(geminiResponse);\n  const cleanJson = text.replace(/```json\\s*/gi, '').replace(/```/g, '').trim();\n  validatorData = JSON.parse(cleanJson);\n} catch (e) {\n  return [{ \n    json: { \n      ...result, \n      _validation_skipped: true,\n      _validation_error: e.message \n    }\n  }];\n}\n\n// Apply corrections\nif (validatorData.corrections) {\n  for (const [key, value] of Object.entries(validatorData.corrections)) {\n    result[key] = value;\n  }\n}\n\n// Recalculate due_date if datum corrected\nif (validatorData.corrections?.rechnung_datum) {\n  const d = new Date(validatorData.corrections.rechnung_datum);\n  d.setDate(d.getDate() + (result.payment_terms_days || 14));\n  result.due_date = d.toISOString().split('T')[0];\n}\n\n// Recalculate net/gross if corrected\nif (validatorData.corrections?.summe_brutto || validatorData.corrections?.summe_netto) {\n  const vat = result.mwst_prozent || 19;\n  if (validatorData.corrections.summe_brutto && !validatorData.corrections.summe_netto) {\n    result.summe_netto = Math.round((result.summe_brutto / (1 + vat / 100)) * 100) / 100;\n  } else if (validatorData.corrections.summe_netto && !validatorData.corrections.summe_brutto) {\n    result.summe_brutto = Math.round(result.summe_netto * (1 + vat / 100) * 100) / 100;\n  }\n}\n\n// Add validation metadata\nresult._validated = validatorData.valid;\nresult._confidence = validatorData.confidence;\nresult._issues = validatorData.issues || [];\n\nreturn [{ json: result }];"
+      },
+      "id": "a1b2c3d4-9999-4000-8000-000000000009",
+      "name": "🔧 Merge Corrections",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 400]
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "text": "=Der folgende Text stammt aus einer Email, die als Rechnung klassifiziert wurde. Extrahiere die Rechnungsinformationen aus dem Email-Text.\n\nEMAIL VON: {{ $('📥 Extract Event Data').first().json.email_from }}\nBETREFF: {{ $('📥 Extract Event Data').first().json.email_subject }}\n\nEMAIL-INHALT:\n{{ $('🔍 Check Email Body').first().json.body_preview }}\n\nExtrahiere ALLE Informationen als JSON:\n\nSCHRITT 1: Lieferant identifizieren (name, code max 4 Zeichen, typ: BAUMARKT/GROSSHANDEL/FACHHANDEL/TANKSTELLE/RESTAURANT/SOFTWARE/SONSTIGE)\nSCHRITT 2: Kostenkategorie (MATERIAL/SUBCONTRACTOR/VEHICLE_FUEL/VEHICLE_RENTAL/VEHICLE_REPAIR/ENTERTAINMENT/SOFTWARE/OFFICE/DISPOSAL/OTHER)\nSCHRITT 3: Rechnungsdaten (nummer, datum YYYY-MM-DD, summe_netto, summe_brutto, mwst_prozent)\nSCHRITT 4: Zahlungsinformationen (iban, bic, zahlungsziel_tage, faellig_am, skonto_prozent, skonto_tage)\nSCHRITT 5: Positionen (artikel_nummer, beschreibung, internal_name, menge, einheit, einzelpreis_brutto, kategorie)\n\nWICHTIG: Bei ausländischen Anbietern ohne MwSt: summe_brutto = summe_netto, mwst_prozent = 0\n\nAUSGABE: Nur JSON, keine Backticks.\n{\"lieferant\":{\"name\":\"\",\"code\":\"\",\"typ\":\"\"},\"expense_category\":\"\",\"rechnung\":{\"nummer\":\"\",\"datum\":\"\",\"summe_netto\":0,\"summe_brutto\":0,\"mwst_prozent\":0},\"zahlung\":{\"iban\":\"\",\"bic\":\"\",\"zahlungsziel_tage\":14,\"faellig_am\":\"\",\"skonto_prozent\":0,\"skonto_tage\":0},\"positionen\":[]}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-aaaa-4000-8000-000000000010",
+      "name": "🔄 Gemini Text Fallback",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [-1184, -96],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "text": "Analysiere diesen Beleg/Rechnung und extrahiere alle Informationen.\n\nSCHRITT 1: Lieferant identifizieren (name, code max 4 Zeichen Großbuchstaben, typ: BAUMARKT/GROSSHANDEL/FACHHANDEL/TANKSTELLE/RESTAURANT/SOFTWARE/SONSTIGE)\nSCHRITT 2: Kostenkategorie (MATERIAL/SUBCONTRACTOR/VEHICLE_FUEL/VEHICLE_RENTAL/VEHICLE_REPAIR/ENTERTAINMENT/SOFTWARE/OFFICE/DISPOSAL/OTHER)\nSCHRITT 3: Rechnungsdaten (nummer oder UNKNOWN, datum YYYY-MM-DD, summe_netto, summe_brutto, mwst_prozent)\nWICHTIG: summe_brutto = ENDPREIS, summe_netto = VOR MwSt. summe_brutto = summe_netto × (1 + mwst_prozent/100)\nSCHRITT 4: Zahlungsinformationen (iban, bic, zahlungsziel_tage default 14, faellig_am, skonto_prozent, skonto_tage)\nSCHRITT 5: Positionen max 20 (artikel_nummer, beschreibung, internal_name, menge, einheit, einzelpreis_brutto, kategorie)\n\nAUSGABE: Nur JSON, keine Backticks, kein Markdown.\n{\"lieferant\":{\"name\":\"\",\"code\":\"\",\"typ\":\"\"},\"expense_category\":\"\",\"rechnung\":{\"nummer\":\"\",\"datum\":\"\",\"summe_netto\":0,\"summe_brutto\":0,\"mwst_prozent\":0},\"zahlung\":{\"iban\":\"\",\"bic\":\"\",\"zahlungsziel_tage\":14,\"faellig_am\":\"\",\"skonto_prozent\":0,\"skonto_tage\":0},\"positionen\":[]}",
+        "inputType": "binary",
+        "binaryPropertyName": "={{ $('🔧 Prepare Upload').first().json.binary_key }}",
+        "options": {
+          "maxTokens": 8000
+        }
+      },
+      "id": "a1b2c3d4-bbbb-4000-8000-000000000011",
+      "name": "🔄 Gemini Vision Fallback",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [-176, 128],
+      "onError": "continueErrorOutput"
     }
   ],
   "connections": {
@@ -516,6 +596,12 @@
       ]
     },
     "🤖 Claude Text Extract": {
+      "main": [
+        [{ "node": "📋 Prepare Text Result", "type": "main", "index": 0 }],
+        [{ "node": "🔄 Gemini Text Fallback", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔄 Gemini Text Fallback": {
       "main": [
         [{ "node": "📋 Prepare Text Result", "type": "main", "index": 0 }]
       ]
@@ -556,10 +642,31 @@
     },
     "🤖 Claude Vision": {
       "main": [
+        [{ "node": "📋 Parse JSON", "type": "main", "index": 0 }],
+        [{ "node": "🔄 Gemini Vision Fallback", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔄 Gemini Vision Fallback": {
+      "main": [
         [{ "node": "📋 Parse JSON", "type": "main", "index": 0 }]
       ]
     },
     "📋 Parse JSON": {
+      "main": [
+        [{ "node": "🔧 Prep Validator", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔧 Prep Validator": {
+      "main": [
+        [{ "node": "🔍 Gemini Validator", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔍 Gemini Validator": {
+      "main": [
+        [{ "node": "🔧 Merge Corrections", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔧 Merge Corrections": {
       "main": [
         [{ "node": "🏢 Match Supplier", "type": "main", "index": 0 }]
       ]
