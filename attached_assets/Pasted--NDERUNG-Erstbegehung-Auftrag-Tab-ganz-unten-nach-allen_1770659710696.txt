@@ -1,0 +1,144 @@
+ÄNDERUNG: Erstbegehung → Auftrag Tab (ganz unten nach allen Räumen)
+
+KONTEXT: Im Auftrag-Tab gibt es jetzt aufklappbare Raum-Sektionen mit 
+Positionen die ✅ bestätigt oder ⚠️ Abweichung markiert werden können, 
+plus "+ Zusatzleistung erfassen" Felder pro Raum. Der Bauleiter geht 
+alle Räume durch und dokumentiert den Ist-Zustand.
+
+Wenn er fertig ist, muss er die Erstbegehung "festschreiben" — 
+also alles zusammenfassen und zur Freigabe schicken.
+
+WAS HINZUFÜGEN:
+
+1. FORTSCHRITTSANZEIGE — direkt ÜBER den Raum-Sektionen, 
+   UNTER den Filter-Buttons (Alle/Offen/In Arbeit/Erledigt).
+   
+   Layout:
+   ┌─────────────────────────────────────────────────┐
+   │  Begehung: 0 von 23 Positionen geprüft         │
+   │  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 0%             │
+   └─────────────────────────────────────────────────┘
+   
+   - Text: grau, 12px
+   - Balken: dünn (4px), Farbe #F59E0B
+   - Zählt jede Position die entweder ✅ oder ⚠️ hat
+   - Aktualisiert sich live wenn der User Buttons drückt
+   - "23" ist die Gesamtzahl aller Positionen über alle Räume
+
+2. FESTSCHREIBEN-BUTTON — ganz UNTEN im Auftrag-Tab, 
+   NACH dem letzten Raum, NACH dem letzten "+ Zusatzleistung" Feld.
+   Mit Abstand (24px margin-top).
+
+   ZUSTAND A — Nicht alle Positionen geprüft:
+   ┌─────────────────────────────────────────────────┐
+   │     Erstbegehung festschreiben                  │
+   │     Noch 14 Positionen offen                    │
+   └─────────────────────────────────────────────────┘
+   - Hintergrund: #1a1a1a (fast gleich wie Hintergrund)
+   - Border: 1px solid #333333
+   - Text: "Erstbegehung festschreiben" in grau (#666666), 16px, bold
+   - Unterzeile: "Noch X Positionen offen" in #666666, 12px
+   - NICHT klickbar (disabled)
+
+   ZUSTAND B — Alle Positionen geprüft (jede hat ✅ oder ⚠️):
+   ┌─────────────────────────────────────────────────┐
+   │     ✓  Erstbegehung festschreiben               │
+   └─────────────────────────────────────────────────┘
+   - Hintergrund: #F59E0B (orange)
+   - Text: schwarz, 16px, bold
+   - Voller Radius (rounded, 12px)
+   - KLICKBAR
+
+3. VERHALTEN beim Tippen auf den aktiven Button:
+   Es öffnet sich ein FULLSCREEN-OVERLAY (kein neuer Screen, 
+   ein Modal das den ganzen Bildschirm ausfüllt, mit X zum Schließen).
+
+   Layout des Overlays:
+   ┌─────────────────────────────────────────────────┐
+   │  ✕                  Zusammenfassung             │
+   │─────────────────────────────────────────────────│
+   │                                                 │
+   │  BL-2026-003 · Schwentnerring 13c               │
+   │  Erstbegehung · 03.02.2026                      │
+   │                                                 │
+   │  ┌─────────────────────────────────────────┐    │
+   │  │  ✅ 19 bestätigt    ⚠️ 3 Abweichungen   │    │
+   │  │  ➕ 1 Zusatzleistung                    │    │
+   │  └─────────────────────────────────────────┘    │
+   │                                                 │
+   │  ── Abweichungen ──────────────────────────     │
+   │                                                 │
+   │  ⚠️ Bad · Pos 03 Waschtisch montieren           │
+   │  Schlimmer als beschrieben                      │
+   │  "Rohre korrodiert, Vorwand nötig"              │
+   │  ┌────────┐                                     │
+   │  │ 📷     │  foto_001.jpg                       │
+   │  └────────┘                                     │
+   │                                                 │
+   │  ⚠️ Küche · Pos 02 Estrich spachteln            │
+   │  Anders als beschrieben                         │
+   │  "Estrich komplett lose, nicht nur uneben"       │
+   │  ┌────────┐                                     │
+   │  │ 📷     │  foto_002.jpg                       │
+   │  └────────┘                                     │
+   │                                                 │
+   │  ── Zusatzleistungen ──────────────────────     │
+   │                                                 │
+   │  ➕ Wohnzimmer · 5.6 PVC Design-Belag verlegen  │
+   │  "Nicht beauftragt, aber Boden kaputt"          │
+   │  ┌────────┐                                     │
+   │  │ 📷     │  foto_003.jpg                       │
+   │  └────────┘                                     │
+   │                                                 │
+   │  ── Bestätigt (19) ────────────────────────     │
+   │  Alle weiteren Positionen wie beauftragt. ✅     │
+   │                                                 │
+   │                                                 │
+   │  ┌─────────────────────────────────────────┐    │
+   │  │    ✓  Festschreiben & zur Freigabe      │    │
+   │  └─────────────────────────────────────────┘    │
+   │  Button: Hintergrund #F59E0B, Text schwarz,     │
+   │  bold, 16px, full width                         │
+   └─────────────────────────────────────────────────┘
+
+4. Das Overlay ist scrollbar. Oben fixiert: X-Button + Titel.
+   Unten fixiert: "Festschreiben & zur Freigabe" Button 
+   (sticky bottom, mit 16px Abstand, leichter Schatten nach oben).
+
+5. ABWEICHUNGEN-SEKTION: Zeigt NUR Positionen mit ⚠️. Pro Eintrag:
+   - Raum · Positionsnummer + Name (weiß, 14px bold)
+   - Art der Abweichung (orange #F59E0B, 12px)
+   - Freitext-Beschreibung in Anführungszeichen (grau, 12px italic)
+   - Foto-Thumbnail (60x60px, abgerundete Ecken)
+
+6. ZUSATZLEISTUNGEN-SEKTION: Zeigt NUR Positionen mit ZUSATZ Badge. 
+   Gleiches Layout wie Abweichungen, aber mit ➕ statt ⚠️.
+
+7. BESTÄTIGT-SEKTION: Zeigt KEINE Einzelpositionen. 
+   Nur eine Zeile: "Alle weiteren Positionen (19) wie beauftragt. ✅"
+   Das spart Platz. Nur Probleme werden einzeln gezeigt.
+
+8. Nach Tippen auf "Festschreiben & zur Freigabe":
+   - Overlay schließt sich
+   - Der Erstbegehung-Status im Header ändert sich 
+     von "● Erledigt" (grün) zu "● Festgeschrieben" (blau, #3B82F6)
+   - Der Festschreiben-Button unten verschwindet
+   - An seiner Stelle steht:
+     "✓ Festgeschrieben am 03.02.2026 · Zur Freigabe eingereicht"
+     Text in #3B82F6 (blau), 13px
+
+9. MOCK-DATEN für die Zusammenfassung (hardcode):
+   - 19 bestätigte Positionen
+   - 3 Abweichungen:
+     a) Bad · Pos 03 · "Schlimmer als beschrieben" · "Rohre korrodiert"
+     b) Küche · Pos 02 · "Anders als beschrieben" · "Estrich komplett lose"
+     c) Flur · Pos 01 · "Nicht vorgefunden" · "Gardinenbrett nicht vorhanden"
+   - 1 Zusatzleistung:
+     a) Wohnzimmer · "5.6 PVC Design-Belag verlegen" · "Boden kaputt"
+
+10. NICHTS ANDERES ändern.
+    Nicht den Header (außer Status-Text nach Festschreiben).
+    Nicht die Tabs. Nicht die Raum-Sektionen.
+    Nicht die Einzelpositionen. Nicht das Zusatzleistung-Feld.
+    NUR die Fortschrittsanzeige oben, den Button unten, 
+    und das Overlay hinzufügen.

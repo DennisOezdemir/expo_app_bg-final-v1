@@ -1324,6 +1324,8 @@ export default function BegehungDetailScreen() {
   const [expandedGewerke, setExpandedGewerke] = useState<Set<string>>(new Set());
 
   const [begehungState, setBegehungState] = useState<Record<string, BegehungPosState>>({});
+  const [festgeschrieben, setFestgeschrieben] = useState(false);
+  const [showSummaryOverlay, setShowSummaryOverlay] = useState(false);
   const [abweichungOpenPos, setAbweichungOpenPos] = useState<string | null>(null);
   const [abweichungArt, setAbweichungArt] = useState<AbweichungsArt | null>(null);
   const [abweichungBeschreibung, setAbweichungBeschreibung] = useState("");
@@ -1568,6 +1570,20 @@ export default function BegehungDetailScreen() {
     };
   }, [rooms]);
 
+  const begehungProgress = useMemo(() => {
+    let totalPositions = 0;
+    let geprueft = 0;
+    rooms.forEach((room) => {
+      room.positions.forEach((pos) => {
+        totalPositions++;
+        if (begehungState[pos.id]) geprueft++;
+      });
+    });
+    const percent = totalPositions > 0 ? Math.round((geprueft / totalPositions) * 100) : 0;
+    const allDone = totalPositions > 0 && geprueft === totalPositions;
+    return { totalPositions, geprueft, percent, allDone, remaining: totalPositions - geprueft };
+  }, [rooms, begehungState]);
+
   const matStats = useMemo(() => {
     const counts: Record<string, number> = { offen: 0, bestellt: 0, geliefert: 0, verbraucht: 0 };
     materials.forEach((m) => counts[m.status]++);
@@ -1780,6 +1796,18 @@ export default function BegehungDetailScreen() {
         ))}
       </ScrollView>
 
+      {typeKey === "erstbegehung" && !festgeschrieben && (
+        <View style={styles.begehungProgressWrap} testID="begehung-progress">
+          <Text style={styles.begehungProgressText}>
+            Begehung: {begehungProgress.geprueft} von {begehungProgress.totalPositions} Positionen gepr{"\u00FC"}ft
+          </Text>
+          <View style={styles.begehungProgressBarOuter}>
+            <View style={[styles.begehungProgressBarFill, { width: `${begehungProgress.percent}%` }]} />
+          </View>
+          <Text style={styles.begehungProgressPercent}>{begehungProgress.percent}%</Text>
+        </View>
+      )}
+
       {rooms.map((room) => {
         const roomPositions = filterStatus === "alle"
           ? room.positions
@@ -1981,6 +2009,33 @@ export default function BegehungDetailScreen() {
           </View>
         );
       })}
+
+      {typeKey === "erstbegehung" && !festgeschrieben && (
+        begehungProgress.allDone ? (
+          <Pressable
+            style={styles.festschreibenBtnActive}
+            onPress={() => setShowSummaryOverlay(true)}
+            testID="festschreiben-btn"
+          >
+            <Ionicons name="checkmark" size={18} color="#000" />
+            <Text style={styles.festschreibenBtnActiveText}>Erstbegehung festschreiben</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.festschreibenBtnDisabled} testID="festschreiben-btn-disabled">
+            <Text style={styles.festschreibenBtnDisabledText}>Erstbegehung festschreiben</Text>
+            <Text style={styles.festschreibenBtnSubtext}>Noch {begehungProgress.remaining} Positionen offen</Text>
+          </View>
+        )
+      )}
+
+      {typeKey === "erstbegehung" && festgeschrieben && (
+        <View style={styles.festgeschriebenInfo} testID="festgeschrieben-info">
+          <Ionicons name="checkmark-circle" size={16} color="#3B82F6" />
+          <Text style={styles.festgeschriebenText}>
+            Festgeschrieben am 03.02.2026 {"\u00B7"} Zur Freigabe eingereicht
+          </Text>
+        </View>
+      )}
     </>
   );
 
@@ -2129,14 +2184,14 @@ export default function BegehungDetailScreen() {
             <View
               style={[
                 styles.statusBadge,
-                { backgroundColor: meta.statusColor + "18" },
+                { backgroundColor: (festgeschrieben && typeKey === "erstbegehung" ? "#3B82F6" : meta.statusColor) + "18" },
               ]}
             >
               <View
-                style={[styles.statusDot, { backgroundColor: meta.statusColor }]}
+                style={[styles.statusDot, { backgroundColor: festgeschrieben && typeKey === "erstbegehung" ? "#3B82F6" : meta.statusColor }]}
               />
-              <Text style={[styles.statusLabel, { color: meta.statusColor }]}>
-                {meta.status}
+              <Text style={[styles.statusLabel, { color: festgeschrieben && typeKey === "erstbegehung" ? "#3B82F6" : meta.statusColor }]}>
+                {festgeschrieben && typeKey === "erstbegehung" ? "Festgeschrieben" : meta.status}
               </Text>
             </View>
             <Text style={styles.dateText}>{meta.date}</Text>
@@ -2254,6 +2309,135 @@ export default function BegehungDetailScreen() {
           setAddMatVisible(false);
         }}
       />
+
+      {showSummaryOverlay && (
+        <View style={summaryStyles.overlay} testID="summary-overlay">
+          <View style={[summaryStyles.header, { paddingTop: topInset + 8 }]}>
+            <Pressable
+              onPress={() => setShowSummaryOverlay(false)}
+              hitSlop={12}
+              testID="summary-close"
+            >
+              <Ionicons name="close" size={24} color={Colors.raw.white} />
+            </Pressable>
+            <Text style={summaryStyles.headerTitle}>Zusammenfassung</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          <ScrollView
+            style={summaryStyles.scroll}
+            contentContainerStyle={[summaryStyles.scrollContent, { paddingBottom: bottomInset + 100 }]}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={summaryStyles.projectLine}>
+              BL-2026-003 {"\u00B7"} Schwentnerring 13c
+            </Text>
+            <Text style={summaryStyles.dateLine}>
+              Erstbegehung {"\u00B7"} 03.02.2026
+            </Text>
+
+            <View style={summaryStyles.statsCard}>
+              <View style={summaryStyles.statsRow}>
+                <View style={summaryStyles.statItem}>
+                  <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+                  <Text style={summaryStyles.statText}>19 best{"\u00E4"}tigt</Text>
+                </View>
+                <View style={summaryStyles.statItem}>
+                  <Ionicons name="warning" size={16} color="#EF4444" />
+                  <Text style={summaryStyles.statText}>3 Abweichungen</Text>
+                </View>
+              </View>
+              <View style={summaryStyles.statsRow}>
+                <View style={summaryStyles.statItem}>
+                  <Ionicons name="add-circle" size={16} color={Colors.raw.amber500} />
+                  <Text style={summaryStyles.statText}>1 Zusatzleistung</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={summaryStyles.sectionHeader}>
+              <View style={summaryStyles.sectionLine} />
+              <Text style={summaryStyles.sectionTitle}>Abweichungen</Text>
+              <View style={summaryStyles.sectionLine} />
+            </View>
+
+            {[
+              { room: "Bad", pos: "03", name: "Waschtisch montieren", art: "Schlimmer als beschrieben", text: "Rohre korrodiert, Vorwand n\u00F6tig", foto: "foto_001.jpg" },
+              { room: "K\u00FCche", pos: "02", name: "Estrich spachteln", art: "Anders als beschrieben", text: "Estrich komplett lose, nicht nur uneben", foto: "foto_002.jpg" },
+              { room: "Flur", pos: "01", name: "Gardinenbrett montieren", art: "Nicht vorgefunden", text: "Gardinenbrett nicht vorhanden", foto: "foto_003.jpg" },
+            ].map((abw, idx) => (
+              <View key={idx} style={summaryStyles.entryCard}>
+                <View style={summaryStyles.entryHeader}>
+                  <Ionicons name="warning" size={14} color="#EF4444" />
+                  <Text style={summaryStyles.entryTitle}>
+                    {abw.room} {"\u00B7"} Pos {abw.pos} {abw.name}
+                  </Text>
+                </View>
+                <Text style={summaryStyles.entryArt}>{abw.art}</Text>
+                <Text style={summaryStyles.entryText}>{"\u201E"}{abw.text}{"\u201C"}</Text>
+                <View style={summaryStyles.photoRow}>
+                  <View style={summaryStyles.photoThumb}>
+                    <Ionicons name="image" size={20} color={Colors.raw.zinc500} />
+                  </View>
+                  <Text style={summaryStyles.photoName}>{abw.foto}</Text>
+                </View>
+              </View>
+            ))}
+
+            <View style={summaryStyles.sectionHeader}>
+              <View style={summaryStyles.sectionLine} />
+              <Text style={summaryStyles.sectionTitle}>Zusatzleistungen</Text>
+              <View style={summaryStyles.sectionLine} />
+            </View>
+
+            <View style={summaryStyles.entryCard}>
+              <View style={summaryStyles.entryHeader}>
+                <Ionicons name="add-circle" size={14} color={Colors.raw.amber500} />
+                <Text style={summaryStyles.entryTitle}>
+                  Wohnzimmer {"\u00B7"} 5.6 PVC Design-Belag verlegen
+                </Text>
+              </View>
+              <Text style={summaryStyles.entryText}>{"\u201E"}Nicht beauftragt, aber Boden kaputt{"\u201C"}</Text>
+              <View style={summaryStyles.photoRow}>
+                <View style={summaryStyles.photoThumb}>
+                  <Ionicons name="image" size={20} color={Colors.raw.zinc500} />
+                </View>
+                <Text style={summaryStyles.photoName}>foto_003.jpg</Text>
+              </View>
+            </View>
+
+            <View style={summaryStyles.sectionHeader}>
+              <View style={summaryStyles.sectionLine} />
+              <Text style={summaryStyles.sectionTitle}>Best{"\u00E4"}tigt (19)</Text>
+              <View style={summaryStyles.sectionLine} />
+            </View>
+
+            <View style={summaryStyles.confirmedCard}>
+              <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+              <Text style={summaryStyles.confirmedText}>
+                Alle weiteren Positionen (19) wie beauftragt.
+              </Text>
+            </View>
+          </ScrollView>
+
+          <View style={[summaryStyles.bottomBar, { paddingBottom: bottomInset + 16 }]}>
+            <Pressable
+              style={summaryStyles.finalBtn}
+              onPress={() => {
+                if (Platform.OS !== "web") {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+                setShowSummaryOverlay(false);
+                setFestgeschrieben(true);
+              }}
+              testID="festschreiben-final-btn"
+            >
+              <Ionicons name="checkmark" size={18} color="#000" />
+              <Text style={summaryStyles.finalBtnText}>Festschreiben & zur Freigabe</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -2908,6 +3092,265 @@ const gwStyles = StyleSheet.create({
     paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: Colors.raw.zinc800,
+  },
+  begehungProgressWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  begehungProgressText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc500,
+    flexShrink: 1,
+  },
+  begehungProgressBarOuter: {
+    flex: 1,
+    height: 4,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  begehungProgressBarFill: {
+    height: 4,
+    backgroundColor: "#F59E0B",
+    borderRadius: 2,
+  },
+  begehungProgressPercent: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.raw.zinc500,
+    minWidth: 30,
+    textAlign: "right",
+  },
+  festschreibenBtnActive: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#F59E0B",
+    borderRadius: 12,
+    paddingVertical: 16,
+    marginTop: 24,
+    marginHorizontal: 16,
+  },
+  festschreibenBtnActiveText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: "#000",
+  },
+  festschreibenBtnDisabled: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1a1a1a",
+    borderWidth: 1,
+    borderColor: "#333333",
+    borderRadius: 12,
+    paddingVertical: 16,
+    marginTop: 24,
+    marginHorizontal: 16,
+  },
+  festschreibenBtnDisabledText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: "#666666",
+  },
+  festschreibenBtnSubtext: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: "#666666",
+    marginTop: 4,
+  },
+  festgeschriebenInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 24,
+    marginHorizontal: 16,
+    paddingVertical: 14,
+  },
+  festgeschriebenText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: "#3B82F6",
+  },
+});
+
+const summaryStyles = StyleSheet.create({
+  overlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: Colors.raw.zinc950,
+    zIndex: 100,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  headerTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: Colors.raw.white,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+  },
+  projectLine: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.white,
+    marginBottom: 4,
+  },
+  dateLine: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
+    marginBottom: 20,
+  },
+  statsCard: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 12,
+    padding: 16,
+    gap: 10,
+    marginBottom: 24,
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 24,
+  },
+  statItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  statText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.white,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  sectionLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.raw.zinc800,
+  },
+  sectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.raw.zinc500,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  entryCard: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 12,
+  },
+  entryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6,
+  },
+  entryTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.raw.white,
+    flex: 1,
+  },
+  entryArt: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: "#F59E0B",
+    marginBottom: 4,
+  },
+  entryText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc400,
+    fontStyle: "italic",
+    marginBottom: 10,
+  },
+  photoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  photoThumb: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: Colors.raw.zinc800,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  photoName: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.raw.zinc500,
+  },
+  confirmedCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 12,
+  },
+  confirmedText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.raw.zinc400,
+    flex: 1,
+  },
+  bottomBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    backgroundColor: Colors.raw.zinc950,
+    borderTopWidth: 1,
+    borderTopColor: Colors.raw.zinc800,
+  },
+  finalBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#F59E0B",
+    borderRadius: 12,
+    paddingVertical: 16,
+  },
+  finalBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: "#000",
   },
 });
 
