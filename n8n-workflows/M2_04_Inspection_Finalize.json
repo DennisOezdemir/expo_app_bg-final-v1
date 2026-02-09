@@ -1,0 +1,344 @@
+{
+  "name": "M2_04_Inspection_Finalize",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m2-04-inspection-finalize",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "m2-04-inspection-finalize",
+      "notes": "Receives INSPECTION_FINALIZED events from MX_00_Event_Router"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract event data from router payload\nconst input = $input.first().json;\n\n// Router sends: { event_id, event_type, project_id, payload }\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\n\nconst protocolId = payload.protocol_id;\n\n// Step key is protocol-specific\nconst stepKey = `inspection_finalize:${protocolId}`;\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId,\n    protocol_id: protocolId,\n    step_key: stepKey\n  }\n};"
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Parse Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300],
+      "notes": "Extracts project_id, protocol_id and calculates step_key"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM claim_workflow_step(\n  '{{ $json.step_key }}',\n  '{{ $json.project_id }}'::uuid,\n  'INSPECTION_FINALIZE'\n);",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [640, 300],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Atomic claim to prevent duplicate processing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-claimed",
+              "leftValue": "={{ $json.claimed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Step Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [860, 300],
+      "notes": "If claimed=true: proceed. If false: skip or exit"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  ip.id as protocol_id,\n  ip.protocol_type,\n  ip.inspection_date,\n  ip.finalized_at,\n  ip.finalized_by,\n  p.id as project_id,\n  p.project_number,\n  p.name as project_name,\n  p.object_street,\n  tm.name as finalized_by_name\nFROM inspection_protocols ip\nJOIN projects p ON ip.project_id = p.id\nLEFT JOIN team_members tm ON ip.finalized_by = tm.id\nWHERE ip.id = '{{ $('Parse Event Data').item.json.protocol_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Load Protocol + Project",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1080, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Loads protocol details with project and team member info"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  ipi.id,\n  ipi.deviation_type,\n  ipi.notes,\n  ipi.is_additional,\n  ipi.catalog_position_nr,\n  ipi.status,\n  op.title as position_title,\n  op.position_number,\n  os.title as room_name\nFROM inspection_protocol_items ipi\nLEFT JOIN offer_positions op ON ipi.offer_position_id = op.id\nLEFT JOIN offer_sections os ON op.section_id = os.id\nWHERE ipi.protocol_id = '{{ $('Parse Event Data').item.json.protocol_id }}'::uuid\n  AND (ipi.deviation_type IS NOT NULL OR ipi.is_additional = true)\nORDER BY os.sort_order, op.sort_order;",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Load Deviations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1300, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Loads all deviations and additional items from protocol"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect protocol info and deviations to build summary\nconst protocol = $('Load Protocol + Project').first().json;\nconst deviationItems = $('Load Deviations').all().map(i => i.json);\nconst eventData = $('Parse Event Data').first().json;\n\n// Count total positions for this protocol\n// Deviations are the items with issues; we also need total count\nconst deviations = deviationItems.filter(d => d.deviation_type && !d.is_additional);\nconst additional = deviationItems.filter(d => d.is_additional);\n\nconst deviationCount = deviations.length;\nconst additionalCount = additional.length;\n\n// Build deviations JSON for request_data\nconst deviationsJson = deviationItems.map(d => ({\n  id: d.id,\n  deviation_type: d.deviation_type,\n  is_additional: d.is_additional,\n  position_title: d.position_title,\n  position_number: d.position_number,\n  room_name: d.room_name,\n  notes: d.notes,\n  catalog_position_nr: d.catalog_position_nr\n}));\n\nconst summaryText = `\\u2705 bestätigt, \\u26A0\\uFE0F ${deviationCount} Abweichungen, \\u2795 ${additionalCount} Zusatzleistungen`;\n\nreturn {\n  json: {\n    event_id: eventData.event_id,\n    project_id: eventData.project_id,\n    protocol_id: eventData.protocol_id,\n    step_key: eventData.step_key,\n    protocol_type: protocol.protocol_type,\n    inspection_date: protocol.inspection_date,\n    finalized_at: protocol.finalized_at,\n    finalized_by: protocol.finalized_by,\n    finalized_by_name: protocol.finalized_by_name || 'Unbekannt',\n    project_number: protocol.project_number,\n    project_name: protocol.project_name,\n    object_street: protocol.object_street,\n    deviation_count: deviationCount,\n    additional_count: additionalCount,\n    summary_text: summaryText,\n    deviations_json: JSON.stringify(deviationsJson)\n  }\n};"
+      },
+      "id": "a1b2c3d4-0007-4000-8000-000000000007",
+      "name": "Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 180],
+      "notes": "Counts deviations/additional items and builds summary stats"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO approvals (\n  id, project_id, approval_type, status,\n  requested_by, requested_at,\n  request_summary, request_data,\n  reference_table, reference_id\n) VALUES (\n  gen_random_uuid(),\n  '{{ $json.project_id }}'::uuid,\n  'INSPECTION',\n  'PENDING',\n  '{{ $json.finalized_by_name }}',\n  now(),\n  'Erstbegehung Prüfung — {{ $json.project_number }} {{ $json.object_street }}',\n  jsonb_build_object(\n    'protocol_id', '{{ $json.protocol_id }}',\n    'protocol_type', '{{ $json.protocol_type }}',\n    'inspection_date', '{{ $json.inspection_date }}',\n    'deviation_count', {{ $json.deviation_count }},\n    'additional_count', {{ $json.additional_count }},\n    'deviations', '{{ $json.deviations_json }}'::jsonb,\n    'finalized_by', '{{ $json.finalized_by_name }}'\n  ),\n  'inspection_protocols',\n  '{{ $json.protocol_id }}'::uuid\n)\nRETURNING id;",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0008-4000-8000-000000000008",
+      "name": "Create Approval",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Creates PENDING approval entry for the inspection"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Capture approval_id and merge with earlier data\nconst approval = $input.first().json;\nconst summary = $('Build Summary').first().json;\n\nreturn {\n  json: {\n    ...summary,\n    approval_id: approval.id\n  }\n};"
+      },
+      "id": "a1b2c3d4-0009-4000-8000-000000000009",
+      "name": "Merge Approval ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1960, 180],
+      "notes": "Merges approval_id with summary data for downstream steps"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step(\n  '{{ $json.step_key }}',\n  '{\"approval_id\": \"{{ $json.approval_id }}\"}'\n);",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0010-4000-8000-000000000010",
+      "name": "Complete Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2180, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Marks workflow step as DONE with approval payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Mark input event as processed\nDO $$ BEGIN\n  UPDATE events SET processed_at = now() WHERE id = '{{ $('Merge Approval ID').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\n-- Emit APPROVAL_REQUESTED event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'APPROVAL_REQUESTED',\n  '{{ $('Merge Approval ID').item.json.project_id }}'::uuid,\n  jsonb_build_object(\n    'approval_id', '{{ $('Merge Approval ID').item.json.approval_id }}',\n    'approval_type', 'INSPECTION',\n    'project_id', '{{ $('Merge Approval ID').item.json.project_id }}'\n  ),\n  'n8n',\n  'M2_04_Inspection_Finalize',\n  'approvals',\n  '{{ $('Merge Approval ID').item.json.approval_id }}'::uuid\n)\nRETURNING id, event_type::text, project_id;",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0011-4000-8000-000000000011",
+      "name": "Emit APPROVAL_REQUESTED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2400, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Marks input event processed and emits APPROVAL_REQUESTED"
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=🔍 *Erstbegehung zur Freigabe*\n\n📍 {{ $('Merge Approval ID').item.json.project_number }} · {{ $('Merge Approval ID').item.json.object_street }}\n📅 {{ $('Merge Approval ID').item.json.inspection_date }}\n👷 Von: {{ $('Merge Approval ID').item.json.finalized_by_name }}\n\n⚠️ {{ $('Merge Approval ID').item.json.deviation_count }} Abweichungen\n➕ {{ $('Merge Approval ID').item.json.additional_count }} Zusatzleistungen\n\n→ Freigabe-Center öffnen",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "a1b2c3d4-0012-4000-8000-000000000012",
+      "name": "Telegram Notify",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2620, 180],
+      "notes": "Sends inspection finalize notification to Dennis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Merge Approval ID').first().json;\nreturn {\n  json: {\n    success: true,\n    approval_id: data.approval_id,\n    project_id: data.project_id,\n    protocol_id: data.protocol_id\n  }\n};"
+      },
+      "id": "a1b2c3d4-0013-4000-8000-000000000013",
+      "name": "Done (Success)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2840, 180],
+      "notes": "Success response with approval_id"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0014-4000-8000-000000000014",
+      "name": "Respond (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [3060, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step already done or in progress by another run\nconst claimResult = $input.first().json;\nconst eventData = $('Parse Event Data').first().json;\n\nif (claimResult.current_status === 'DONE') {\n  return {\n    json: {\n      status: 'skipped',\n      reason: 'Inspection finalize already processed',\n      current_status: claimResult.current_status,\n      project_id: eventData.project_id\n    }\n  };\n}\n\n// IN_PROGRESS by another run\nreturn {\n  json: {\n    status: 'skipped',\n    reason: 'Step in progress by another run',\n    current_status: claimResult.current_status\n  }\n};"
+      },
+      "id": "a1b2c3d4-0015-4000-8000-000000000015",
+      "name": "Handle Not Claimed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 540],
+      "notes": "Handles DONE (skip) and IN_PROGRESS (exit)"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0016-4000-8000-000000000016",
+      "name": "Respond (Skip)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1300, 540]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Parse Event Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Event Data": {
+      "main": [
+        [{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]
+      ]
+    },
+    "Claim Workflow Step": {
+      "main": [
+        [{ "node": "Step Claimed?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Step Claimed?": {
+      "main": [
+        [{ "node": "Load Protocol + Project", "type": "main", "index": 0 }],
+        [{ "node": "Handle Not Claimed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Protocol + Project": {
+      "main": [
+        [{ "node": "Load Deviations", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Deviations": {
+      "main": [
+        [{ "node": "Build Summary", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Summary": {
+      "main": [
+        [{ "node": "Create Approval", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Approval": {
+      "main": [
+        [{ "node": "Merge Approval ID", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Approval ID": {
+      "main": [
+        [{ "node": "Complete Workflow Step", "type": "main", "index": 0 }]
+      ]
+    },
+    "Complete Workflow Step": {
+      "main": [
+        [{ "node": "Emit APPROVAL_REQUESTED", "type": "main", "index": 0 }]
+      ]
+    },
+    "Emit APPROVAL_REQUESTED": {
+      "main": [
+        [{ "node": "Telegram Notify", "type": "main", "index": 0 }]
+      ]
+    },
+    "Telegram Notify": {
+      "main": [
+        [{ "node": "Done (Success)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Done (Success)": {
+      "main": [
+        [{ "node": "Respond (Success)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Handle Not Claimed": {
+      "main": [
+        [{ "node": "Respond (Skip)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
