@@ -1,0 +1,623 @@
+{
+  "name": "M6_01_Invoice_Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-01-invoice-processor",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f4d0b01b-8680-4fd4-9731-0797445e3f7e",
+      "name": "🔔 Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-2400, 208],
+      "webhookId": "m6-01-invoice-processor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract event data from MX_00_Event_Router payload\n// V3: Added body_preview for inline invoice detection\nconst body = $input.first().json.body || $input.first().json;\n\n// Event payload contains:\n// - superchat_message_id\n// - superchat_conversation_id  \n// - from_address\n// - subject\n// - file_ids (array or JSON string)\n// - confidence\n// - doc_type\n// - body_preview (NEW: from MX_03 V2)\n\n// Parse file_ids - could be string or array\nlet fileIds = body.file_ids || body.payload?.file_ids || [];\nif (typeof fileIds === 'string') {\n  try {\n    fileIds = JSON.parse(fileIds);\n  } catch (e) {\n    fileIds = [];\n  }\n}\nconst firstFileId = Array.isArray(fileIds) && fileIds.length > 0 ? fileIds[0] : null;\n\n// Generate invoice ID\nconst invoiceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {\n  const r = Math.random() * 16 | 0;\n  const v = c === 'x' ? r : (r & 0x3 | 0x8);\n  return v.toString(16);\n});\n\nreturn {\n  json: {\n    // IDs\n    invoice_id: invoiceId,\n    event_id: body.event_id || body.id,\n    \n    // Superchat IDs\n    superchat_message_id: body.superchat_message_id || body.payload?.superchat_message_id,\n    superchat_conversation_id: body.superchat_conversation_id || body.payload?.superchat_conversation_id,\n    \n    // File handling\n    file_ids: fileIds,\n    primary_file_id: firstFileId,\n    \n    // Email metadata\n    email_from: body.from_address || body.payload?.from_address || '',\n    email_subject: (body.subject || body.payload?.subject || '').replace(/'/g, \"''\"),\n    email_received_at: body.received_at || new Date().toISOString(),\n    \n    // Doc type (INVOICE_IN or CREDIT_NOTE)\n    doc_type: body.doc_type || body.payload?.doc_type || 'INVOICE_IN',\n    confidence: body.confidence || body.payload?.confidence || 0.9,\n    \n    // Email body (from MX_03 V2)\n    body_preview: body.body_preview || body.payload?.body_preview || '',\n    \n    // Idempotency\n    idempotency_key: `m6_${body.superchat_message_id || body.payload?.superchat_message_id}`\n  }\n};"
+      },
+      "id": "ff93de9c-e5e7-4f87-83ad-e970df12b12f",
+      "name": "📥 Extract Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-2208, 208]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT EXISTS(\n  SELECT 1 FROM purchase_invoices\n  WHERE email_message_id = '{{ $json.superchat_message_id }}'\n) AS already_processed;",
+        "options": {}
+      },
+      "id": "e094ae09-9111-4887-b295-22bc8fb9a417",
+      "name": "🔍 Idempotency Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-2000, 208],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "not-processed",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.already_processed }}",
+              "rightValue": false
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "336ef36b-5cd6-4bbb-abb6-b4cec8ba1722",
+      "name": "❓ New Invoice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-1808, 208]
+    },
+    {
+      "parameters": {
+        "jsCode": "const eventData = $('📥 Extract Event Data').first().json;\nconst bodyPreview = eventData.body_preview || '';\nconst hasFiles = (eventData.file_ids || []).length > 0;\n\n// Invoice indicators in email body\nconst invoicePatterns = [\n  /rechnung/i, /invoice/i, /receipt/i, /quittung/i,\n  /betrag|amount|total|summe/i,\n  /€|\\$|EUR|USD/,\n  /\\d+[.,]\\d{2}/,\n  /zahlungsziel|payment.?due|fällig/i,\n  /rechnungsnummer|invoice.?(?:no|number|nr)/i\n];\n\nconst matchCount = invoicePatterns.filter(p => p.test(bodyPreview)).length;\n// Need at least 3 indicators AND body must have content\nconst looksLikeInvoice = bodyPreview.length > 50 && matchCount >= 3;\n\nreturn {\n  json: {\n    ...eventData,\n    body_preview: bodyPreview,\n    body_looks_like_invoice: looksLikeInvoice,\n    body_match_count: matchCount,\n    has_files: hasFiles,\n    extraction_source: looksLikeInvoice ? 'EMAIL_BODY' : (hasFiles ? 'ATTACHMENT' : 'NONE')\n  }\n};"
+      },
+      "id": "a1b2c3d4-1111-4000-8000-000000000001",
+      "name": "🔍 Check Email Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1600, 208]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-inline",
+              "leftValue": "={{ $json.body_looks_like_invoice }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-2222-4000-8000-000000000002",
+      "name": "❓ Inline Invoice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-1392, 208]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-sonnet-4-5-20250929",
+          "mode": "list",
+          "cachedResultName": "claude-sonnet-4-5-20250929"
+        },
+        "text": "=Der folgende Text stammt aus einer Email, die als Rechnung klassifiziert wurde. Extrahiere die Rechnungsinformationen aus dem Email-Text.\n\nEMAIL VON: {{ $('📥 Extract Event Data').first().json.email_from }}\nBETREFF: {{ $('📥 Extract Event Data').first().json.email_subject }}\n\nEMAIL-INHALT:\n{{ $('🔍 Check Email Body').first().json.body_preview }}\n\nAnalysiere diesen Beleg/Rechnung und extrahiere alle Informationen.\n\nSCHRITT 1: Lieferant identifizieren\n- Name wie auf Beleg\n- Kurzcode (z.B. \"HORN\" für Hornbach, max 4 Zeichen, nur Großbuchstaben)\n- Typ: BAUMARKT, GROSSHANDEL, FACHHANDEL, TANKSTELLE, RESTAURANT, SOFTWARE, SONSTIGE\n\nSCHRITT 2: Kostenkategorie bestimmen\n- MATERIAL: Baumärkte, Baustoffhandel, Werkzeug, Fliesen, Sanitär, Elektro\n- SUBCONTRACTOR: Handwerker-Rechnungen, Subunternehmer\n- VEHICLE_FUEL: Tankstellen\n- VEHICLE_RENTAL: Autovermietung, Parken\n- VEHICLE_REPAIR: Werkstatt, Autowäsche\n- ENTERTAINMENT: Restaurant, Café, Bewirtung\n- SOFTWARE: IT-Dienste, Apps\n- OFFICE: Bürobedarf, Telefon\n- DISPOSAL: Entsorgung\n- OTHER: Alles andere\n\nSCHRITT 3: Rechnungsdaten\n- Rechnungsnummer (oder \"UNKNOWN\")\n- Datum (Format: YYYY-MM-DD)\n- Nettobetrag (summe_netto) als Zahl — die Summe OHNE MwSt.\n- Bruttobetrag (summe_brutto) als Zahl — die Endsumme MIT MwSt. (der höhere Betrag)\n- MwSt-Satz (meist 19)\n\nWICHTIG: summe_brutto ist IMMER der ENDPREIS (der höchste Betrag auf der Rechnung).\nsumme_netto ist die Summe VOR der MwSt. Es gilt: summe_brutto = summe_netto * (1 + mwst_prozent/100)\n\nSCHRITT 4: Zahlungsinformationen\n- IBAN (falls auf Rechnung, sonst \"\")\n- BIC (falls vorhanden, sonst \"\")\n- Zahlungsziel in Tagen (aus Text wie \"zahlbar innerhalb 14 Tagen\" - falls nicht angegeben: 14)\n- Fälligkeitsdatum (Rechnungsdatum + Zahlungsziel, Format: YYYY-MM-DD)\n- Skonto Prozent (falls angegeben, sonst 0)\n- Skonto Tage (falls angegeben, sonst 0)\n\nSCHRITT 5: Positionen (maximal 20)\nFür jeden Artikel:\n- artikel_nummer (falls vorhanden, sonst \"\")\n- beschreibung (wie auf Beleg)\n- internal_name (kleinbuchstaben, ohne Marke, normalisiert)\n- menge als Zahl\n- einheit (Stk, kg, m, m², l, Pack)\n- einzelpreis_brutto als Zahl\n- kategorie (z.B. Elektroinstallation, Sanitär, Werkzeug, Baustoffe)\n\nAUSGABE: Nur JSON, keine Backticks, kein Markdown, keine Erklärung.\n\n{\"lieferant\":{\"name\":\"Musterfirma GmbH\",\"code\":\"MUST\",\"typ\":\"GROSSHANDEL\"},\"expense_category\":\"MATERIAL\",\"rechnung\":{\"nummer\":\"R-2025-001\",\"datum\":\"2025-01-15\",\"summe_netto\":100.00,\"summe_brutto\":119.00,\"mwst_prozent\":19},\"zahlung\":{\"iban\":\"DE89370400440532013000\",\"bic\":\"COBADEFFXXX\",\"zahlungsziel_tage\":14,\"faellig_am\":\"2025-01-29\",\"skonto_prozent\":2,\"skonto_tage\":7},\"positionen\":[{\"artikel_nummer\":\"12345\",\"beschreibung\":\"Beispielartikel\",\"internal_name\":\"beispielartikel\",\"menge\":1,\"einheit\":\"Stk\",\"einzelpreis_brutto\":100.00,\"kategorie\":\"Sonstiges\"}]}",
+        "options": {
+          "maxTokens": 8000
+        }
+      },
+      "id": "a1b2c3d4-3333-4000-8000-000000000003",
+      "name": "🤖 Claude Text Extract",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [-1184, 96],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare text extraction result to match the shape expected by Parse JSON\n// This mirrors what Prepare Upload does for the binary path, but without binary data\nconst eventData = $('📥 Extract Event Data').first().json;\n\nconst storagePath = null; // No file to store for inline invoices\n\nreturn {\n  json: {\n    invoice_id: eventData.invoice_id,\n    storage_path: storagePath,\n    storage_filename: null,\n    original_filename: 'email-body-invoice.html',\n    mime_type: 'text/html',\n    binary_key: null,\n    extraction_source: 'EMAIL_BODY',\n    \n    // Pass through metadata\n    superchat_message_id: eventData.superchat_message_id,\n    superchat_conversation_id: eventData.superchat_conversation_id,\n    email_from: eventData.email_from,\n    email_subject: eventData.email_subject,\n    email_received_at: eventData.email_received_at,\n    doc_type: eventData.doc_type\n  }\n};"
+      },
+      "id": "a1b2c3d4-4444-4000-8000-000000000004",
+      "name": "📋 Prepare Text Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-976, 96]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-has-files",
+              "leftValue": "={{ $json.has_files }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-5555-4000-8000-000000000005",
+      "name": "❓ Has Files?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-1184, 320]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"No invoice data found - no inline invoice and no file attachments\",\n  \"superchat_message_id\": \"{{ $('📥 Extract Event Data').first().json.superchat_message_id }}\"\n}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "a1b2c3d4-6666-4000-8000-000000000006",
+      "name": "⚠️ No Invoice Data",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-976, 432]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.superchat.com/v1.0/files/{{ $('📥 Extract Event Data').first().json.primary_file_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "1afbef7e-ed85-4a8c-920b-b3b6300a7984"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-976, 320],
+      "id": "c7871c44-491a-461d-b103-78fdd30b4b13",
+      "name": "📎 Get File Info"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n\n// Superchat API returns { results: [...] } or direct object\nconst file = response.results ? response.results[0] : response;\n\nif (!file || !file.link || !file.link.url) {\n  throw new Error(`Keine Download-URL gefunden. Response keys: ${Object.keys(response).join(', ')}`);\n}\n\nreturn {\n  json: {\n    file_id: file.id,\n    filename: file.name,\n    mime_type: file.mime_type,\n    download_url: file.link.url\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-784, 320],
+      "id": "19b13747-12a0-4d3e-b778-4326429cb239",
+      "name": "📎 Extract File URL"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.download_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-592, 320],
+      "id": "c63b505d-94cd-4f61-b9cd-644d4d74f3ac",
+      "name": "📎 Download Binary"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare for Claude Vision & Storage upload\nconst eventData = $('📥 Extract Event Data').first().json;\nconst binary = $input.first().binary;\n\n// Get binary key (usually 'data')\nconst binaryKey = Object.keys(binary || {})[0] || 'data';\nconst binaryData = binary?.[binaryKey];\n\nconst storagePath = `receipts/${eventData.invoice_id}.pdf`;\n\nreturn {\n  json: {\n    invoice_id: eventData.invoice_id,\n    storage_path: storagePath,\n    storage_filename: `${eventData.invoice_id}.pdf`,\n    original_filename: binaryData?.fileName || 'invoice.pdf',\n    mime_type: binaryData?.mimeType || 'application/pdf',\n    binary_key: binaryKey,\n    extraction_source: 'ATTACHMENT',\n    \n    // Pass through metadata\n    superchat_message_id: eventData.superchat_message_id,\n    superchat_conversation_id: eventData.superchat_conversation_id,\n    email_from: eventData.email_from,\n    email_subject: eventData.email_subject,\n    email_received_at: eventData.email_received_at,\n    doc_type: eventData.doc_type\n  },\n  binary: binary\n};"
+      },
+      "id": "56ee4917-16e4-4359-b203-ec7ca08b7216",
+      "name": "🔧 Prepare Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-384, 320]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://yetwntwayhmzmhhgdkli.supabase.co/storage/v1/object/receipts/{{ $json.storage_filename }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "={{ $json.mime_type }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "={{ $json.binary_key }}",
+        "options": {}
+      },
+      "id": "66315dd3-4c7c-4aef-a5a9-7f7da44880d8",
+      "name": "📤 Upload to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-176, 432]
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "claude-sonnet-4-5-20250929"
+        },
+        "text": "Analysiere diesen Beleg/Rechnung und extrahiere alle Informationen.\n\nSCHRITT 1: Lieferant identifizieren\n- Name wie auf Beleg\n- Kurzcode (z.B. \"HORN\" für Hornbach, max 4 Zeichen, nur Großbuchstaben)\n- Typ: BAUMARKT, GROSSHANDEL, FACHHANDEL, TANKSTELLE, RESTAURANT, SOFTWARE, SONSTIGE\n\nSCHRITT 2: Kostenkategorie bestimmen\n- MATERIAL: Baumärkte, Baustoffhandel, Werkzeug, Fliesen, Sanitär, Elektro\n- SUBCONTRACTOR: Handwerker-Rechnungen, Subunternehmer\n- VEHICLE_FUEL: Tankstellen\n- VEHICLE_RENTAL: Autovermietung, Parken\n- VEHICLE_REPAIR: Werkstatt, Autowäsche\n- ENTERTAINMENT: Restaurant, Café, Bewirtung\n- SOFTWARE: IT-Dienste, Apps\n- OFFICE: Bürobedarf, Telefon\n- DISPOSAL: Entsorgung\n- OTHER: Alles andere\n\nSCHRITT 3: Rechnungsdaten\n- Rechnungsnummer (oder \"UNKNOWN\")\n- Datum (Format: YYYY-MM-DD)\n- Nettobetrag (summe_netto) als Zahl — die Summe OHNE MwSt.\n- Bruttobetrag (summe_brutto) als Zahl — die Endsumme MIT MwSt. (der höhere Betrag)\n- MwSt-Satz (meist 19)\n\nWICHTIG: summe_brutto ist IMMER der ENDPREIS (der höchste Betrag auf der Rechnung).\nsumme_netto ist die Summe VOR der MwSt. Es gilt: summe_brutto = summe_netto * (1 + mwst_prozent/100)\n\nSCHRITT 4: Zahlungsinformationen\n- IBAN (falls auf Rechnung, sonst \"\")\n- BIC (falls vorhanden, sonst \"\")\n- Zahlungsziel in Tagen (aus Text wie \"zahlbar innerhalb 14 Tagen\" - falls nicht angegeben: 14)\n- Fälligkeitsdatum (Rechnungsdatum + Zahlungsziel, Format: YYYY-MM-DD)\n- Skonto Prozent (falls angegeben, sonst 0)\n- Skonto Tage (falls angegeben, sonst 0)\n\nSCHRITT 5: Positionen (maximal 20)\nFür jeden Artikel:\n- artikel_nummer (falls vorhanden, sonst \"\")\n- beschreibung (wie auf Beleg)\n- internal_name (kleinbuchstaben, ohne Marke, normalisiert)\n- menge als Zahl\n- einheit (Stk, kg, m, m², l, Pack)\n- einzelpreis_brutto als Zahl\n- kategorie (z.B. Elektroinstallation, Sanitär, Werkzeug, Baustoffe)\n\nAUSGABE: Nur JSON, keine Backticks, kein Markdown, keine Erklärung.\n\n{\"lieferant\":{\"name\":\"Musterfirma GmbH\",\"code\":\"MUST\",\"typ\":\"GROSSHANDEL\"},\"expense_category\":\"MATERIAL\",\"rechnung\":{\"nummer\":\"R-2025-001\",\"datum\":\"2025-01-15\",\"summe_netto\":100.00,\"summe_brutto\":119.00,\"mwst_prozent\":19},\"zahlung\":{\"iban\":\"DE89370400440532013000\",\"bic\":\"COBADEFFXXX\",\"zahlungsziel_tage\":14,\"faellig_am\":\"2025-01-29\",\"skonto_prozent\":2,\"skonto_tage\":7},\"positionen\":[{\"artikel_nummer\":\"12345\",\"beschreibung\":\"Beispielartikel\",\"internal_name\":\"beispielartikel\",\"menge\":1,\"einheit\":\"Stk\",\"einzelpreis_brutto\":100.00,\"kategorie\":\"Sonstiges\"}]}",
+        "inputType": "binary",
+        "binaryPropertyName": "={{ $('🔧 Prepare Upload').first().json.binary_key }}",
+        "options": {
+          "maxTokens": 8000
+        }
+      },
+      "id": "3ec77459-79b2-4dda-915a-3ebe3dab5e97",
+      "name": "🤖 Claude Vision",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [-176, 320],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude response and merge with upload data\n// V3: Support both attachment path (Claude Vision) and inline path (Claude Text Extract)\nlet uploadData, claudeResponse;\n\ntry {\n  // Try inline path first\n  uploadData = $('📋 Prepare Text Result').first().json;\n  const claudeNode = $('🤖 Claude Text Extract').first().json;\n  if (claudeNode.content && Array.isArray(claudeNode.content)) {\n    claudeResponse = claudeNode.content[0]?.text;\n  } else {\n    claudeResponse = claudeNode.content || claudeNode.text || JSON.stringify(claudeNode);\n  }\n} catch (e) {\n  // Fall back to attachment path\n  uploadData = $('🔧 Prepare Upload').first().json;\n  const claudeNode = $('🤖 Claude Vision').first().json;\n  if (claudeNode.content && Array.isArray(claudeNode.content)) {\n    claudeResponse = claudeNode.content[0]?.text;\n  } else {\n    claudeResponse = claudeNode.content || claudeNode.text || JSON.stringify(claudeNode);\n  }\n}\n\n// Clean response - remove markdown\nlet cleanJson = claudeResponse;\nif (typeof cleanJson === 'string') {\n  cleanJson = cleanJson.replace(/```json\\s*/gi, '');\n  cleanJson = cleanJson.replace(/```\\s*/g, '');\n  cleanJson = cleanJson.trim();\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleanJson);\n} catch (e) {\n  throw new Error(`JSON Parse Error: ${e.message}\\n\\nRaw:\\n${cleanJson.substring(0, 500)}`);\n}\n\n// V2: Smart net/gross handling - trust Claude when both provided, fallback to calculation\nconst vatPercent = parsed.rechnung?.mwst_prozent || 19;\nconst rawGross = Number(parsed.rechnung?.summe_brutto) || 0;\nconst rawNet = Number(parsed.rechnung?.summe_netto) || 0;\n\nlet grossAmount, netAmount;\n\nif (rawNet > 0 && rawGross > 0) {\n  // Both provided — validate plausibility\n  const expectedGross = Math.round(rawNet * (1 + vatPercent / 100) * 100) / 100;\n  if (Math.abs(expectedGross - rawGross) < 1.0) {\n    grossAmount = rawGross;\n    netAmount = rawNet;\n  } else {\n    // Inconsistent — trust brutto (Endpreis)\n    grossAmount = rawGross;\n    netAmount = Math.round((rawGross / (1 + vatPercent / 100)) * 100) / 100;\n  }\n} else if (rawGross > 0) {\n  grossAmount = rawGross;\n  netAmount = Math.round((rawGross / (1 + vatPercent / 100)) * 100) / 100;\n} else if (rawNet > 0) {\n  netAmount = rawNet;\n  grossAmount = Math.round(rawNet * (1 + vatPercent / 100) * 100) / 100;\n} else {\n  grossAmount = 0;\n  netAmount = 0;\n}\n\n// Type mapping\nconst typeMapping = {\n  'BAUMARKT': 'BAUMARKT',\n  'GROSSHANDEL': 'GROSSHANDEL',\n  'FACHHANDEL': 'FACHHANDEL',\n  'HERSTELLER': 'HERSTELLER',\n  'ONLINE': 'ONLINE',\n  'TANKSTELLE': 'SONSTIGE',\n  'RESTAURANT': 'SONSTIGE',\n  'SOFTWARE': 'SONSTIGE',\n  'SONSTIGE': 'SONSTIGE'\n};\n\n// Escape SQL\nconst escapeSql = (str) => str ? String(str).replace(/'/g, \"''\") : '';\n\n// Supplier code\nlet supplierCode = parsed.lieferant?.code || parsed.lieferant?.name?.substring(0, 4) || 'UNBK';\nsupplierCode = supplierCode.toUpperCase().replace(/[^A-Z]/g, '').substring(0, 4);\nif (supplierCode.length < 2) supplierCode = 'UNBK';\n\n// Payment data with defaults\nconst zahlung = parsed.zahlung || {};\nconst rechnungsDatum = parsed.rechnung?.datum || new Date().toISOString().split('T')[0];\nconst zahlungszielTage = zahlung.zahlungsziel_tage || 14;\n\n// Calculate due date if not provided\nlet faelligAm = zahlung.faellig_am;\nif (!faelligAm) {\n  const d = new Date(rechnungsDatum);\n  d.setDate(d.getDate() + zahlungszielTage);\n  faelligAm = d.toISOString().split('T')[0];\n}\n\nreturn {\n  json: {\n    invoice_id: uploadData.invoice_id,\n    storage_path: uploadData.storage_path || '',\n    original_filename: uploadData.original_filename,\n    binary_key: uploadData.binary_key,\n    extraction_source: uploadData.extraction_source || 'ATTACHMENT',\n    \n    // Superchat metadata\n    superchat_message_id: uploadData.superchat_message_id,\n    superchat_conversation_id: uploadData.superchat_conversation_id,\n    email_from: escapeSql(uploadData.email_from || ''),\n    email_subject: escapeSql(uploadData.email_subject || ''),\n    email_received_at: uploadData.email_received_at,\n    doc_type: uploadData.doc_type,\n    \n    // Supplier\n    lieferant_name: parsed.lieferant?.name || 'UNBEKANNT',\n    lieferant_name_escaped: escapeSql(parsed.lieferant?.name || 'UNBEKANNT'),\n    lieferant_code: supplierCode,\n    lieferant_typ: typeMapping[parsed.lieferant?.typ] || 'SONSTIGE',\n    \n    expense_category: parsed.expense_category || 'MATERIAL',\n    \n    // Invoice\n    rechnung_nummer: parsed.rechnung?.nummer || `SC-${uploadData.invoice_id.substring(0, 8)}`,\n    rechnung_datum: rechnungsDatum,\n    summe_brutto: grossAmount,\n    summe_netto: netAmount,\n    mwst_prozent: vatPercent,\n    \n    // Payment\n    payment_iban: zahlung.iban || '',\n    payment_bic: zahlung.bic || '',\n    payment_terms_days: zahlungszielTage,\n    due_date: faelligAm,\n    discount_percent: zahlung.skonto_prozent || 0,\n    discount_days: zahlung.skonto_tage || 0,\n    \n    // Positions\n    positionen: parsed.positionen || [],\n    positionen_count: (parsed.positionen || []).length,\n    \n    needs_assignment: ['MATERIAL', 'SUBCONTRACTOR', 'ENTERTAINMENT'].includes(parsed.expense_category)\n  }\n};"
+      },
+      "id": "fccda7e6-9de6-4fcb-b42e-15a99e394603",
+      "name": "📋 Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [32, 208]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Step 1: Try to find supplier by alias\nWITH alias_match AS (\n  SELECT s.id, s.supplier_code, s.default_expense_category::text\n  FROM suppliers s\n  JOIN supplier_aliases sa ON sa.supplier_id = s.id\n  WHERE LOWER(sa.alias_name) = LOWER('{{ $json.lieferant_name_escaped }}')\n  LIMIT 1\n),\n-- Step 2: Try to find by short_name or code\nname_match AS (\n  SELECT id, supplier_code, default_expense_category::text\n  FROM suppliers\n  WHERE (\n    LOWER(short_name) ILIKE '%' || LOWER('{{ $json.lieferant_name_escaped }}') || '%'\n    OR LOWER(name) ILIKE '%' || LOWER('{{ $json.lieferant_name_escaped }}') || '%'\n    OR supplier_code = '{{ $json.lieferant_code }}'\n  )\n  AND is_active = true\n  AND NOT EXISTS (SELECT 1 FROM alias_match)\n  LIMIT 1\n),\n-- Step 3: Create new if not found\nnew_supplier AS (\n  INSERT INTO suppliers (supplier_code, name, short_name, supplier_type, default_expense_category, is_active)\n  SELECT \n    '{{ $json.lieferant_code }}',\n    '{{ $json.lieferant_name_escaped }}',\n    '{{ $json.lieferant_name_escaped }}',\n    '{{ $json.lieferant_typ }}'::supplier_type,\n    '{{ $json.expense_category }}'::expense_category,\n    true\n  WHERE NOT EXISTS (SELECT 1 FROM alias_match)\n    AND NOT EXISTS (SELECT 1 FROM name_match)\n  ON CONFLICT (supplier_code) DO UPDATE SET updated_at = now()\n  RETURNING id, supplier_code, default_expense_category::text\n)\n-- Return the matched or created supplier\nSELECT \n  COALESCE(am.id, nm.id, ns.id)::text AS supplier_id,\n  COALESCE(am.supplier_code, nm.supplier_code, ns.supplier_code) AS supplier_code,\n  COALESCE(am.default_expense_category, nm.default_expense_category, ns.default_expense_category) AS default_expense_category,\n  CASE \n    WHEN am.id IS NOT NULL THEN 'alias_match'\n    WHEN nm.id IS NOT NULL THEN 'name_match'\n    ELSE 'created'\n  END AS match_type\nFROM (SELECT 1) AS dummy\nLEFT JOIN alias_match am ON true\nLEFT JOIN name_match nm ON true\nLEFT JOIN new_supplier ns ON true;",
+        "options": {}
+      },
+      "id": "ebad0977-9443-45cb-b050-bde0c9fedb6d",
+      "name": "🏢 Match Supplier",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 208]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO purchase_invoices (\n  id,\n  invoice_number,\n  supplier_id,\n  invoice_date,\n  subtotal_net,\n  vat_percent,\n  expense_category,\n  status,\n  pdf_storage_path,\n  project_id,\n  notes,\n  payment_iban,\n  payment_bic,\n  payment_terms_days,\n  due_date,\n  discount_percent,\n  discount_days,\n  source_type,\n  email_from,\n  email_subject,\n  email_received_at,\n  email_message_id\n)\nVALUES (\n  '{{ $('📋 Parse JSON').first().json.invoice_id }}'::uuid,\n  '{{ $('📋 Parse JSON').first().json.rechnung_nummer }}',\n  '{{ $('🏢 Match Supplier').first().json.supplier_id }}'::uuid,\n  '{{ $('📋 Parse JSON').first().json.rechnung_datum }}'::date,\n  {{ $('📋 Parse JSON').first().json.summe_netto }},\n  {{ $('📋 Parse JSON').first().json.mwst_prozent }},\n  COALESCE(NULLIF('{{ $('🏢 Match Supplier').first().json.default_expense_category }}', ''), '{{ $('📋 Parse JSON').first().json.expense_category }}')::expense_category,\n  'DRAFT'::purchase_invoice_status,\n  '{{ $('📋 Parse JSON').first().json.storage_path }}',\n  NULL,\n  'Automatisch erfasst via Superchat ({{ $('📋 Parse JSON').first().json.extraction_source }}): {{ $('📋 Parse JSON').first().json.email_subject }}',\n  NULLIF('{{ $('📋 Parse JSON').first().json.payment_iban }}', ''),\n  NULLIF('{{ $('📋 Parse JSON').first().json.payment_bic }}', ''),\n  {{ $('📋 Parse JSON').first().json.payment_terms_days }},\n  '{{ $('📋 Parse JSON').first().json.due_date }}'::date,\n  {{ $('📋 Parse JSON').first().json.discount_percent }},\n  {{ $('📋 Parse JSON').first().json.discount_days }},\n  'SUPERCHAT'::invoice_source_type,\n  NULLIF('{{ $('📋 Parse JSON').first().json.email_from }}', ''),\n  NULLIF('{{ $('📋 Parse JSON').first().json.email_subject }}', ''),\n  '{{ $('📋 Parse JSON').first().json.email_received_at }}'::timestamptz,\n  '{{ $('📋 Parse JSON').first().json.superchat_message_id }}'\n)\nON CONFLICT (invoice_number, supplier_id) DO UPDATE SET\n  updated_at = now()\nRETURNING id::text, invoice_number;",
+        "options": {}
+      },
+      "id": "19d05248-22a2-49a0-8596-fc9ef96d3f07",
+      "name": "📄 Create Invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [448, 208]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "has-items",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "leftValue": "={{ $('📋 Parse JSON').first().json.positionen_count }}",
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1ca22bb2-f589-4103-96f5-2b5e21633f24",
+      "name": "❓ Has Positions?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [656, 208]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split positions + generate SKU for product pool\nconst positions = $('📋 Parse JSON').first().json.positionen || [];\nconst invoiceId = $('📄 Create Invoice').first().json.id;\nconst supplierId = $('🏢 Match Supplier').first().json.supplier_id;\nconst invoiceDate = $('📋 Parse JSON').first().json.rechnung_datum;\n\n// Hash für Artikel ohne SKU\nconst simpleHash = (str) => {\n  let hash = 0;\n  for (let i = 0; i < str.length; i++) {\n    const char = str.charCodeAt(i);\n    hash = ((hash << 5) - hash) + char;\n    hash = hash & hash;\n  }\n  return 'GEN-' + Math.abs(hash).toString(16).toUpperCase().substring(0, 8);\n};\n\nreturn positions.map((pos, idx) => {\n  const description = (pos.beschreibung || 'Unbekannt').replace(/'/g, \"''\");\n  const articleNumber = pos.artikel_nummer || '';\n  const sku = articleNumber || simpleHash(description + supplierId);\n  \n  return {\n    json: {\n      invoice_id: invoiceId,\n      supplier_id: supplierId,\n      position_number: idx + 1,\n      article_number: articleNumber,\n      description: description,\n      quantity: pos.menge || 1,\n      unit: pos.einheit || 'Stk',\n      unit_price_net: Math.round((Number(pos.einzelpreis_brutto) || 0) / 1.19 * 100) / 100,\n      product_sku: sku,\n      product_category: pos.kategorie || null,\n      invoice_date: invoiceDate\n    }\n  };\n});"
+      },
+      "id": "f09e4fdd-d881-4bcf-9c2f-70e96ff421a8",
+      "name": "📦 Split Positions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [864, 96]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO products (\n  name,\n  supplier_id,\n  sku,\n  last_price_net_eur,\n  last_price_date,\n  unit,\n  category,\n  source,\n  source_reference\n)\nVALUES (\n  '{{ $json.description }}',\n  '{{ $json.supplier_id }}'::uuid,\n  '{{ $json.product_sku }}',\n  {{ $json.unit_price_net }},\n  '{{ $json.invoice_date }}'::date,\n  '{{ $json.unit }}',\n  {{ $json.product_category ? \"'\" + $json.product_category + \"'\" : 'NULL' }},\n  'invoice_import',\n  '{{ $json.invoice_id }}'\n)\nON CONFLICT (supplier_id, sku) \nDO UPDATE SET\n  last_price_net_eur = EXCLUDED.last_price_net_eur,\n  last_price_date = EXCLUDED.last_price_date,\n  updated_at = now()\nRETURNING id::text;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1072, 96],
+      "id": "eee6e8c0-2ce7-4beb-ada1-67c6bc285af7",
+      "name": "📦 Upsert Product"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO purchase_invoice_items (\n  invoice_id,\n  position_number,\n  raw_article_number,\n  raw_description,\n  quantity,\n  unit,\n  unit_price_net\n)\nVALUES (\n  '{{ $('📦 Split Positions').item.json.invoice_id }}'::uuid,\n  {{ $('📦 Split Positions').item.json.position_number }},\n  '{{ $('📦 Split Positions').item.json.article_number }}',\n  '{{ $('📦 Split Positions').item.json.description }}',\n  {{ $('📦 Split Positions').item.json.quantity }},\n  '{{ $('📦 Split Positions').item.json.unit }}',\n  {{ $('📦 Split Positions').item.json.unit_price_net }}\n)\nON CONFLICT (invoice_id, position_number) DO NOTHING\nRETURNING id::text;",
+        "options": {}
+      },
+      "id": "c22c5284-86d5-435b-8815-b4737d449134",
+      "name": "📦 Process Item",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1280, 96]
+    },
+    {
+      "parameters": {
+        "jsCode": "// V2: Build MX_02 Request using invoice_date from parsed receipt\nconst invoiceDate = $('📋 Parse JSON').first().json.rechnung_datum;\nconst supplierCode = $('🏢 Match Supplier').first().json.supplier_code;\nconst originalFilename = $('📋 Parse JSON').first().json.original_filename;\n\n// Parse date (Format: \"2026-01-02\" or \"02.01.2026\")\nlet date;\nif (invoiceDate && invoiceDate.includes('-')) {\n  date = new Date(invoiceDate);\n} else if (invoiceDate && invoiceDate.includes('.')) {\n  const [day, month, year] = invoiceDate.split('.');\n  date = new Date(`${year}-${month}-${day}`);\n} else {\n  // Fallback: today\n  date = new Date();\n}\n\nconst year = date.getFullYear().toString();\nconst monthNames = [\n  '01-Januar', '02-Februar', '03-März', '04-April',\n  '05-Mai', '06-Juni', '07-Juli', '08-August',\n  '09-September', '10-Oktober', '11-November', '12-Dezember'\n];\nconst month = monthNames[date.getMonth()];\n\n// Build filename for Drive: YYYY-MM-DD_SUPPLIER_originalname\nconst driveFilename = `${invoiceDate}_${supplierCode}_${originalFilename}`;\n\nreturn {\n  json: {\n    folder_type: 'buchhaltung_month',\n    year: year,\n    month: month,\n    full_path: `Buchhaltung/VERARBEITET/${year}/${month}`,\n    drive_filename: driveFilename\n  }\n};"
+      },
+      "id": "df17fb87-e090-4a34-9a87-3554e55b2833",
+      "name": "📧 Build MX_02 Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1488, 208]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.srv1045913.hstgr.cloud/webhook/mx-02-folder-manager",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"folder_type\": \"{{ $json.folder_type }}\",\n  \"year\": \"{{ $json.year }}\",\n  \"month\": \"{{ $json.month }}\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "cc78165b-8717-4f7c-bcbe-cd36de51366d",
+      "name": "📥 Get Folder via MX_02",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1696, 208]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (\n  project_id,\n  event_type,\n  payload,\n  source_system,\n  source_flow\n)\nVALUES (\n  NULL,\n  'PURCHASE_INVOICE_CREATED',\n  jsonb_build_object(\n    'invoice_id', '{{ $('📄 Create Invoice').first().json.id }}',\n    'invoice_number', '{{ $('📄 Create Invoice').first().json.invoice_number }}',\n    'supplier_code', '{{ $('🏢 Match Supplier').first().json.supplier_code }}',\n    'supplier_match_type', '{{ $('🏢 Match Supplier').first().json.match_type }}',\n    'total_gross', {{ $('📋 Parse JSON').first().json.summe_brutto }},\n    'expense_category', COALESCE(NULLIF('{{ $('🏢 Match Supplier').first().json.default_expense_category }}', ''), '{{ $('📋 Parse JSON').first().json.expense_category }}'),\n    'positions_count', {{ $('📋 Parse JSON').first().json.positionen_count }},\n    'needs_assignment', {{ $('📋 Parse JSON').first().json.needs_assignment }},\n    'original_filename', '{{ $('📋 Parse JSON').first().json.original_filename }}',\n    'extraction_source', '{{ $('📋 Parse JSON').first().json.extraction_source }}',\n    'source', 'SUPERCHAT',\n    'email_from', '{{ $('📋 Parse JSON').first().json.email_from }}',\n    'email_subject', '{{ $('📋 Parse JSON').first().json.email_subject }}',\n    'doc_type', '{{ $('📋 Parse JSON').first().json.doc_type }}'\n  ),\n  'n8n',\n  'M6_01_Invoice_Processor'\n)\nRETURNING id::text;",
+        "options": {}
+      },
+      "id": "c5e437ac-e671-4fb3-b4ab-0088f3cbf12d",
+      "name": "📢 Create Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1904, 208],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=📧 *Rechnung aus Superchat erfasst*\n\n🏢 Lieferant: {{ $('🏢 Match Supplier').first().json.supplier_code }} ({{ $('🏢 Match Supplier').first().json.match_type }})\n💰 Betrag: {{ $('📋 Parse JSON').first().json.summe_brutto.toFixed(2).replace('.', ',') }}€\n📁 Kategorie: {{ $('🏢 Match Supplier').first().json.default_expense_category || $('📋 Parse JSON').first().json.expense_category }}\n📦 Positionen: {{ $('📋 Parse JSON').first().json.positionen_count }}\n📑 Typ: {{ $('📋 Parse JSON').first().json.doc_type }}\n📎 Quelle: {{ $('📋 Parse JSON').first().json.extraction_source }}\n\n📨 Von: {{ $('📋 Parse JSON').first().json.email_from.substring(0, 50) }}\n📋 Betreff: {{ $('📋 Parse JSON').first().json.email_subject.substring(0, 50) }}\n\n{{ $('📋 Parse JSON').first().json.needs_assignment ? '⚠️ Projekt-Zuordnung erforderlich' : '✅ Gemeinkosten (keine Zuordnung nötig)' }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "122f4963-53da-4061-b92e-03f1b92b4a3d",
+      "name": "📱 Telegram Notify",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2112, 208],
+      "webhookId": "m601-telegram",
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"invoice_id\": \"{{ $('📄 Create Invoice').first().json.id }}\",\n  \"invoice_number\": \"{{ $('📄 Create Invoice').first().json.invoice_number }}\",\n  \"supplier_code\": \"{{ $('🏢 Match Supplier').first().json.supplier_code }}\",\n  \"extraction_source\": \"{{ $('📋 Parse JSON').first().json.extraction_source }}\"\n}",
+        "options": {}
+      },
+      "id": "a503ee18-0dca-4616-9b45-102e8eb3c662",
+      "name": "✅ Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2320, 208]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"status\": \"duplicate\",\n  \"message\": \"Already processed: {{ $('📥 Extract Event Data').first().json.superchat_message_id }}\"\n}",
+        "options": {}
+      },
+      "id": "4a43bd20-95fc-4a38-bca3-e15327f17240",
+      "name": "⏭️ Respond Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-1808, 432]
+    }
+  ],
+  "connections": {
+    "🔔 Webhook Trigger": {
+      "main": [
+        [{ "node": "📥 Extract Event Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "📥 Extract Event Data": {
+      "main": [
+        [{ "node": "🔍 Idempotency Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔍 Idempotency Check": {
+      "main": [
+        [{ "node": "❓ New Invoice?", "type": "main", "index": 0 }]
+      ]
+    },
+    "❓ New Invoice?": {
+      "main": [
+        [{ "node": "🔍 Check Email Body", "type": "main", "index": 0 }],
+        [{ "node": "⏭️ Respond Duplicate", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔍 Check Email Body": {
+      "main": [
+        [{ "node": "❓ Inline Invoice?", "type": "main", "index": 0 }]
+      ]
+    },
+    "❓ Inline Invoice?": {
+      "main": [
+        [{ "node": "🤖 Claude Text Extract", "type": "main", "index": 0 }],
+        [{ "node": "❓ Has Files?", "type": "main", "index": 0 }]
+      ]
+    },
+    "🤖 Claude Text Extract": {
+      "main": [
+        [{ "node": "📋 Prepare Text Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "📋 Prepare Text Result": {
+      "main": [
+        [{ "node": "📋 Parse JSON", "type": "main", "index": 0 }]
+      ]
+    },
+    "❓ Has Files?": {
+      "main": [
+        [{ "node": "📎 Get File Info", "type": "main", "index": 0 }],
+        [{ "node": "⚠️ No Invoice Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "📎 Get File Info": {
+      "main": [
+        [{ "node": "📎 Extract File URL", "type": "main", "index": 0 }]
+      ]
+    },
+    "📎 Extract File URL": {
+      "main": [
+        [{ "node": "📎 Download Binary", "type": "main", "index": 0 }]
+      ]
+    },
+    "📎 Download Binary": {
+      "main": [
+        [{ "node": "🔧 Prepare Upload", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔧 Prepare Upload": {
+      "main": [
+        [
+          { "node": "📤 Upload to Storage", "type": "main", "index": 0 },
+          { "node": "🤖 Claude Vision", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "🤖 Claude Vision": {
+      "main": [
+        [{ "node": "📋 Parse JSON", "type": "main", "index": 0 }]
+      ]
+    },
+    "📋 Parse JSON": {
+      "main": [
+        [{ "node": "🏢 Match Supplier", "type": "main", "index": 0 }]
+      ]
+    },
+    "🏢 Match Supplier": {
+      "main": [
+        [{ "node": "📄 Create Invoice", "type": "main", "index": 0 }]
+      ]
+    },
+    "📄 Create Invoice": {
+      "main": [
+        [{ "node": "❓ Has Positions?", "type": "main", "index": 0 }]
+      ]
+    },
+    "❓ Has Positions?": {
+      "main": [
+        [{ "node": "📦 Split Positions", "type": "main", "index": 0 }],
+        [{ "node": "📧 Build MX_02 Request", "type": "main", "index": 0 }]
+      ]
+    },
+    "📦 Split Positions": {
+      "main": [
+        [{ "node": "📦 Upsert Product", "type": "main", "index": 0 }]
+      ]
+    },
+    "📦 Upsert Product": {
+      "main": [
+        [{ "node": "📦 Process Item", "type": "main", "index": 0 }]
+      ]
+    },
+    "📦 Process Item": {
+      "main": [
+        [{ "node": "📧 Build MX_02 Request", "type": "main", "index": 0 }]
+      ]
+    },
+    "📧 Build MX_02 Request": {
+      "main": [
+        [{ "node": "📥 Get Folder via MX_02", "type": "main", "index": 0 }]
+      ]
+    },
+    "📥 Get Folder via MX_02": {
+      "main": [
+        [{ "node": "📢 Create Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "📢 Create Event": {
+      "main": [
+        [{ "node": "📱 Telegram Notify", "type": "main", "index": 0 }]
+      ]
+    },
+    "📱 Telegram Notify": {
+      "main": [
+        [{ "node": "✅ Respond Success", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
