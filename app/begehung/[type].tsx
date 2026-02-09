@@ -53,6 +53,7 @@ interface AuftragPosition {
   status: PosStatus;
   note?: string;
   mangelText?: string;
+  isZusatz?: boolean;
 }
 
 interface AuftragRoom {
@@ -187,6 +188,28 @@ const TYPE_LABELS: Record<string, { title: string; status: string; statusColor: 
     date: "Noch kein Termin",
   },
 };
+
+interface KatalogPosition {
+  nr: string;
+  text: string;
+  gewerk: string;
+  preis: number;
+}
+
+const KATALOG_POSITIONEN: KatalogPosition[] = [
+  { nr: "1.1", text: "Deckenanstrich streichen", gewerk: "Maler", preis: 99.00 },
+  { nr: "1.4", text: "Putzsch\u00E4den Decke instand setzen", gewerk: "Maler", preis: 60.16 },
+  { nr: "1.5", text: "Rauhfasertapete Decke", gewerk: "Maler", preis: 123.74 },
+  { nr: "2.1", text: "Tapeten entfernen und W\u00E4nde gl\u00E4tten", gewerk: "Maler", preis: 185.63 },
+  { nr: "2.4", text: "Nikotin Isoliergrund streichen", gewerk: "Maler", preis: 185.63 },
+  { nr: "5.4", text: "Estrich spachteln und ausgleichen", gewerk: "Boden", preis: 143.40 },
+  { nr: "5.6", text: "PVC Design-Belag verlegen", gewerk: "Boden", preis: 610.85 },
+  { nr: "10.2", text: "Fensterbank liefern und montieren", gewerk: "Tischler", preis: 131.44 },
+  { nr: "16.1", text: "T\u00FCrblatt lackieren", gewerk: "Tischler", preis: 74.25 },
+  { nr: "20.2", text: "Flachheizk\u00F6rper lackieren", gewerk: "Heizung", preis: 61.88 },
+  { nr: "29.1", text: "Lichtschalter liefern und montieren", gewerk: "Elektro", preis: 24.16 },
+  { nr: "30.2", text: "Doppelsteckdose liefern und montieren", gewerk: "Elektro", preis: 32.21 },
+];
 
 const INITIAL_ROOMS: AuftragRoom[] = [
   {
@@ -565,9 +588,15 @@ function AnimatedPosItem({
             <Text style={posStyles.noteText} numberOfLines={1}>{pos.note}</Text>
           )}
         </View>
-        <View style={[posStyles.statusBadge, { backgroundColor: cfg.color + "18" }]}>
-          <Text style={[posStyles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
-        </View>
+        {pos.isZusatz ? (
+          <View style={[posStyles.statusBadge, { backgroundColor: Colors.raw.amber500 + "18" }]}>
+            <Text style={[posStyles.statusText, { color: Colors.raw.amber500 }]}>ZUSATZ</Text>
+          </View>
+        ) : (
+          <View style={[posStyles.statusBadge, { backgroundColor: cfg.color + "18" }]}>
+            <Text style={[posStyles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+          </View>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -1016,6 +1045,12 @@ export default function BegehungDetailScreen() {
   const [mangelRoomId, setMangelRoomId] = useState<string | null>(null);
   const [expandedGewerke, setExpandedGewerke] = useState<Set<string>>(new Set());
 
+  const [zusatzOpenRoom, setZusatzOpenRoom] = useState<string | null>(null);
+  const [zusatzSearch, setZusatzSearch] = useState("");
+  const [zusatzSelected, setZusatzSelected] = useState<KatalogPosition | null>(null);
+  const [zusatzNote, setZusatzNote] = useState("");
+  const [zusatzPhotoTaken, setZusatzPhotoTaken] = useState(false);
+
   const checkedCount = useMemo(() => items.filter((i) => i.checked).length, [items]);
   const totalCount = items.length;
   const allDone = checkedCount === totalCount;
@@ -1073,6 +1108,60 @@ export default function BegehungDetailScreen() {
     );
     setMangelSheet(null);
   }, []);
+
+  const zusatzSearchResults = useMemo(() => {
+    if (!zusatzSearch.trim()) return [];
+    const q = zusatzSearch.toLowerCase();
+    return KATALOG_POSITIONEN.filter((k) => k.text.toLowerCase().includes(q)).slice(0, 5);
+  }, [zusatzSearch]);
+
+  const openZusatzForm = useCallback((roomId: string) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setZusatzOpenRoom(roomId);
+    setZusatzSearch("");
+    setZusatzSelected(null);
+    setZusatzNote("");
+    setZusatzPhotoTaken(false);
+  }, []);
+
+  const closeZusatzForm = useCallback(() => {
+    setZusatzOpenRoom(null);
+    setZusatzSearch("");
+    setZusatzSelected(null);
+    setZusatzNote("");
+    setZusatzPhotoTaken(false);
+  }, []);
+
+  const submitZusatzleistung = useCallback(() => {
+    if (!zusatzSelected || !zusatzPhotoTaken || !zusatzOpenRoom) return;
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    const roomId = zusatzOpenRoom;
+    setRooms((prev) =>
+      prev.map((room) => {
+        if (room.id !== roomId) return room;
+        const nextNr = String(room.positions.length + 1).padStart(2, "0");
+        const newPos: AuftragPosition = {
+          id: `zusatz_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          nr: nextNr,
+          title: zusatzSelected!.text,
+          desc: `Zusatzleistung: ${zusatzSelected!.nr} ${zusatzSelected!.text}`,
+          qty: 1,
+          unit: "Pauschal",
+          price: zusatzSelected!.preis,
+          trade: zusatzSelected!.gewerk,
+          status: "offen",
+          note: zusatzNote || undefined,
+          isZusatz: true,
+        };
+        return { ...room, positions: [...room.positions, newPos] };
+      })
+    );
+    closeZusatzForm();
+  }, [zusatzSelected, zusatzPhotoTaken, zusatzOpenRoom, zusatzNote, closeZusatzForm]);
 
   const cycleMaterialStatus = useCallback((matId: string) => {
     if (Platform.OS !== "web") {
@@ -1400,6 +1489,121 @@ export default function BegehungDetailScreen() {
                 ))}
                 {roomPositions.length === 0 && (
                   <Text style={styles.emptyRoom}>Keine Positionen mit diesem Filter</Text>
+                )}
+
+                {zusatzOpenRoom === room.id ? (
+                  <View style={zlStyles.formWrap} testID={`zusatz-form-${room.id}`}>
+                    <View style={zlStyles.formHeader}>
+                      <Text style={zlStyles.formTitle}>Zusatzleistung erfassen</Text>
+                      <Pressable onPress={closeZusatzForm} hitSlop={8} testID="zusatz-close">
+                        <Ionicons name="close" size={20} color={Colors.raw.zinc400} />
+                      </Pressable>
+                    </View>
+
+                    <View style={zlStyles.searchWrap}>
+                      <Ionicons name="search" size={16} color={Colors.raw.zinc500} style={{ marginLeft: 12 }} />
+                      <TextInput
+                        style={zlStyles.searchInput}
+                        placeholder="Katalogposition suchen..."
+                        placeholderTextColor={Colors.raw.zinc600}
+                        value={zusatzSearch}
+                        onChangeText={setZusatzSearch}
+                        testID="zusatz-search"
+                      />
+                    </View>
+
+                    {zusatzSearchResults.length > 0 && (
+                      <View style={zlStyles.resultsList}>
+                        {zusatzSearchResults.map((item) => (
+                          <Pressable
+                            key={item.nr}
+                            style={[
+                              zlStyles.resultRow,
+                              zusatzSelected?.nr === item.nr && zlStyles.resultRowSelected,
+                            ]}
+                            onPress={() => {
+                              if (Platform.OS !== "web") {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              }
+                              setZusatzSelected(item);
+                            }}
+                            testID={`katalog-${item.nr}`}
+                          >
+                            <Text style={zlStyles.resultNr}>{item.nr}</Text>
+                            <Text style={zlStyles.resultText} numberOfLines={1}>{item.text}</Text>
+                            <Text style={zlStyles.resultGewerk}>{item.gewerk}</Text>
+                            <Text style={zlStyles.resultPreis}>{formatEuro(item.preis)}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+
+                    {zusatzSelected && (
+                      <View style={zlStyles.selectedWrap}>
+                        <Text style={zlStyles.selectedLabel}>Ausgew{"\u00E4"}hlt:</Text>
+                        <Text style={zlStyles.selectedValue}>{zusatzSelected.nr} {zusatzSelected.text}</Text>
+                      </View>
+                    )}
+
+                    <Text style={zlStyles.fieldLabel}>Anmerkung (optional):</Text>
+                    <TextInput
+                      style={zlStyles.noteInput}
+                      placeholder="Freitext..."
+                      placeholderTextColor={Colors.raw.zinc600}
+                      value={zusatzNote}
+                      onChangeText={setZusatzNote}
+                      multiline
+                      testID="zusatz-note"
+                    />
+
+                    <Pressable
+                      style={zlStyles.photoBtn}
+                      onPress={() => {
+                        if (Platform.OS !== "web") {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }
+                        setZusatzPhotoTaken(true);
+                      }}
+                      testID="zusatz-photo-btn"
+                    >
+                      <Ionicons name="camera" size={18} color={Colors.raw.amber500} />
+                      <Text style={zlStyles.photoBtnText}>Foto aufnehmen</Text>
+                    </Pressable>
+                    {zusatzPhotoTaken ? (
+                      <View style={zlStyles.photoPreview}>
+                        <View style={zlStyles.photoPlaceholder}>
+                          <Ionicons name="image" size={24} color={Colors.raw.zinc500} />
+                          <Text style={zlStyles.photoFilename}>foto_001.jpg</Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <Text style={zlStyles.pflichtText}>* Pflichtfeld</Text>
+                    )}
+
+                    <Pressable
+                      style={[
+                        zlStyles.submitBtn,
+                        !(zusatzSelected && zusatzPhotoTaken) && zlStyles.submitBtnDisabled,
+                      ]}
+                      onPress={submitZusatzleistung}
+                      disabled={!(zusatzSelected && zusatzPhotoTaken)}
+                      testID="zusatz-submit"
+                    >
+                      <Text style={[
+                        zlStyles.submitBtnText,
+                        !(zusatzSelected && zusatzPhotoTaken) && zlStyles.submitBtnTextDisabled,
+                      ]}>Zusatzleistung hinzuf{"\u00FC"}gen</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable
+                    style={zlStyles.trigger}
+                    onPress={() => openZusatzForm(room.id)}
+                    testID={`zusatz-trigger-${room.id}`}
+                  >
+                    <Ionicons name="add" size={18} color={Colors.raw.amber500} />
+                    <Text style={zlStyles.triggerText}>Zusatzleistung erfassen</Text>
+                  </Pressable>
                 )}
               </View>
             )}
@@ -2333,5 +2537,195 @@ const gwStyles = StyleSheet.create({
     paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: Colors.raw.zinc800,
+  },
+});
+
+const zlStyles = StyleSheet.create({
+  trigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#333333",
+    borderRadius: 12,
+  },
+  triggerText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.amber500,
+  },
+  formWrap: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.zinc900 + "80",
+    padding: 14,
+  },
+  formHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  formTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.raw.white,
+  },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 10,
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.raw.white,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+  },
+  resultsList: {
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    borderRadius: 10,
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+  resultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800 + "80",
+  },
+  resultRowSelected: {
+    backgroundColor: Colors.raw.amber500 + "18",
+  },
+  resultNr: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontSize: 12,
+    color: Colors.raw.zinc400,
+    width: 32,
+  },
+  resultText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.raw.white,
+    flex: 1,
+  },
+  resultGewerk: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.raw.zinc500,
+    width: 50,
+    textAlign: "right",
+  },
+  resultPreis: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.raw.white,
+    width: 60,
+    textAlign: "right",
+  },
+  selectedWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.raw.amber500 + "12",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  selectedLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.raw.amber500,
+  },
+  selectedValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.white,
+    flex: 1,
+  },
+  fieldLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.raw.zinc400,
+    marginBottom: 6,
+  },
+  noteInput: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.raw.white,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 60,
+    textAlignVertical: "top",
+    marginBottom: 14,
+  },
+  photoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  photoBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.amber500,
+  },
+  photoPreview: {
+    marginBottom: 14,
+  },
+  photoPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    backgroundColor: Colors.raw.zinc800,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  photoFilename: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.raw.zinc500,
+  },
+  pflichtText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: "#EF4444",
+    marginBottom: 14,
+  },
+  submitBtn: {
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  submitBtnDisabled: {
+    opacity: 0.4,
+  },
+  submitBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#000",
+  },
+  submitBtnTextDisabled: {
+    color: "#000",
   },
 });
