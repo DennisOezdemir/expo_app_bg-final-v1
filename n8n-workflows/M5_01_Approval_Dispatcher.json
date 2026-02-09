@@ -1,0 +1,546 @@
+{
+  "name": "M5_01_Approval_Dispatcher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m5-01-approval-dispatcher",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b1000001-0001-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "m5-01-approval-dispatcher",
+      "notes": "Receives APPROVAL_APPROVED events from MX_00_Event_Router"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract event data from router payload\nconst input = $input.first().json;\n\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\n\nconst approvalId = payload.approval_id;\nconst channel = payload.channel || 'telegram';\nconst recipient = payload.recipient || null;\n\nconst stepKey = `approval_dispatch:${approvalId}`;\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId,\n    approval_id: approvalId,\n    channel: channel,\n    recipient: recipient,\n    step_key: stepKey\n  }\n};"
+      },
+      "id": "b1000001-0002-4000-8000-000000000002",
+      "name": "Parse Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300],
+      "notes": "Extracts approval_id, channel, recipient from payload"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM claim_workflow_step(\n  '{{ $json.step_key }}',\n  '{{ $json.project_id }}'::uuid,\n  'APPROVAL_DISPATCH'\n);",
+        "options": {}
+      },
+      "id": "b1000001-0003-4000-8000-000000000003",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [640, 300],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Atomic claim to prevent duplicate dispatch"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-claimed",
+              "leftValue": "={{ $json.claimed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1000001-0004-4000-8000-000000000004",
+      "name": "Step Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [860, 300],
+      "notes": "If claimed=true: proceed. If false: skip or exit"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  a.id as approval_id,\n  a.project_id,\n  a.approval_type,\n  a.request_summary,\n  a.request_data,\n  a.decided_at,\n  a.decided_by,\n  p.project_number,\n  p.object_street,\n  p.object_zip,\n  p.object_city,\n  c.company_name as client_name,\n  c.email as client_email\nFROM approvals a\nJOIN projects p ON a.project_id = p.id\nLEFT JOIN clients c ON p.client_id = c.id\nWHERE a.id = '{{ $('Parse Event Data').item.json.approval_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "b1000001-0005-4000-8000-000000000005",
+      "name": "Load Approval + Project",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1080, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Loads approval with project and client info"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build dispatch messages for all channels\nconst approval = $input.first().json;\nconst eventData = $('Parse Event Data').first().json;\nconst requestData = typeof approval.request_data === 'string' \n  ? JSON.parse(approval.request_data) \n  : approval.request_data || {};\n\nconst channel = eventData.channel;\nconst recipient = eventData.recipient;\n\n// Extract data from request_data\nconst deviations = requestData.deviations || [];\nconst deviationCount = requestData.deviation_count || 0;\nconst additionalCount = requestData.additional_count || 0;\nconst confirmedCount = requestData.confirmed_count || 0;\nconst inspectionDate = requestData.inspection_date || '';\nconst finalizedBy = requestData.finalized_by || 'Bauleiter';\n\n// Separate deviations and additionals\nconst deviationItems = deviations.filter(d => d.deviation_type && !d.is_additional);\nconst additionalItems = deviations.filter(d => d.is_additional);\n\n// Map deviation types to labels\nconst deviationLabels = {\n  'damage': 'Beschädigung',\n  'wrong_product': 'Falsches Produkt',\n  'missing': 'Fehlend',\n  'quality': 'Qualitätsmangel',\n  'dimension': 'Maßabweichung',\n  'other': 'Sonstiges'\n};\n\n// Build deviation lines\nconst deviationLines = deviationItems.map(d => {\n  const room = d.room_name || '';\n  const pos = d.position_number ? `Pos ${d.position_number}` : '';\n  const title = d.position_title || '';\n  const label = deviationLabels[d.deviation_type] || d.deviation_type || '';\n  const notes = d.notes ? `\\n    ${d.notes}` : '';\n  return `- ${room} · ${pos} ${title}: ${label}${notes}`;\n}).join('\\n');\n\n// Build additional lines\nconst additionalLines = additionalItems.map(d => {\n  const room = d.room_name || '';\n  const nr = d.catalog_position_nr || '';\n  const title = d.position_title || '';\n  const notes = d.notes ? `\\n    ${d.notes}` : '';\n  return `- ${room} · ${nr} ${title}${notes}`;\n}).join('\\n');\n\n// Address parts\nconst address = [approval.object_street, `${approval.object_zip || ''} ${approval.object_city || ''}`].filter(Boolean).join(', ');\nconst subject = `Erstbegehung ${approval.project_number} — ${approval.object_street}`;\n\n// Plain text message (for email/whatsapp)\nconst plainMessage = [\n  `Betreff: ${subject}`,\n  '',\n  'Sehr geehrte Damen und Herren,',\n  '',\n  `die Erstbegehung für das o.g. Objekt wurde am ${inspectionDate} durchgeführt.`,\n  '',\n  'Ergebnis:',\n  confirmedCount ? `- ${confirmedCount} Positionen wie beauftragt bestätigt` : null,\n  `- ${deviationCount} Abweichungen festgestellt`,\n  `- ${additionalCount} nicht beauftragte Leistungen vorgefunden`,\n  deviationItems.length ? '\\nAbweichungen:' : null,\n  deviationItems.length ? deviationLines : null,\n  additionalItems.length ? '\\nZusatzleistungen:' : null,\n  additionalItems.length ? additionalLines : null,\n  '',\n  'Fotodokumentation liegt bei / kann angefordert werden.',\n  '',\n  'Mit freundlichen Grüßen',\n  `${eventData.decided_by_name || finalizedBy}`,\n  'Deine Baulöwen GmbH'\n].filter(v => v !== null).join('\\n');\n\n// Telegram markdown message (shorter)\nconst telegramMessage = [\n  `📋 *Erstbegehung ${approval.project_number}*`,\n  `📍 ${approval.object_street}`,\n  `📅 ${inspectionDate}`,\n  '',\n  confirmedCount ? `✅ ${confirmedCount} bestätigt` : null,\n  deviationCount ? `⚠️ ${deviationCount} Abweichungen` : null,\n  additionalCount ? `➕ ${additionalCount} Zusatzleistungen` : null,\n  deviationItems.length ? '\\n*Abweichungen:*' : null,\n  ...deviationItems.map(d => {\n    const label = deviationLabels[d.deviation_type] || d.deviation_type || '';\n    return `• ${d.room_name || ''} · ${d.position_title || ''}: _${label}_`;\n  }),\n  additionalItems.length ? '\\n*Zusatzleistungen:*' : null,\n  ...additionalItems.map(d => {\n    return `• ${d.room_name || ''} · ${d.catalog_position_nr || ''} ${d.position_title || ''}`;\n  }),\n  '',\n  `_${eventData.decided_by_name || finalizedBy} · Deine Baulöwen GmbH_`\n].filter(v => v !== null).join('\\n');\n\n// HTML email body\nconst deviationHtml = deviationItems.map(d => {\n  const label = deviationLabels[d.deviation_type] || d.deviation_type || '';\n  const notes = d.notes ? `<br><small>${d.notes}</small>` : '';\n  return `<li>${d.room_name || ''} · Pos ${d.position_number || ''} ${d.position_title || ''}: <strong>${label}</strong>${notes}</li>`;\n}).join('');\n\nconst additionalHtml = additionalItems.map(d => {\n  const notes = d.notes ? `<br><small>${d.notes}</small>` : '';\n  return `<li>${d.room_name || ''} · ${d.catalog_position_nr || ''} ${d.position_title || ''}${notes}</li>`;\n}).join('');\n\nconst htmlBody = `\n<p>Sehr geehrte Damen und Herren,</p>\n<p>die Erstbegehung für das o.g. Objekt wurde am <strong>${inspectionDate}</strong> durchgeführt.</p>\n<h3>Ergebnis</h3>\n<ul>\n${confirmedCount ? `<li>${confirmedCount} Positionen wie beauftragt bestätigt</li>` : ''}\n<li>${deviationCount} Abweichungen festgestellt</li>\n<li>${additionalCount} nicht beauftragte Leistungen vorgefunden</li>\n</ul>\n${deviationItems.length ? `<h3>Abweichungen</h3><ul>${deviationHtml}</ul>` : ''}\n${additionalItems.length ? `<h3>Zusatzleistungen</h3><ul>${additionalHtml}</ul>` : ''}\n<p>Fotodokumentation liegt bei / kann angefordert werden.</p>\n<p>Mit freundlichen Grüßen<br>\n${eventData.decided_by_name || finalizedBy}<br>\n<strong>Deine Baulöwen GmbH</strong></p>\n`;\n\nreturn {\n  json: {\n    ...eventData,\n    approval_id: approval.approval_id,\n    project_id: approval.project_id,\n    approval_type: approval.approval_type,\n    project_number: approval.project_number,\n    object_street: approval.object_street,\n    client_name: approval.client_name,\n    client_email: approval.client_email,\n    deviation_count: deviationCount,\n    additional_count: additionalCount,\n    confirmed_count: confirmedCount,\n    subject: subject,\n    telegram_message: telegramMessage,\n    plain_message: plainMessage,\n    html_body: htmlBody,\n    channel: channel,\n    recipient: recipient\n  }\n};"
+      },
+      "id": "b1000001-0006-4000-8000-000000000006",
+      "name": "Build Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 180],
+      "notes": "Builds telegram/whatsapp/email messages from approval data"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "telegram"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "whatsapp"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "email"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "b1000001-0007-4000-8000-000000000007",
+      "name": "Route by Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1520, 180],
+      "notes": "Routes to telegram, whatsapp, or email based on channel"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.recipient || '6088921678' }}",
+        "text": "={{ $json.telegram_message }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b1000001-0008-4000-8000-000000000008",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1740, 60],
+      "notes": "Sends via Telegram to recipient or default chat"
+    },
+    {
+      "parameters": {
+        "jsCode": "// WhatsApp via Superchat API\n// If Superchat is not configured, skip gracefully\nconst data = $input.first().json;\n\ntry {\n  // Superchat integration would go here\n  // For now, log and pass through\n  return {\n    json: {\n      ...data,\n      whatsapp_status: 'skipped',\n      whatsapp_note: 'Superchat integration not yet configured — message not sent via WhatsApp'\n    }\n  };\n} catch (err) {\n  return {\n    json: {\n      ...data,\n      whatsapp_status: 'skipped',\n      whatsapp_note: `WhatsApp send failed: ${err.message}`\n    }\n  };\n}"
+      },
+      "id": "b1000001-0009-4000-8000-000000000009",
+      "name": "Send WhatsApp (Placeholder)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 180],
+      "notes": "WhatsApp via Superchat — skip gracefully if not configured"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Email dispatch — check if recipient exists\nconst data = $input.first().json;\nconst emailTo = data.recipient || data.client_email;\n\nif (!emailTo) {\n  // No email recipient — fallback to telegram with warning\n  return {\n    json: {\n      ...data,\n      email_fallback: true,\n      email_note: 'Kein E-Mail-Empfänger — Fallback auf Telegram'\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...data,\n    email_to: emailTo,\n    email_fallback: false\n  }\n};"
+      },
+      "id": "b1000001-0010-4000-8000-000000000010",
+      "name": "Check Email Recipient",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 300],
+      "notes": "Validates email recipient, fallback to Telegram if missing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-fallback",
+              "leftValue": "={{ $json.email_fallback }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1000001-0011-4000-8000-000000000011",
+      "name": "Has Email Recipient?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1960, 300],
+      "notes": "If email_fallback=false: send email. If true: fallback to telegram"
+    },
+    {
+      "parameters": {
+        "fromEmail": "info@bauloewen.de",
+        "toEmail": "={{ $json.email_to }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "html": "={{ $json.html_body }}",
+        "options": {}
+      },
+      "id": "b1000001-0012-4000-8000-000000000012",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.sendEmail",
+      "typeVersion": 2.1,
+      "position": [2180, 240],
+      "notes": "Sends HTML email to client or specified recipient"
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=⚠️ *Email-Fallback*\n\nKein E-Mail-Empfänger für Approval {{ $json.approval_id }}\nProjekt: {{ $json.project_number }}\n\nNachricht stattdessen hier:\n\n{{ $json.telegram_message }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b1000001-0013-4000-8000-000000000013",
+      "name": "Email Fallback Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2180, 400],
+      "notes": "Fallback: sends via Telegram when no email recipient"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all channel outputs into a single result\nconst data = $input.first().json;\nconst eventData = $('Parse Event Data').first().json;\nconst buildData = $('Build Message').first().json;\n\nreturn {\n  json: {\n    ...buildData,\n    dispatch_success: true\n  }\n};"
+      },
+      "id": "b1000001-0014-4000-8000-000000000014",
+      "name": "After Dispatch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2400, 180],
+      "notes": "Merges result after channel dispatch"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE approvals \nSET dispatched_at = now(),\n    dispatch_channel = '{{ $json.channel }}',\n    dispatch_status = 'sent'\nWHERE id = '{{ $json.approval_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "b1000001-0015-4000-8000-000000000015",
+      "name": "Update Approval Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2620, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Marks approval as dispatched with channel info"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step(\n  '{{ $('Parse Event Data').item.json.step_key }}',\n  '{\"dispatched_via\": \"{{ $('Parse Event Data').item.json.channel }}\", \"approval_id\": \"{{ $('Parse Event Data').item.json.approval_id }}\"}'\n);",
+        "options": {}
+      },
+      "id": "b1000001-0016-4000-8000-000000000016",
+      "name": "Complete Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2840, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Marks workflow step as DONE"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Mark input event as processed\nDO $$ BEGIN\n  UPDATE events SET processed_at = now() WHERE id = '{{ $('Parse Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\n-- Emit APPROVAL_DISPATCHED event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'APPROVAL_DISPATCHED',\n  '{{ $('Parse Event Data').item.json.project_id }}'::uuid,\n  jsonb_build_object(\n    'approval_id', '{{ $('Parse Event Data').item.json.approval_id }}',\n    'channel', '{{ $('Parse Event Data').item.json.channel }}',\n    'approval_type', '{{ $json.approval_type }}'\n  ),\n  'n8n',\n  'M5_01_Approval_Dispatcher',\n  'approvals',\n  '{{ $('Parse Event Data').item.json.approval_id }}'::uuid\n)\nRETURNING id, event_type::text, project_id;",
+        "options": {}
+      },
+      "id": "b1000001-0017-4000-8000-000000000017",
+      "name": "Emit APPROVAL_DISPATCHED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [3060, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Marks input event processed and emits APPROVAL_DISPATCHED"
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=✅ Erstbegehung {{ $('Build Message').item.json.project_number }} versendet via {{ $('Parse Event Data').item.json.channel }}\nAn: {{ $('Parse Event Data').item.json.recipient || 'Default' }}\nAbweichungen: {{ $('Build Message').item.json.deviation_count }} | Zusatz: {{ $('Build Message').item.json.additional_count }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b1000001-0018-4000-8000-000000000018",
+      "name": "Telegram Confirm",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3280, 180],
+      "notes": "Confirms dispatch to Dennis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const eventData = $('Parse Event Data').first().json;\nreturn {\n  json: {\n    success: true,\n    channel: eventData.channel,\n    approval_id: eventData.approval_id,\n    dispatched_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "b1000001-0019-4000-8000-000000000019",
+      "name": "Done (Success)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3500, 180],
+      "notes": "Success response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "b1000001-0020-4000-8000-000000000020",
+      "name": "Respond (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [3720, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Step already done or in progress by another run\nconst claimResult = $input.first().json;\nconst eventData = $('Parse Event Data').first().json;\n\nif (claimResult.current_status === 'DONE') {\n  return {\n    json: {\n      status: 'skipped',\n      reason: 'Approval dispatch already processed',\n      current_status: claimResult.current_status,\n      approval_id: eventData.approval_id\n    }\n  };\n}\n\nreturn {\n  json: {\n    status: 'skipped',\n    reason: 'Step in progress by another run',\n    current_status: claimResult.current_status\n  }\n};"
+      },
+      "id": "b1000001-0021-4000-8000-000000000021",
+      "name": "Handle Not Claimed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 540],
+      "notes": "Handles DONE (skip) and IN_PROGRESS (exit)"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "b1000001-0022-4000-8000-000000000022",
+      "name": "Respond (Skip)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1300, 540]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Parse Event Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Event Data": {
+      "main": [
+        [{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]
+      ]
+    },
+    "Claim Workflow Step": {
+      "main": [
+        [{ "node": "Step Claimed?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Step Claimed?": {
+      "main": [
+        [{ "node": "Load Approval + Project", "type": "main", "index": 0 }],
+        [{ "node": "Handle Not Claimed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Approval + Project": {
+      "main": [
+        [{ "node": "Build Message", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Message": {
+      "main": [
+        [{ "node": "Route by Channel", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route by Channel": {
+      "main": [
+        [{ "node": "Send Telegram", "type": "main", "index": 0 }],
+        [{ "node": "Send WhatsApp (Placeholder)", "type": "main", "index": 0 }],
+        [{ "node": "Check Email Recipient", "type": "main", "index": 0 }],
+        [{ "node": "After Dispatch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Telegram": {
+      "main": [
+        [{ "node": "After Dispatch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send WhatsApp (Placeholder)": {
+      "main": [
+        [{ "node": "After Dispatch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Email Recipient": {
+      "main": [
+        [{ "node": "Has Email Recipient?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Email Recipient?": {
+      "main": [
+        [{ "node": "Send Email", "type": "main", "index": 0 }],
+        [{ "node": "Email Fallback Telegram", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [{ "node": "After Dispatch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Email Fallback Telegram": {
+      "main": [
+        [{ "node": "After Dispatch", "type": "main", "index": 0 }]
+      ]
+    },
+    "After Dispatch": {
+      "main": [
+        [{ "node": "Update Approval Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Approval Status": {
+      "main": [
+        [{ "node": "Complete Workflow Step", "type": "main", "index": 0 }]
+      ]
+    },
+    "Complete Workflow Step": {
+      "main": [
+        [{ "node": "Emit APPROVAL_DISPATCHED", "type": "main", "index": 0 }]
+      ]
+    },
+    "Emit APPROVAL_DISPATCHED": {
+      "main": [
+        [{ "node": "Telegram Confirm", "type": "main", "index": 0 }]
+      ]
+    },
+    "Telegram Confirm": {
+      "main": [
+        [{ "node": "Done (Success)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Done (Success)": {
+      "main": [
+        [{ "node": "Respond (Success)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Handle Not Claimed": {
+      "main": [
+        [{ "node": "Respond (Skip)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
