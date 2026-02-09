@@ -13,7 +13,6 @@ import Animated, {
   runOnJS,
   Easing,
   interpolate,
-  SharedValue,
 } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -118,15 +117,18 @@ export default function SplashScreen() {
     opacity: skipOpacity.value,
   }));
 
-  const makeSpark = (x: SharedValue<number>, y: SharedValue<number>) =>
-    useAnimatedStyle(() => ({
-      opacity: sparkOpacity.value,
-      transform: [{ translateX: x.value }, { translateY: y.value }, { scale: sparkScale.value }],
-    }));
-
-  const spark1Style = makeSpark(spark1X, spark1Y);
-  const spark2Style = makeSpark(spark2X, spark2Y);
-  const spark3Style = makeSpark(spark3X, spark3Y);
+  const spark1Style = useAnimatedStyle(() => ({
+    opacity: sparkOpacity.value,
+    transform: [{ translateX: spark1X.value }, { translateY: spark1Y.value }, { scale: sparkScale.value }],
+  }));
+  const spark2Style = useAnimatedStyle(() => ({
+    opacity: sparkOpacity.value,
+    transform: [{ translateX: spark2X.value }, { translateY: spark2Y.value }, { scale: sparkScale.value }],
+  }));
+  const spark3Style = useAnimatedStyle(() => ({
+    opacity: sparkOpacity.value,
+    transform: [{ translateX: spark3X.value }, { translateY: spark3Y.value }, { scale: sparkScale.value }],
+  }));
 
   return (
     <Animated.View style={[styles.container, containerStyle]}>

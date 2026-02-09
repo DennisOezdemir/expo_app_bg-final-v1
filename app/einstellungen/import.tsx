@@ -289,7 +289,7 @@ export default function ImportScreen() {
             onPress={() => setExpandedMapping(expandedMapping === i ? null : i)}
           >
             <View style={styles.mappingSource}>
-              <Text style={styles.mappingSourceText}>"{row.source}"</Text>
+              <Text style={styles.mappingSourceText}>{'"'}{row.source}{'"'}</Text>
             </View>
             <Ionicons name="arrow-forward" size={14} color={Colors.raw.zinc600} />
             <View style={styles.mappingTarget}>
@@ -445,7 +445,7 @@ export default function ImportScreen() {
         </View>
         <View style={styles.gaebMetaRow}>
           <Text style={styles.gaebMetaLabel}>Leistungsverzeichnis:</Text>
-          <Text style={styles.gaebMetaValue}>"SAGA WBS Katalog 2026"</Text>
+          <Text style={styles.gaebMetaValue}>{'"'}SAGA WBS Katalog 2026{'"'}</Text>
         </View>
         <View style={styles.gaebMetaRow}>
           <Text style={styles.gaebMetaLabel}>Positionen:</Text>

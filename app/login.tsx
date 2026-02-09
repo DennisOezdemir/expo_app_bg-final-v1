@@ -424,7 +424,7 @@ export default function LoginScreen() {
         {inviteLoading ? (
           <ActivityIndicator size="small" color="#000" />
         ) : (
-          <Text style={styles.loginBtnText}>LOS GEHT'S</Text>
+          <Text style={styles.loginBtnText}>LOS GEHT{"\u0027"}S</Text>
         )}
       </Pressable>
     </View>

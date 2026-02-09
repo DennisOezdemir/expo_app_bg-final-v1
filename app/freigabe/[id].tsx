@@ -691,9 +691,6 @@ export default function FreigabeDetailScreen() {
 
   const approveFlash = useSharedValue(0);
 
-  const data = APPROVALS[id || "1"];
-  if (!data) return null;
-
   const flashStyle = useAnimatedStyle(() => ({
     opacity: approveFlash.value,
   }));
@@ -710,7 +707,7 @@ export default function FreigabeDetailScreen() {
     setTimeout(() => {
       router.back();
     }, 1200);
-  }, [router]);
+  }, [router, approveFlash]);
 
   const handleReject = useCallback(() => {
     if (Platform.OS !== "web") {
@@ -731,6 +728,9 @@ export default function FreigabeDetailScreen() {
     },
     [router]
   );
+
+  const data = APPROVALS[id || "1"];
+  if (!data) return null;
 
   const typeTitle =
     data.type === "angebot"
