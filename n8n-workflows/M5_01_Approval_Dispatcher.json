@@ -264,22 +264,6 @@
     },
     {
       "parameters": {
-        "fromEmail": "info@bauloewen.de",
-        "toEmail": "={{ $json.email_to }}",
-        "subject": "={{ $json.subject }}",
-        "emailType": "html",
-        "html": "={{ $json.html_body }}",
-        "options": {}
-      },
-      "id": "b1000001-0012-4000-8000-000000000012",
-      "name": "Send Email",
-      "type": "n8n-nodes-base.sendEmail",
-      "typeVersion": 2.1,
-      "position": [2180, 240],
-      "notes": "Sends HTML email to client or specified recipient"
-    },
-    {
-      "parameters": {
         "chatId": "6088921678",
         "text": "=⚠️ *Email-Fallback*\n\nKein E-Mail-Empfänger für Approval {{ $json.approval_id }}\nProjekt: {{ $json.project_number }}\n\nNachricht stattdessen hier:\n\n{{ $json.telegram_message }}",
         "additionalFields": {
@@ -482,13 +466,8 @@
     },
     "Has Email Recipient?": {
       "main": [
-        [{ "node": "Send Email", "type": "main", "index": 0 }],
+        [{ "node": "Email Fallback Telegram", "type": "main", "index": 0 }],
         [{ "node": "Email Fallback Telegram", "type": "main", "index": 0 }]
-      ]
-    },
-    "Send Email": {
-      "main": [
-        [{ "node": "After Dispatch", "type": "main", "index": 0 }]
       ]
     },
     "Email Fallback Telegram": {
