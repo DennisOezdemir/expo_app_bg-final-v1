@@ -1,0 +1,135 @@
+{
+  "name": "M6_04a_Lexware_Webhook_Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lexware-events",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "e604a001-0001-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "lexware-events"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst body = input.body || input;\n\n// Lexware sends: { resourceId, resourceType, eventType, organizationId }\n// resourceType: 'payment', 'invoice', 'voucher', 'contact', etc.\n// eventType: 'created', 'changed', 'deleted'\nconst resourceId = body.resourceId || null;\nconst resourceType = (body.resourceType || '').toLowerCase();\nconst eventType = (body.eventType || '').toLowerCase();\n\n// Map to BG event types\nconst typeMap = {\n  'payment': 'LEXWARE_PAYMENT_CHANGED',\n  'invoice': 'LEXWARE_INVOICE_CHANGED',\n  'voucher': 'LEXWARE_VOUCHER_CHANGED'\n};\n\nconst bgEventType = typeMap[resourceType] || `LEXWARE_${resourceType.toUpperCase()}_${eventType.toUpperCase()}`;\n\nreturn {\n  json: {\n    resource_id: resourceId,\n    resource_type: resourceType,\n    event_type: eventType,\n    bg_event_type: bgEventType,\n    is_known_type: !!typeMap[resourceType],\n    raw_payload: body\n  }\n};"
+      },
+      "id": "e604a001-0002-4000-8000-000000000002",
+      "name": "Parse Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{
+            "id": "known",
+            "leftValue": "={{ $json.is_known_type }}",
+            "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" }
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e604a001-0003-4000-8000-000000000003",
+      "name": "Known Type?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (event_type, payload, source_system, source_flow)\nVALUES (\n  '{{ $json.bg_event_type }}',\n  '{{ JSON.stringify($json.raw_payload) }}'::jsonb,\n  'lexware', 'M6_04a_Lexware_Webhook_Router'\n)\nRETURNING id, event_type::text;",
+        "options": {}
+      },
+      "id": "e604a001-0004-4000-8000-000000000004",
+      "name": "Store Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [860, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lexware_sync_log (sync_direction, entity_type, entity_id, lexware_id, action, sync_status)\nVALUES ('pull', '{{ $('Parse Callback').item.json.resource_type }}', NULL,\n  '{{ $('Parse Callback').item.json.resource_id }}',\n  '{{ $('Parse Callback').item.json.event_type }}', 'received');",
+        "options": {}
+      },
+      "id": "e604a001-0005-4000-8000-000000000005",
+      "name": "Log Sync",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1080, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Unknown resource type — log for debugging\nINSERT INTO events (event_type, payload, source_system, source_flow)\nVALUES (\n  '{{ $json.bg_event_type }}',\n  '{{ JSON.stringify($json.raw_payload) }}'::jsonb,\n  'lexware', 'M6_04a_Lexware_Webhook_Router'\n)\nRETURNING id, event_type::text;",
+        "options": {}
+      },
+      "id": "e604a001-0006-4000-8000-000000000006",
+      "name": "Store Unknown Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [860, 480],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=⚠️ *Unbekannter Lexware Callback*\nTyp: `{{ $('Parse Callback').item.json.resource_type }}` / `{{ $('Parse Callback').item.json.event_type }}`\nResource: `{{ $('Parse Callback').item.json.resource_id }}`",
+        "additionalFields": { "disable_web_page_preview": true, "parse_mode": "Markdown" }
+      },
+      "id": "e604a001-0007-4000-8000-000000000007",
+      "name": "Telegram Unknown",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1080, 480]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Callback", "type": "main", "index": 0 }]]
+    },
+    "Parse Callback": {
+      "main": [[{ "node": "Known Type?", "type": "main", "index": 0 }]]
+    },
+    "Known Type?": {
+      "main": [
+        [{ "node": "Store Event", "type": "main", "index": 0 }],
+        [{ "node": "Store Unknown Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Store Event": {
+      "main": [[{ "node": "Log Sync", "type": "main", "index": 0 }]]
+    },
+    "Store Unknown Event": {
+      "main": [[{ "node": "Telegram Unknown", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

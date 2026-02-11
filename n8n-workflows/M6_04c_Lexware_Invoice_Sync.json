@@ -1,0 +1,230 @@
+{
+  "name": "M6_04c_Lexware_Invoice_Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-04c-lexware-invoice-sync",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e604c001-0001-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "m6-04c-lexware-invoice-sync"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\n\nconst resourceId = payload.resourceId || '';\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId || null,\n    lexware_invoice_id: resourceId,\n    step_key: `lexware_invoice_sync:${resourceId}`\n  }\n};"
+      },
+      "id": "e604c001-0002-4000-8000-000000000002",
+      "name": "Parse Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM claim_workflow_step(\n  '{{ $json.step_key }}',\n  {{ $json.project_id ? \"'\" + $json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  'LEXWARE_INVOICE_SYNC'\n);",
+        "options": {}
+      },
+      "id": "e604c001-0003-4000-8000-000000000003",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [640, 300],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{
+            "id": "claimed",
+            "leftValue": "={{ $json.claimed }}",
+            "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" }
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e604c001-0004-4000-8000-000000000004",
+      "name": "Step Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.lexware.io/v1/invoices/{{ $('Parse Event Data').item.json.lexware_invoice_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": { "response": { "response": { "fullResponse": true } } }
+      },
+      "id": "e604c001-0005-4000-8000-000000000005",
+      "name": "Fetch Invoice Detail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 180],
+      "credentials": {
+        "httpHeaderAuth": { "id": "LEXWARE_CREDENTIAL_ID", "name": "Lexware API" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst inv = resp.body || resp;\nconst eventData = $('Parse Event Data').first().json;\n\n// Extract Lexware invoice fields\nconst invNumber = inv.voucherNumber || inv.invoiceNumber || '';\nconst customerName = inv.address?.name || '';\nconst customerAddr = [inv.address?.street, inv.address?.zip, inv.address?.city].filter(Boolean).join(', ');\nconst totalNet = parseFloat(inv.totalNetAmount || inv.lineItems?.reduce((s,i) => s + (parseFloat(i.netAmount || 0)), 0) || 0);\nconst totalGross = parseFloat(inv.totalGrossAmount || 0);\nconst totalVat = parseFloat(inv.totalTaxAmount || 0);\nconst invoiceDate = inv.voucherDate ? inv.voucherDate.substring(0, 10) : null;\nconst dueDate = inv.dueDate ? inv.dueDate.substring(0, 10) : null;\nconst contactId = inv.contactId || null;\nconst currency = inv.currency || 'EUR';\nconst paidAmount = parseFloat(inv.paidAmount || 0);\n\n// Derive status\nlet status = 'OPEN';\nif (inv.voucherStatus === 'paid' || inv.voucherStatus === 'paidoff') status = 'PAID';\nelse if (inv.voucherStatus === 'overdue') status = 'OVERDUE';\nelse if (inv.voucherStatus === 'voided') status = 'VOIDED';\nelse if (inv.voucherStatus === 'draft') status = 'DRAFT';\n\nreturn {\n  json: {\n    lexware_invoice_id: eventData.lexware_invoice_id,\n    invoice_number: invNumber,\n    customer_name: customerName,\n    customer_address: customerAddr,\n    total_net: totalNet,\n    total_gross: totalGross,\n    total_vat: totalVat,\n    invoice_date: invoiceDate,\n    due_date: dueDate,\n    lexware_contact_id: contactId,\n    currency: currency,\n    paid_amount: paidAmount,\n    status: status,\n    raw_data: inv\n  }\n};"
+      },
+      "id": "e604c001-0006-4000-8000-000000000006",
+      "name": "Parse Invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 180]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sales_invoices (lexware_invoice_id, invoice_number, customer_name, customer_address,\n  total_net, total_vat, total_gross, invoice_date, due_date, lexware_contact_id,\n  currency, paid_amount, status, lexware_raw_data, lexware_synced_at, lexware_sync_status, source)\nVALUES (\n  '{{ $json.lexware_invoice_id }}',\n  '{{ $json.invoice_number }}',\n  '{{ $json.customer_name.replace(/'/g, \"''\") }}',\n  '{{ $json.customer_address.replace(/'/g, \"''\") }}',\n  {{ $json.total_net }},\n  {{ $json.total_vat }},\n  {{ $json.total_gross }},\n  {{ $json.invoice_date ? \"'\" + $json.invoice_date + \"'\" : \"NULL\" }},\n  {{ $json.due_date ? \"'\" + $json.due_date + \"'\" : \"NULL\" }},\n  {{ $json.lexware_contact_id ? \"'\" + $json.lexware_contact_id + \"'\" : \"NULL\" }},\n  '{{ $json.currency }}',\n  {{ $json.paid_amount }},\n  '{{ $json.status }}'::sales_invoice_status,\n  '{{ JSON.stringify($json.raw_data).replace(/'/g, \"''\") }}'::jsonb,\n  now(), 'synced', 'lexware'\n)\nON CONFLICT (lexware_invoice_id) WHERE lexware_invoice_id IS NOT NULL\nDO UPDATE SET\n  invoice_number = EXCLUDED.invoice_number,\n  customer_name = EXCLUDED.customer_name,\n  customer_address = EXCLUDED.customer_address,\n  total_net = EXCLUDED.total_net,\n  total_vat = EXCLUDED.total_vat,\n  total_gross = EXCLUDED.total_gross,\n  invoice_date = EXCLUDED.invoice_date,\n  due_date = EXCLUDED.due_date,\n  paid_amount = EXCLUDED.paid_amount,\n  status = EXCLUDED.status,\n  lexware_raw_data = EXCLUDED.lexware_raw_data,\n  lexware_synced_at = now(),\n  updated_at = now()\nRETURNING id, invoice_number, status::text;",
+        "options": {}
+      },
+      "id": "e604c001-0007-4000-8000-000000000007",
+      "name": "Upsert Sales Invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1520, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step('{{ $('Parse Event Data').item.json.step_key }}',\n  jsonb_build_object('invoice_number', '{{ $json.invoice_number }}', 'status', '{{ $json.status }}'));\n\nINSERT INTO lexware_sync_log (sync_direction, entity_type, entity_id, lexware_id, action, sync_status)\nVALUES ('pull', 'sales_invoice', '{{ $json.id }}'::uuid,\n  '{{ $('Parse Event Data').item.json.lexware_invoice_id }}', 'upsert', 'success');\n\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Parse Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_INVOICE_SYNCED',\n  {{ $('Parse Event Data').item.json.project_id ? \"'\" + $('Parse Event Data').item.json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  jsonb_build_object(\n    'lexware_invoice_id', '{{ $('Parse Event Data').item.json.lexware_invoice_id }}',\n    'invoice_number', '{{ $json.invoice_number }}',\n    'status', '{{ $json.status }}'\n  ),\n  'n8n', 'M6_04c_Lexware_Invoice_Sync',\n  'sales_invoices', '{{ $json.id }}'::uuid\n)\nRETURNING id, event_type::text;",
+        "options": {}
+      },
+      "id": "e604c001-0008-4000-8000-000000000008",
+      "name": "Complete + Emit Synced",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"success\",\"invoice_synced\":true}",
+        "options": {}
+      },
+      "id": "e604c001-0009-4000-8000-000000000009",
+      "name": "Respond (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1960, 180]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lexware_sync_log (sync_direction, entity_type, lexware_id, action, sync_status, error_message)\nVALUES ('pull', 'sales_invoice', '{{ $('Parse Event Data').item.json.lexware_invoice_id }}', 'fetch', 'error', 'API call failed');",
+        "options": {}
+      },
+      "id": "e604c001-0010-4000-8000-000000000010",
+      "name": "Log Fetch Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1300, 420],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"error\",\"reason\":\"invoice_fetch_failed\"}",
+        "options": { "responseCode": 500 }
+      },
+      "id": "e604c001-0011-4000-8000-000000000011",
+      "name": "Respond (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1520, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const claim = $input.first().json;\nreturn { json: { status: 'skipped', reason: claim.current_status === 'DONE' ? 'Already processed' : 'In progress' } };"
+      },
+      "id": "e604c001-0012-4000-8000-000000000012",
+      "name": "Handle Not Claimed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 540]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "e604c001-0013-4000-8000-000000000013",
+      "name": "Respond (Not Claimed)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1300, 540]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Event Data", "type": "main", "index": 0 }]]
+    },
+    "Parse Event Data": {
+      "main": [[{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]]
+    },
+    "Claim Workflow Step": {
+      "main": [[{ "node": "Step Claimed?", "type": "main", "index": 0 }]]
+    },
+    "Step Claimed?": {
+      "main": [
+        [{ "node": "Fetch Invoice Detail", "type": "main", "index": 0 }],
+        [{ "node": "Handle Not Claimed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Invoice Detail": {
+      "main": [
+        [{ "node": "Parse Invoice", "type": "main", "index": 0 }],
+        [{ "node": "Log Fetch Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Invoice": {
+      "main": [[{ "node": "Upsert Sales Invoice", "type": "main", "index": 0 }]]
+    },
+    "Upsert Sales Invoice": {
+      "main": [[{ "node": "Complete + Emit Synced", "type": "main", "index": 0 }]]
+    },
+    "Complete + Emit Synced": {
+      "main": [[{ "node": "Respond (Success)", "type": "main", "index": 0 }]]
+    },
+    "Log Fetch Error": {
+      "main": [[{ "node": "Respond (Error)", "type": "main", "index": 0 }]]
+    },
+    "Handle Not Claimed": {
+      "main": [[{ "node": "Respond (Not Claimed)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

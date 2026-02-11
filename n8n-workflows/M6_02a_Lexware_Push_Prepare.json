@@ -1,0 +1,281 @@
+{
+  "name": "M6_02a_Lexware_Push_Prepare",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-02a-lexware-push-prepare",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e602a001-0001-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "m6-02a-lexware-push-prepare"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\nconst purchaseInvoiceId = payload.entity_id || input.body?.entity_id;\nconst stepKey = `lexware_push_prepare:${purchaseInvoiceId}`;\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId || null,\n    purchase_invoice_id: purchaseInvoiceId,\n    step_key: stepKey\n  }\n};"
+      },
+      "id": "e602a001-0002-4000-8000-000000000002",
+      "name": "Parse Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM claim_workflow_step(\n  '{{ $json.step_key }}',\n  {{ $json.project_id ? \"'\" + $json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  'LEXWARE_PUSH_PREPARE'\n);",
+        "options": {}
+      },
+      "id": "e602a001-0003-4000-8000-000000000003",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [640, 300],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{
+            "id": "claimed",
+            "leftValue": "={{ $json.claimed }}",
+            "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" }
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e602a001-0004-4000-8000-000000000004",
+      "name": "Step Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT pi.id, pi.invoice_number, pi.total_gross, pi.lexware_voucher_id,\n       pi.expense_category::text as expense_cat,\n       s.name as supplier_name, s.lexware_contact_id, s.id as supplier_id,\n       s.street as supplier_street, s.zip_code as supplier_zip, s.city as supplier_city\nFROM purchase_invoices pi\nJOIN suppliers s ON s.id = pi.supplier_id\nWHERE pi.id = '{{ $('Parse Event Data').item.json.purchase_invoice_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "e602a001-0005-4000-8000-000000000005",
+      "name": "Load Invoice + Supplier",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1080, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{
+            "id": "synced",
+            "leftValue": "={{ $json.lexware_voucher_id }}",
+            "rightValue": "",
+            "operator": { "type": "string", "operation": "exists" }
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e602a001-0006-4000-8000-000000000006",
+      "name": "Already Synced?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1300, 180]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Parse Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;",
+        "options": {}
+      },
+      "id": "e602a001-0007-4000-8000-000000000007",
+      "name": "Mark Event Processed (Skip)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1520, 60],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"skipped\",\"reason\":\"already_synced\"}",
+        "options": {}
+      },
+      "id": "e602a001-0008-4000-8000-000000000008",
+      "name": "Respond (Skip)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1740, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{
+            "id": "has-contact",
+            "leftValue": "={{ $json.lexware_contact_id }}",
+            "rightValue": "",
+            "operator": { "type": "string", "operation": "exists" }
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e602a001-0009-4000-8000-000000000009",
+      "name": "Has Lexware Contact?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Has contact → emit LEXWARE_CONTACT_READY\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Parse Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_CONTACT_READY',\n  {{ $('Parse Event Data').item.json.project_id ? \"'\" + $('Parse Event Data').item.json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  jsonb_build_object(\n    'purchase_invoice_id', '{{ $('Parse Event Data').item.json.purchase_invoice_id }}',\n    'lexware_contact_id', '{{ $json.lexware_contact_id }}'\n  ),\n  'n8n', 'M6_02a_Lexware_Push_Prepare',\n  'purchase_invoices', '{{ $('Parse Event Data').item.json.purchase_invoice_id }}'::uuid\n)\nRETURNING id, event_type::text;",
+        "options": {}
+      },
+      "id": "e602a001-0010-4000-8000-000000000010",
+      "name": "Emit CONTACT_READY",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- No contact → emit LEXWARE_CONTACT_NEEDED\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Parse Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_CONTACT_NEEDED',\n  {{ $('Parse Event Data').item.json.project_id ? \"'\" + $('Parse Event Data').item.json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  jsonb_build_object(\n    'purchase_invoice_id', '{{ $('Parse Event Data').item.json.purchase_invoice_id }}',\n    'supplier_id', '{{ $('Load Invoice + Supplier').item.json.supplier_id }}',\n    'supplier_name', '{{ $('Load Invoice + Supplier').item.json.supplier_name }}',\n    'supplier_street', '{{ $('Load Invoice + Supplier').item.json.supplier_street }}',\n    'supplier_zip', '{{ $('Load Invoice + Supplier').item.json.supplier_zip }}',\n    'supplier_city', '{{ $('Load Invoice + Supplier').item.json.supplier_city }}'\n  ),\n  'n8n', 'M6_02a_Lexware_Push_Prepare',\n  'purchase_invoices', '{{ $('Parse Event Data').item.json.purchase_invoice_id }}'::uuid\n)\nRETURNING id, event_type::text;",
+        "options": {}
+      },
+      "id": "e602a001-0011-4000-8000-000000000011",
+      "name": "Emit CONTACT_NEEDED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 420],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step(\n  '{{ $('Parse Event Data').item.json.step_key }}',\n  '{\"status\": \"prepared\"}'\n);",
+        "options": {}
+      },
+      "id": "e602a001-0012-4000-8000-000000000012",
+      "name": "Complete Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1960, 300],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "e602a001-0013-4000-8000-000000000013",
+      "name": "Respond (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2180, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const claim = $input.first().json;\nreturn { json: { status: 'skipped', reason: claim.current_status === 'DONE' ? 'Already processed' : 'In progress' } };"
+      },
+      "id": "e602a001-0014-4000-8000-000000000014",
+      "name": "Handle Not Claimed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 540]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "e602a001-0015-4000-8000-000000000015",
+      "name": "Respond (Not Claimed)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1300, 540]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Event Data", "type": "main", "index": 0 }]]
+    },
+    "Parse Event Data": {
+      "main": [[{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]]
+    },
+    "Claim Workflow Step": {
+      "main": [[{ "node": "Step Claimed?", "type": "main", "index": 0 }]]
+    },
+    "Step Claimed?": {
+      "main": [
+        [{ "node": "Load Invoice + Supplier", "type": "main", "index": 0 }],
+        [{ "node": "Handle Not Claimed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Invoice + Supplier": {
+      "main": [[{ "node": "Already Synced?", "type": "main", "index": 0 }]]
+    },
+    "Already Synced?": {
+      "main": [
+        [{ "node": "Mark Event Processed (Skip)", "type": "main", "index": 0 }],
+        [{ "node": "Has Lexware Contact?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Mark Event Processed (Skip)": {
+      "main": [[{ "node": "Respond (Skip)", "type": "main", "index": 0 }]]
+    },
+    "Has Lexware Contact?": {
+      "main": [
+        [{ "node": "Emit CONTACT_READY", "type": "main", "index": 0 }],
+        [{ "node": "Emit CONTACT_NEEDED", "type": "main", "index": 0 }]
+      ]
+    },
+    "Emit CONTACT_READY": {
+      "main": [[{ "node": "Complete Step", "type": "main", "index": 0 }]]
+    },
+    "Emit CONTACT_NEEDED": {
+      "main": [[{ "node": "Complete Step", "type": "main", "index": 0 }]]
+    },
+    "Complete Step": {
+      "main": [[{ "node": "Respond (Success)", "type": "main", "index": 0 }]]
+    },
+    "Handle Not Claimed": {
+      "main": [[{ "node": "Respond (Not Claimed)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

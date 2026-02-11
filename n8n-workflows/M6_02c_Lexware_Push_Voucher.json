@@ -1,0 +1,281 @@
+{
+  "name": "M6_02c_Lexware_Push_Voucher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-02c-lexware-push-voucher",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e602c001-0001-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "m6-02c-lexware-push-voucher"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId || null,\n    purchase_invoice_id: payload.purchase_invoice_id,\n    lexware_contact_id: payload.lexware_contact_id || null,\n    step_key: `lexware_push:${payload.purchase_invoice_id}`\n  }\n};"
+      },
+      "id": "e602c001-0002-4000-8000-000000000002",
+      "name": "Parse Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM claim_workflow_step(\n  '{{ $json.step_key }}',\n  {{ $json.project_id ? \"'\" + $json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  'LEXWARE_PUSH'\n);",
+        "options": {}
+      },
+      "id": "e602c001-0003-4000-8000-000000000003",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [640, 300],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{
+            "id": "claimed",
+            "leftValue": "={{ $json.claimed }}",
+            "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" }
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e602c001-0004-4000-8000-000000000004",
+      "name": "Step Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT pi.*, pi.expense_category::text as expense_cat,\n       pi.pdf_storage_path,\n       s.lexware_contact_id\nFROM purchase_invoices pi\nJOIN suppliers s ON s.id = pi.supplier_id\nWHERE pi.id = '{{ $('Parse Event Data').item.json.purchase_invoice_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "e602c001-0005-4000-8000-000000000005",
+      "name": "Load Invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1080, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const inv = $json;\nconst eventData = $('Parse Event Data').first().json;\n\n// Use contact from event payload (freshly created) or from supplier record\nconst contactId = eventData.lexware_contact_id || inv.lexware_contact_id || null;\n\n// Category mapping\nconst catMap = {\n  'SUBCONTRACTOR': '7a1efa0e-6283-4571-add5-b49ab2bcbc4d',\n  'MATERIAL': '63c88f81-e02b-11e2-a28f-0800200c9a66'\n};\nconst categoryId = catMap[inv.expense_cat] || '8f8664a8-fd86-11e1-a21f-0800200c9a66';\n\nconst formatDate = (d) => d ? d.substring(0, 10) + 'T00:00:00.000+01:00' : null;\n\nconst voucher = {\n  type: 'purchaseinvoice',\n  voucherNumber: inv.invoice_number,\n  voucherDate: formatDate(inv.invoice_date),\n  totalGrossAmount: parseFloat(inv.total_gross),\n  totalTaxAmount: parseFloat(inv.vat_amount || 0),\n  taxType: 'gross',\n  remark: 'Importiert aus BauGenius',\n  voucherItems: [{\n    amount: parseFloat(inv.total_gross),\n    taxAmount: parseFloat(inv.vat_amount || 0),\n    taxRatePercentage: parseFloat(inv.vat_percent || 19),\n    categoryId: categoryId\n  }]\n};\nif (inv.due_date) voucher.dueDate = formatDate(inv.due_date);\nif (contactId) voucher.contactId = contactId;\n\nreturn { json: { voucher_payload: voucher, invoice_id: inv.id, invoice_number: inv.invoice_number } };"
+      },
+      "id": "e602c001-0006-4000-8000-000000000006",
+      "name": "Build Voucher Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.lexware.io/v1/vouchers",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.voucher_payload) }}",
+        "options": { "response": { "response": { "fullResponse": true } } }
+      },
+      "id": "e602c001-0007-4000-8000-000000000007",
+      "name": "Create Lexware Voucher",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 180],
+      "credentials": {
+        "httpHeaderAuth": { "id": "LEXWARE_CREDENTIAL_ID", "name": "Lexware API" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE purchase_invoices SET\n  lexware_voucher_id = '{{ $json.body.id }}',\n  lexware_synced_at = now(),\n  lexware_sync_status = 'synced',\n  lexware_sync_error = NULL\nWHERE id = '{{ $('Build Voucher Payload').item.json.invoice_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "e602c001-0008-4000-8000-000000000008",
+      "name": "Update Invoice Synced",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step('{{ $('Parse Event Data').item.json.step_key }}',\n  jsonb_build_object('lexware_voucher_id', '{{ $('Create Lexware Voucher').item.json.body.id }}'));\n\nINSERT INTO lexware_sync_log (sync_direction, entity_type, entity_id, lexware_id, action, sync_status)\nVALUES ('push', 'purchase_invoice', '{{ $('Build Voucher Payload').item.json.invoice_id }}'::uuid,\n  '{{ $('Create Lexware Voucher').item.json.body.id }}', 'create', 'success');\n\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Parse Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PUSH_COMPLETED',\n  {{ $('Parse Event Data').item.json.project_id ? \"'\" + $('Parse Event Data').item.json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  jsonb_build_object(\n    'purchase_invoice_id', '{{ $('Build Voucher Payload').item.json.invoice_id }}',\n    'lexware_voucher_id', '{{ $('Create Lexware Voucher').item.json.body.id }}',\n    'invoice_number', '{{ $('Build Voucher Payload').item.json.invoice_number }}'\n  ),\n  'n8n', 'M6_02c_Lexware_Push_Voucher',\n  'purchase_invoices', '{{ $('Build Voucher Payload').item.json.invoice_id }}'::uuid\n)\nRETURNING id, event_type::text;",
+        "options": {}
+      },
+      "id": "e602c001-0009-4000-8000-000000000009",
+      "name": "Complete + Emit Success",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1960, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=✅ *Lexware Push erfolgreich*\n📄 {{ $('Build Voucher Payload').item.json.invoice_number }}\n🔗 `{{ $('Create Lexware Voucher').item.json.body.id }}`",
+        "additionalFields": { "disable_web_page_preview": true, "parse_mode": "Markdown" }
+      },
+      "id": "e602c001-0010-4000-8000-000000000010",
+      "name": "Telegram Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2180, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"success\",\"lexware_voucher_id\":\"{{ $('Create Lexware Voucher').item.json.body.id }}\"}",
+        "options": {}
+      },
+      "id": "e602c001-0011-4000-8000-000000000011",
+      "name": "Respond (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2400, 180]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE purchase_invoices SET\n  lexware_sync_status = 'error',\n  lexware_sync_error = 'Voucher creation failed'\nWHERE id = '{{ $('Build Voucher Payload').item.json.invoice_id }}'::uuid;\n\nINSERT INTO lexware_sync_log (sync_direction, entity_type, entity_id, action, sync_status, error_message)\nVALUES ('push', 'purchase_invoice', '{{ $('Build Voucher Payload').item.json.invoice_id }}'::uuid, 'create', 'error', 'Lexware API error');\n\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PUSH_FAILED',\n  {{ $('Parse Event Data').item.json.project_id ? \"'\" + $('Parse Event Data').item.json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  jsonb_build_object('purchase_invoice_id', '{{ $('Build Voucher Payload').item.json.invoice_id }}', 'invoice_number', '{{ $('Build Voucher Payload').item.json.invoice_number }}'),\n  'n8n', 'M6_02c_Lexware_Push_Voucher',\n  'purchase_invoices', '{{ $('Build Voucher Payload').item.json.invoice_id }}'::uuid\n);",
+        "options": {}
+      },
+      "id": "e602c001-0012-4000-8000-000000000012",
+      "name": "Log Error + Emit Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 480],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=⚠️ *Lexware Push fehlgeschlagen*\n📄 {{ $('Build Voucher Payload').item.json.invoice_number }}",
+        "additionalFields": { "disable_web_page_preview": true, "parse_mode": "Markdown" }
+      },
+      "id": "e602c001-0013-4000-8000-000000000013",
+      "name": "Telegram Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1960, 480]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"error\"}",
+        "options": { "responseCode": 500 }
+      },
+      "id": "e602c001-0014-4000-8000-000000000014",
+      "name": "Respond (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2180, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "const claim = $input.first().json;\nreturn { json: { status: 'skipped', reason: claim.current_status === 'DONE' ? 'Already processed' : 'In progress' } };"
+      },
+      "id": "e602c001-0015-4000-8000-000000000015",
+      "name": "Handle Not Claimed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 540]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "e602c001-0016-4000-8000-000000000016",
+      "name": "Respond (Not Claimed)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1300, 540]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Event Data", "type": "main", "index": 0 }]]
+    },
+    "Parse Event Data": {
+      "main": [[{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]]
+    },
+    "Claim Workflow Step": {
+      "main": [[{ "node": "Step Claimed?", "type": "main", "index": 0 }]]
+    },
+    "Step Claimed?": {
+      "main": [
+        [{ "node": "Load Invoice", "type": "main", "index": 0 }],
+        [{ "node": "Handle Not Claimed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Invoice": {
+      "main": [[{ "node": "Build Voucher Payload", "type": "main", "index": 0 }]]
+    },
+    "Build Voucher Payload": {
+      "main": [[{ "node": "Create Lexware Voucher", "type": "main", "index": 0 }]]
+    },
+    "Create Lexware Voucher": {
+      "main": [
+        [{ "node": "Update Invoice Synced", "type": "main", "index": 0 }],
+        [{ "node": "Log Error + Emit Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Invoice Synced": {
+      "main": [[{ "node": "Complete + Emit Success", "type": "main", "index": 0 }]]
+    },
+    "Complete + Emit Success": {
+      "main": [[{ "node": "Telegram Success", "type": "main", "index": 0 }]]
+    },
+    "Telegram Success": {
+      "main": [[{ "node": "Respond (Success)", "type": "main", "index": 0 }]]
+    },
+    "Log Error + Emit Failed": {
+      "main": [[{ "node": "Telegram Error", "type": "main", "index": 0 }]]
+    },
+    "Telegram Error": {
+      "main": [[{ "node": "Respond (Error)", "type": "main", "index": 0 }]]
+    },
+    "Handle Not Claimed": {
+      "main": [[{ "node": "Respond (Not Claimed)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

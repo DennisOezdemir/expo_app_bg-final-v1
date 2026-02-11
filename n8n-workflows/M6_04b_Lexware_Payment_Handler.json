@@ -1,0 +1,289 @@
+{
+  "name": "M6_04b_Lexware_Payment_Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-04b-lexware-payment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e604b001-0001-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "m6-04b-lexware-payment"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\n\n// From M6_04a: payload contains the raw Lexware callback\nconst resourceId = payload.resourceId || '';\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId || null,\n    lexware_resource_id: resourceId,\n    step_key: `lexware_payment:${resourceId}`\n  }\n};"
+      },
+      "id": "e604b001-0002-4000-8000-000000000002",
+      "name": "Parse Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM claim_workflow_step(\n  '{{ $json.step_key }}',\n  {{ $json.project_id ? \"'\" + $json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  'LEXWARE_PAYMENT_HANDLER'\n);",
+        "options": {}
+      },
+      "id": "e604b001-0003-4000-8000-000000000003",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [640, 300],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{
+            "id": "claimed",
+            "leftValue": "={{ $json.claimed }}",
+            "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" }
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e604b001-0004-4000-8000-000000000004",
+      "name": "Step Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.lexware.io/v1/payments/{{ $('Parse Event Data').item.json.lexware_resource_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": { "response": { "response": { "fullResponse": true } } }
+      },
+      "id": "e604b001-0005-4000-8000-000000000005",
+      "name": "Fetch Payment Detail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 180],
+      "credentials": {
+        "httpHeaderAuth": { "id": "LEXWARE_CREDENTIAL_ID", "name": "Lexware API" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst body = resp.body || resp;\n\n// Lexware payment has: id, voucherType, voucherStatus, openAmount, paidAmount, etc.\nconst voucherType = (body.voucherType || '').toLowerCase();\nconst voucherStatus = (body.voucherStatus || '').toLowerCase();\nconst relatedVoucherId = body.relatedVoucherId || body.voucherId || null;\nconst paidAmount = parseFloat(body.paidAmount || body.amount || 0);\nconst isPurchase = voucherType.includes('purchase') || voucherType.includes('voucher');\nconst isSales = voucherType.includes('invoice') || voucherType.includes('sales');\n\nreturn {\n  json: {\n    lexware_payment_id: body.id || $('Parse Event Data').first().json.lexware_resource_id,\n    related_voucher_id: relatedVoucherId,\n    voucher_type: voucherType,\n    voucher_status: voucherStatus,\n    paid_amount: paidAmount,\n    is_purchase: isPurchase,\n    is_sales: isSales,\n    payment_date: body.paymentDate || body.date || null\n  }\n};"
+      },
+      "id": "e604b001-0006-4000-8000-000000000006",
+      "name": "Parse Payment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [{
+            "id": "is-purchase",
+            "leftValue": "={{ $json.is_purchase }}",
+            "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" }
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e604b001-0007-4000-8000-000000000007",
+      "name": "Purchase or Sales?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1520, 180]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE purchase_invoices SET\n  paid_amount = {{ $json.paid_amount }},\n  paid_at = CASE WHEN {{ $json.paid_amount }} > 0 AND paid_at IS NULL THEN now() ELSE paid_at END\nWHERE lexware_voucher_id = '{{ $json.related_voucher_id }}'\nRETURNING id, invoice_number, total_gross, paid_amount;",
+        "options": {}
+      },
+      "id": "e604b001-0008-4000-8000-000000000008",
+      "name": "Update Purchase Payment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 60],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sales_invoices SET\n  paid_amount = {{ $('Parse Payment').item.json.paid_amount }},\n  paid_at = CASE WHEN {{ $('Parse Payment').item.json.paid_amount }} > 0 AND paid_at IS NULL THEN now() ELSE paid_at END,\n  status = CASE\n    WHEN {{ $('Parse Payment').item.json.paid_amount }} >= total_gross THEN 'PAID'::sales_invoice_status\n    WHEN {{ $('Parse Payment').item.json.paid_amount }} > 0 THEN 'OPEN'::sales_invoice_status\n    ELSE status\n  END\nWHERE lexware_invoice_id = '{{ $('Parse Payment').item.json.related_voucher_id }}'\nRETURNING id, invoice_number, total_gross, paid_amount, status::text;",
+        "options": {}
+      },
+      "id": "e604b001-0009-4000-8000-000000000009",
+      "name": "Update Sales Payment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 300],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step('{{ $('Parse Event Data').item.json.step_key }}',\n  jsonb_build_object('paid_amount', {{ $('Parse Payment').item.json.paid_amount }}));\n\nINSERT INTO lexware_sync_log (sync_direction, entity_type, lexware_id, action, sync_status)\nVALUES ('pull', 'payment', '{{ $('Parse Event Data').item.json.lexware_resource_id }}', 'payment_update', 'success');\n\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Parse Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow)\nVALUES (\n  'LEXWARE_PAYMENT_RECEIVED',\n  {{ $('Parse Event Data').item.json.project_id ? \"'\" + $('Parse Event Data').item.json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  jsonb_build_object(\n    'lexware_payment_id', '{{ $('Parse Payment').item.json.lexware_payment_id }}',\n    'paid_amount', {{ $('Parse Payment').item.json.paid_amount }},\n    'voucher_type', '{{ $('Parse Payment').item.json.voucher_type }}'\n  ),\n  'n8n', 'M6_04b_Lexware_Payment_Handler'\n)\nRETURNING id, event_type::text;",
+        "options": {}
+      },
+      "id": "e604b001-0010-4000-8000-000000000010",
+      "name": "Complete + Emit Payment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1960, 180],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=💰 *Lexware Zahlung erkannt*\nTyp: `{{ $('Parse Payment').item.json.voucher_type }}`\nBetrag: {{ $('Parse Payment').item.json.paid_amount }}€",
+        "additionalFields": { "disable_web_page_preview": true, "parse_mode": "Markdown" }
+      },
+      "id": "e604b001-0011-4000-8000-000000000011",
+      "name": "Telegram Payment",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2180, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"success\",\"payment_processed\":true}",
+        "options": {}
+      },
+      "id": "e604b001-0012-4000-8000-000000000012",
+      "name": "Respond (Success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2400, 180]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lexware_sync_log (sync_direction, entity_type, lexware_id, action, sync_status, error_message)\nVALUES ('pull', 'payment', '{{ $('Parse Event Data').item.json.lexware_resource_id }}', 'payment_fetch', 'error', 'API call failed');",
+        "options": {}
+      },
+      "id": "e604b001-0013-4000-8000-000000000013",
+      "name": "Log Fetch Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1300, 420],
+      "credentials": {
+        "postgres": { "id": "qXZ2ZjK31ZDrPoDG", "name": "Supabase Postgres" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"error\",\"reason\":\"payment_fetch_failed\"}",
+        "options": { "responseCode": 500 }
+      },
+      "id": "e604b001-0014-4000-8000-000000000014",
+      "name": "Respond (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1520, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "const claim = $input.first().json;\nreturn { json: { status: 'skipped', reason: claim.current_status === 'DONE' ? 'Already processed' : 'In progress' } };"
+      },
+      "id": "e604b001-0015-4000-8000-000000000015",
+      "name": "Handle Not Claimed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 540]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "e604b001-0016-4000-8000-000000000016",
+      "name": "Respond (Not Claimed)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1300, 540]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Event Data", "type": "main", "index": 0 }]]
+    },
+    "Parse Event Data": {
+      "main": [[{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]]
+    },
+    "Claim Workflow Step": {
+      "main": [[{ "node": "Step Claimed?", "type": "main", "index": 0 }]]
+    },
+    "Step Claimed?": {
+      "main": [
+        [{ "node": "Fetch Payment Detail", "type": "main", "index": 0 }],
+        [{ "node": "Handle Not Claimed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Payment Detail": {
+      "main": [
+        [{ "node": "Parse Payment", "type": "main", "index": 0 }],
+        [{ "node": "Log Fetch Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Payment": {
+      "main": [[{ "node": "Purchase or Sales?", "type": "main", "index": 0 }]]
+    },
+    "Purchase or Sales?": {
+      "main": [
+        [{ "node": "Update Purchase Payment", "type": "main", "index": 0 }],
+        [{ "node": "Update Sales Payment", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Purchase Payment": {
+      "main": [[{ "node": "Complete + Emit Payment", "type": "main", "index": 0 }]]
+    },
+    "Update Sales Payment": {
+      "main": [[{ "node": "Complete + Emit Payment", "type": "main", "index": 0 }]]
+    },
+    "Complete + Emit Payment": {
+      "main": [[{ "node": "Telegram Payment", "type": "main", "index": 0 }]]
+    },
+    "Telegram Payment": {
+      "main": [[{ "node": "Respond (Success)", "type": "main", "index": 0 }]]
+    },
+    "Log Fetch Error": {
+      "main": [[{ "node": "Respond (Error)", "type": "main", "index": 0 }]]
+    },
+    "Handle Not Claimed": {
+      "main": [[{ "node": "Respond (Not Claimed)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

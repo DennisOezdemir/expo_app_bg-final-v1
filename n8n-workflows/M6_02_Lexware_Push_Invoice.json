@@ -50,7 +50,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extract event data from router payload (webhook path)\nconst input = $input.first().json;\n\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\n\nconst purchaseInvoiceId = payload.entity_id || input.body?.entity_id || input.entity_id;\nconst stepKey = `lexware_push:${purchaseInvoiceId}`;\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId,\n    purchase_invoice_id: purchaseInvoiceId,\n    step_key: stepKey,\n    source: 'webhook'\n  }\n};"
+        "jsCode": "// Extract event data from router payload (webhook path)\nconst input = $input.first().json;\n\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\n\nconst purchaseInvoiceId = payload.entity_id || input.body?.entity_id || input.entity_id;\nconst stepKey = `lexware_push:${purchaseInvoiceId}`;\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId || null,\n    purchase_invoice_id: purchaseInvoiceId,\n    step_key: stepKey,\n    source: 'webhook'\n  }\n};"
       },
       "id": "c6020001-0002-4000-8000-000000000002",
       "name": "Parse Event (Webhook)",
@@ -61,7 +61,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse schedule-fetched events into individual items\nconst items = $input.all();\n\nreturn items.map(item => ({\n  json: {\n    event_id: item.json.event_id,\n    project_id: item.json.project_id,\n    purchase_invoice_id: item.json.entity_id,\n    step_key: `lexware_push:${item.json.entity_id}`,\n    source: 'schedule'\n  }\n}));"
+        "jsCode": "// Parse schedule-fetched events into individual items\nconst items = $input.all();\n\nreturn items.map(item => ({\n  json: {\n    event_id: item.json.event_id,\n    project_id: item.json.project_id || null,\n    purchase_invoice_id: item.json.entity_id,\n    step_key: `lexware_push:${item.json.entity_id}`,\n    source: 'schedule'\n  }\n}));"
       },
       "id": "c6020001-0002-4000-8000-000000000097",
       "name": "Parse Events (Schedule)",
@@ -73,7 +73,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT * FROM claim_workflow_step(\n  '{{ $json.step_key }}',\n  '{{ $json.project_id }}'::uuid,\n  'LEXWARE_PUSH'\n);",
+        "query": "SELECT * FROM claim_workflow_step(\n  '{{ $json.step_key }}',\n  {{ $json.project_id ? \"'\" + $json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  'LEXWARE_PUSH'\n);",
         "options": {}
       },
       "id": "c6020001-0003-4000-8000-000000000003",
@@ -122,15 +122,26 @@
     },
     {
       "parameters": {
+        "jsCode": "// Resolve event data from whichever trigger path ran\n// Both Parse nodes output identical fields: event_id, project_id, purchase_invoice_id, step_key, source\nlet eventData;\ntry {\n  eventData = $('Parse Event (Webhook)').first().json;\n} catch(e) {\n  eventData = $('Parse Events (Schedule)').first().json;\n}\n\nreturn { json: eventData };"
+      },
+      "id": "c6020001-0004-4000-8000-000000000060",
+      "name": "Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300],
+      "notes": "Resolves event metadata from webhook or schedule path"
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT pi.*,\n       pi.expense_category::text as expense_cat,\n       s.name as supplier_name,\n       s.street as supplier_street,\n       s.zip_code as supplier_zip,\n       s.city as supplier_city,\n       s.lexware_contact_id,\n       s.id as supplier_id\nFROM purchase_invoices pi\nJOIN suppliers s ON s.id = pi.supplier_id\nWHERE pi.id = '{{ $('Parse Event (Webhook)').item.json.purchase_invoice_id }}'::uuid;",
+        "query": "SELECT pi.*,\n       pi.expense_category::text as expense_cat,\n       s.name as supplier_name,\n       s.street as supplier_street,\n       s.zip_code as supplier_zip,\n       s.city as supplier_city,\n       s.lexware_contact_id,\n       s.id as supplier_id\nFROM purchase_invoices pi\nJOIN suppliers s ON s.id = pi.supplier_id\nWHERE pi.id = '{{ $('Event Data').item.json.purchase_invoice_id }}'::uuid;",
         "options": {}
       },
       "id": "c6020001-0005-4000-8000-000000000005",
       "name": "Load Invoice + Supplier",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1300, 180],
+      "position": [1520, 180],
       "credentials": {
         "postgres": {
           "id": "qXZ2ZjK31ZDrPoDG",
@@ -167,20 +178,20 @@
       "name": "Already Synced?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1520, 180],
+      "position": [1740, 180],
       "notes": "If lexware_voucher_id exists → already pushed, skip"
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Mark event processed (idempotent skip)\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Parse Event (Webhook)').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\n-- Log skip\nINSERT INTO lexware_sync_log (entity_type, entity_id, lexware_id, sync_direction, sync_status, action, error_message)\nVALUES ('purchase_invoice', '{{ $('Parse Event (Webhook)').item.json.purchase_invoice_id }}'::uuid,\n        '{{ $json.lexware_voucher_id }}', 'push', 'success', 'skip', 'Already synced');",
+        "query": "-- Mark event processed (idempotent skip)\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\n-- Log skip\nINSERT INTO lexware_sync_log (entity_type, entity_id, lexware_id, sync_direction, sync_status, action, error_message)\nVALUES ('purchase_invoice', '{{ $('Event Data').item.json.purchase_invoice_id }}'::uuid,\n        '{{ $json.lexware_voucher_id }}', 'push', 'success', 'skip', 'Already synced');",
         "options": {}
       },
       "id": "c6020001-0007-4000-8000-000000000007",
       "name": "Log Skip + Mark Processed",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1740, 60],
+      "position": [1960, 60],
       "credentials": {
         "postgres": {
           "id": "qXZ2ZjK31ZDrPoDG",
@@ -199,7 +210,7 @@
       "name": "Respond (Skip Synced)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1960, 60]
+      "position": [2180, 60]
     },
     {
       "parameters": {
@@ -229,7 +240,7 @@
       "name": "Has Lexware Contact?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1740, 300],
+      "position": [1960, 300],
       "notes": "Check if supplier already has a Lexware contact ID"
     },
     {
@@ -240,7 +251,7 @@
       "name": "Build Contact Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1960, 420],
+      "position": [2180, 420],
       "notes": "Builds Lexware /v1/contacts POST body"
     },
     {
@@ -264,7 +275,7 @@
       "name": "Create Lexware Contact",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2180, 420],
+      "position": [2400, 420],
       "credentials": {
         "httpHeaderAuth": {
           "id": "LEXWARE_CREDENTIAL_ID",
@@ -284,7 +295,7 @@
       "name": "Save Contact ID",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [2400, 420],
+      "position": [2620, 420],
       "credentials": {
         "postgres": {
           "id": "qXZ2ZjK31ZDrPoDG",
@@ -302,18 +313,18 @@
       "name": "Wait (Rate Limit 1)",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [2620, 420],
+      "position": [2840, 420],
       "notes": "500ms wait — Lexware rate limit: 2 req/sec"
     },
     {
       "parameters": {
-        "jsCode": "// Build Lexware voucher payload for purchase invoice\nconst inv = $('Load Invoice + Supplier').first().json;\n\n// Get lexware_contact_id from either existing or freshly created\nconst contactId = inv.lexware_contact_id\n  || $('Save Contact ID').first().json?.lexware_contact_id\n  || null;\n\n// Map BG expense_category → Lexware categoryId\nconst categoryMap = {\n  'SUBCONTRACTOR': '7a1efa0e-6283-4571-add5-b49ab2bcbc4d',  // Fremdleistungen\n  'MATERIAL': '63c88f81-e02b-11e2-a28f-0800200c9a66',        // Wareneinkauf\n  'VEHICLE_FUEL': '8f8664a8-fd86-11e1-a21f-0800200c9a66',    // Sonstige Ausgaben\n  'VEHICLE_RENTAL': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'VEHICLE_REPAIR': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'ENTERTAINMENT': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'SOFTWARE': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'INSURANCE': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'OFFICE': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'DISPOSAL': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'OTHER': '8f8664a8-fd86-11e1-a21f-0800200c9a66'\n};\n\nconst categoryId = categoryMap[inv.expense_cat] || '8f8664a8-fd86-11e1-a21f-0800200c9a66';\n\n// Format dates to Lexware RFC 3339 format\nconst formatDate = (d) => d ? `${d}T00:00:00.000+01:00` : null;\n\nconst voucher = {\n  type: 'purchaseinvoice',\n  voucherNumber: inv.invoice_number,\n  voucherDate: formatDate(inv.invoice_date),\n  totalGrossAmount: parseFloat(inv.total_gross),\n  totalTaxAmount: parseFloat(inv.vat_amount || 0),\n  taxType: 'gross',\n  remark: 'Automatisch importiert aus BauGenius',\n  voucherItems: [{\n    amount: parseFloat(inv.total_gross),\n    taxAmount: parseFloat(inv.vat_amount || 0),\n    taxRatePercentage: parseFloat(inv.vat_percent || 19),\n    categoryId: categoryId\n  }]\n};\n\n// Optional fields\nif (inv.due_date) voucher.dueDate = formatDate(inv.due_date);\nif (contactId) voucher.contactId = contactId;\n\nreturn {\n  json: {\n    voucher_payload: voucher,\n    invoice_id: inv.id,\n    invoice_number: inv.invoice_number,\n    project_id: inv.project_id,\n    pdf_storage_path: inv.pdf_storage_path,\n    contact_id: contactId,\n    category_id: categoryId\n  }\n};"
+        "jsCode": "// Build Lexware voucher payload for purchase invoice\nconst inv = $('Load Invoice + Supplier').first().json;\n\n// Get lexware_contact_id from either existing or freshly created\nlet contactId = inv.lexware_contact_id || null;\ntry {\n  const saved = $('Save Contact ID').first().json;\n  if (saved?.lexware_contact_id) contactId = saved.lexware_contact_id;\n} catch(e) {\n  // Save Contact ID didn't run (had contact already, or contact error path)\n}\n\n// Map BG expense_category → Lexware categoryId\nconst categoryMap = {\n  'SUBCONTRACTOR': '7a1efa0e-6283-4571-add5-b49ab2bcbc4d',  // Fremdleistungen\n  'MATERIAL': '63c88f81-e02b-11e2-a28f-0800200c9a66',        // Wareneinkauf\n  'VEHICLE_FUEL': '8f8664a8-fd86-11e1-a21f-0800200c9a66',    // Sonstige Ausgaben\n  'VEHICLE_RENTAL': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'VEHICLE_REPAIR': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'ENTERTAINMENT': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'SOFTWARE': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'INSURANCE': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'OFFICE': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'DISPOSAL': '8f8664a8-fd86-11e1-a21f-0800200c9a66',\n  'OTHER': '8f8664a8-fd86-11e1-a21f-0800200c9a66'\n};\n\nconst categoryId = categoryMap[inv.expense_cat] || '8f8664a8-fd86-11e1-a21f-0800200c9a66';\n\n// Format dates to Lexware RFC 3339 format\nconst formatDate = (d) => {\n  if (!d) return null;\n  // Handle ISO string or date-only string\n  const dateStr = typeof d === 'string' ? d.substring(0, 10) : d;\n  return `${dateStr}T00:00:00.000+01:00`;\n};\n\nconst voucher = {\n  type: 'purchaseinvoice',\n  voucherNumber: inv.invoice_number,\n  voucherDate: formatDate(inv.invoice_date),\n  totalGrossAmount: parseFloat(inv.total_gross),\n  totalTaxAmount: parseFloat(inv.vat_amount || 0),\n  taxType: 'gross',\n  remark: 'Automatisch importiert aus BauGenius',\n  voucherItems: [{\n    amount: parseFloat(inv.total_gross),\n    taxAmount: parseFloat(inv.vat_amount || 0),\n    taxRatePercentage: parseFloat(inv.vat_percent || 19),\n    categoryId: categoryId\n  }]\n};\n\n// Optional fields\nif (inv.due_date) voucher.dueDate = formatDate(inv.due_date);\nif (contactId) voucher.contactId = contactId;\n\nreturn {\n  json: {\n    voucher_payload: voucher,\n    invoice_id: inv.id,\n    invoice_number: inv.invoice_number,\n    project_id: inv.project_id || null,\n    pdf_storage_path: inv.pdf_storage_path,\n    contact_id: contactId,\n    category_id: categoryId\n  }\n};"
       },
       "id": "c6020001-0013-4000-8000-000000000013",
       "name": "Build Voucher Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2840, 300],
+      "position": [3060, 300],
       "notes": "Builds Lexware /v1/vouchers POST body with category mapping"
     },
     {
@@ -337,7 +348,7 @@
       "name": "Create Lexware Voucher",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3060, 300],
+      "position": [3280, 300],
       "credentials": {
         "httpHeaderAuth": {
           "id": "LEXWARE_CREDENTIAL_ID",
@@ -356,7 +367,7 @@
       "name": "Wait (Rate Limit 2)",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [3280, 180],
+      "position": [3500, 180],
       "notes": "500ms wait — Lexware rate limit: 2 req/sec"
     },
     {
@@ -387,7 +398,7 @@
       "name": "Has PDF?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [3500, 180],
+      "position": [3720, 180],
       "notes": "Check if invoice has a PDF to upload"
     },
     {
@@ -408,7 +419,7 @@
       "name": "Download PDF from Storage",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3720, 60],
+      "position": [3940, 60],
       "credentials": {
         "httpHeaderAuth": {
           "id": "SUPABASE_SERVICE_CREDENTIAL_ID",
@@ -440,7 +451,7 @@
       "name": "Upload PDF to Lexware",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3940, 60],
+      "position": [4160, 60],
       "credentials": {
         "httpHeaderAuth": {
           "id": "LEXWARE_CREDENTIAL_ID",
@@ -459,7 +470,7 @@
       "name": "Wait (Rate Limit 3)",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [4160, 180],
+      "position": [4380, 180],
       "notes": "500ms wait — Lexware rate limit: 2 req/sec"
     },
     {
@@ -472,7 +483,7 @@
       "name": "Update Invoice (Synced)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [4380, 180],
+      "position": [4600, 180],
       "credentials": {
         "postgres": {
           "id": "qXZ2ZjK31ZDrPoDG",
@@ -491,7 +502,7 @@
       "name": "Log Sync Success",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [4600, 180],
+      "position": [4820, 180],
       "credentials": {
         "postgres": {
           "id": "qXZ2ZjK31ZDrPoDG",
@@ -503,14 +514,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT complete_workflow_step(\n  '{{ $('Parse Event (Webhook)').item.json.step_key }}',\n  '{\"lexware_voucher_id\": \"{{ $('Create Lexware Voucher').item.json.body.id }}\", \"invoice_number\": \"{{ $('Build Voucher Payload').item.json.invoice_number }}\"}'\n);",
+        "query": "SELECT complete_workflow_step(\n  '{{ $('Event Data').item.json.step_key }}',\n  '{\"lexware_voucher_id\": \"{{ $('Create Lexware Voucher').item.json.body.id }}\", \"invoice_number\": \"{{ $('Build Voucher Payload').item.json.invoice_number }}\"}'\n);",
         "options": {}
       },
       "id": "c6020001-0022-4000-8000-000000000022",
       "name": "Complete Workflow Step",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [4820, 180],
+      "position": [5040, 180],
       "credentials": {
         "postgres": {
           "id": "qXZ2ZjK31ZDrPoDG",
@@ -522,14 +533,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Mark input event as processed\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Parse Event (Webhook)').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\n-- Emit LEXWARE_PUSH_COMPLETED event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PUSH_COMPLETED',\n  '{{ $('Build Voucher Payload').item.json.project_id }}'::uuid,\n  jsonb_build_object(\n    'purchase_invoice_id', '{{ $('Build Voucher Payload').item.json.invoice_id }}',\n    'lexware_voucher_id', '{{ $('Create Lexware Voucher').item.json.body.id }}',\n    'invoice_number', '{{ $('Build Voucher Payload').item.json.invoice_number }}'\n  ),\n  'n8n',\n  'M6_02_Lexware_Push_Invoice',\n  'purchase_invoices',\n  '{{ $('Build Voucher Payload').item.json.invoice_id }}'::uuid\n)\nRETURNING id, event_type::text, project_id;",
+        "query": "-- Mark input event as processed\nDO $$ BEGIN\n  UPDATE events SET processed_at = now()\n  WHERE id = '{{ $('Event Data').item.json.event_id }}'::uuid;\nEXCEPTION WHEN invalid_text_representation THEN NULL;\nEND $$;\n\n-- Emit LEXWARE_PUSH_COMPLETED event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PUSH_COMPLETED',\n  {{ $('Build Voucher Payload').item.json.project_id ? \"'\" + $('Build Voucher Payload').item.json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  jsonb_build_object(\n    'purchase_invoice_id', '{{ $('Build Voucher Payload').item.json.invoice_id }}',\n    'lexware_voucher_id', '{{ $('Create Lexware Voucher').item.json.body.id }}',\n    'invoice_number', '{{ $('Build Voucher Payload').item.json.invoice_number }}'\n  ),\n  'n8n',\n  'M6_02_Lexware_Push_Invoice',\n  'purchase_invoices',\n  '{{ $('Build Voucher Payload').item.json.invoice_id }}'::uuid\n)\nRETURNING id, event_type::text, project_id;",
         "options": {}
       },
       "id": "c6020001-0023-4000-8000-000000000023",
       "name": "Emit LEXWARE_PUSH_COMPLETED",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [5040, 180],
+      "position": [5260, 180],
       "credentials": {
         "postgres": {
           "id": "qXZ2ZjK31ZDrPoDG",
@@ -551,7 +562,7 @@
       "name": "Telegram Success",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [5260, 180],
+      "position": [5480, 180],
       "notes": "Confirms successful push to Dennis"
     },
     {
@@ -564,30 +575,30 @@
       "name": "Respond (Success)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [5480, 180]
+      "position": [5700, 180]
     },
     {
       "parameters": {
-        "jsCode": "// Handle API error from Create Lexware Voucher\nconst input = $input.first().json;\nconst invoiceData = $('Build Voucher Payload').first().json;\nconst eventData = $('Parse Event (Webhook)').first().json;\n\nconst statusCode = input.statusCode || input.status || 'unknown';\nconst errorBody = input.body || input.message || JSON.stringify(input);\nconst errorMsg = typeof errorBody === 'string' ? errorBody : JSON.stringify(errorBody);\n\nreturn {\n  json: {\n    error_message: `HTTP ${statusCode}: ${errorMsg.substring(0, 500)}`,\n    status_code: statusCode,\n    invoice_id: invoiceData.invoice_id,\n    invoice_number: invoiceData.invoice_number,\n    project_id: invoiceData.project_id,\n    event_id: eventData.event_id,\n    step_key: eventData.step_key\n  }\n};"
+        "jsCode": "// Handle API error from Create Lexware Voucher\nconst input = $input.first().json;\nconst invoiceData = $('Build Voucher Payload').first().json;\nconst eventData = $('Event Data').first().json;\n\nconst statusCode = input.statusCode || input.status || 'unknown';\nconst errorBody = input.body || input.message || JSON.stringify(input);\nconst errorMsg = typeof errorBody === 'string' ? errorBody : JSON.stringify(errorBody);\n\nreturn {\n  json: {\n    error_message: `HTTP ${statusCode}: ${errorMsg.substring(0, 500)}`,\n    status_code: statusCode,\n    invoice_id: invoiceData.invoice_id,\n    invoice_number: invoiceData.invoice_number,\n    project_id: invoiceData.project_id || null,\n    event_id: eventData.event_id,\n    step_key: eventData.step_key\n  }\n};"
       },
       "id": "c6020001-0030-4000-8000-000000000030",
       "name": "Parse Voucher Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3280, 540],
+      "position": [3500, 540],
       "notes": "Extracts error details from failed Lexware API call"
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Mark invoice as error\nUPDATE purchase_invoices SET\n  lexware_sync_status = 'error',\n  lexware_sync_error = '{{ $json.error_message.replace(/'/g, \"''\").substring(0, 1000) }}'\nWHERE id = '{{ $json.invoice_id }}'::uuid;\n\n-- Log error\nINSERT INTO lexware_sync_log\n  (sync_direction, entity_type, entity_id, action, sync_status, error_message,\n   request_payload)\nVALUES\n  ('push', 'purchase_invoice', '{{ $json.invoice_id }}'::uuid,\n   'create', 'error',\n   '{{ $json.error_message.replace(/'/g, \"''\").substring(0, 1000) }}',\n   '{{ JSON.stringify($('Build Voucher Payload').item.json.voucher_payload).replace(/'/g, \"''\") }}'::jsonb);\n\n-- Emit LEXWARE_PUSH_FAILED event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PUSH_FAILED',\n  '{{ $json.project_id }}'::uuid,\n  jsonb_build_object(\n    'purchase_invoice_id', '{{ $json.invoice_id }}',\n    'invoice_number', '{{ $json.invoice_number }}',\n    'error', '{{ $json.error_message.replace(/'/g, \"''\").substring(0, 500) }}'\n  ),\n  'n8n',\n  'M6_02_Lexware_Push_Invoice',\n  'purchase_invoices',\n  '{{ $json.invoice_id }}'::uuid\n);",
+        "query": "-- Mark invoice as error\nUPDATE purchase_invoices SET\n  lexware_sync_status = 'error',\n  lexware_sync_error = '{{ $json.error_message.replace(/'/g, \"''\").substring(0, 1000) }}'\nWHERE id = '{{ $json.invoice_id }}'::uuid;\n\n-- Log error\nINSERT INTO lexware_sync_log\n  (sync_direction, entity_type, entity_id, action, sync_status, error_message,\n   request_payload)\nVALUES\n  ('push', 'purchase_invoice', '{{ $json.invoice_id }}'::uuid,\n   'create', 'error',\n   '{{ $json.error_message.replace(/'/g, \"''\").substring(0, 1000) }}',\n   '{{ JSON.stringify($('Build Voucher Payload').item.json.voucher_payload).replace(/'/g, \"''\") }}'::jsonb);\n\n-- Emit LEXWARE_PUSH_FAILED event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PUSH_FAILED',\n  {{ $json.project_id ? \"'\" + $json.project_id + \"'::uuid\" : \"NULL::uuid\" }},\n  jsonb_build_object(\n    'purchase_invoice_id', '{{ $json.invoice_id }}',\n    'invoice_number', '{{ $json.invoice_number }}',\n    'error', '{{ $json.error_message.replace(/'/g, \"''\").substring(0, 500) }}'\n  ),\n  'n8n',\n  'M6_02_Lexware_Push_Invoice',\n  'purchase_invoices',\n  '{{ $json.invoice_id }}'::uuid\n);",
         "options": {}
       },
       "id": "c6020001-0031-4000-8000-000000000031",
       "name": "Log Error + Emit Failed Event",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [3500, 540],
+      "position": [3720, 540],
       "credentials": {
         "postgres": {
           "id": "qXZ2ZjK31ZDrPoDG",
@@ -609,7 +620,7 @@
       "name": "Telegram Error",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [3720, 540],
+      "position": [3940, 540],
       "notes": "Notifies Dennis about push failure"
     },
     {
@@ -624,7 +635,7 @@
       "name": "Respond (Error)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [3940, 540]
+      "position": [4160, 540]
     },
     {
       "parameters": {
@@ -634,19 +645,30 @@
       "name": "Handle Contact Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2400, 600],
+      "position": [2620, 600],
       "notes": "Contact creation failed — continue without contactId (non-blocking)"
     },
     {
       "parameters": {
-        "jsCode": "// Step already done or in progress by another run\nconst claimResult = $input.first().json;\nconst eventData = $('Parse Event (Webhook)').first().json;\n\nreturn {\n  json: {\n    status: 'skipped',\n    reason: claimResult.current_status === 'DONE'\n      ? 'Already processed'\n      : 'Step in progress by another run',\n    current_status: claimResult.current_status,\n    purchase_invoice_id: eventData.purchase_invoice_id\n  }\n};"
+        "jsCode": "// Step already done or in progress by another run\nconst claimResult = $input.first().json;\nconst eventData = $('Event Data').first().json;\n\nreturn {\n  json: {\n    status: 'skipped',\n    reason: claimResult.current_status === 'DONE'\n      ? 'Already processed'\n      : 'Step in progress by another run',\n    current_status: claimResult.current_status,\n    purchase_invoice_id: eventData.purchase_invoice_id\n  }\n};"
       },
       "id": "c6020001-0050-4000-8000-000000000050",
       "name": "Handle Not Claimed",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1300, 540],
+      "position": [1520, 540],
       "notes": "Handles DONE (skip) and IN_PROGRESS (exit)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolve event data for not-claimed path\nlet eventData;\ntry {\n  eventData = $('Parse Event (Webhook)').first().json;\n} catch(e) {\n  eventData = $('Parse Events (Schedule)').first().json;\n}\n\nreturn { json: eventData };"
+      },
+      "id": "c6020001-0004-4000-8000-000000000061",
+      "name": "Event Data (Not Claimed)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 540],
+      "notes": "Resolves event metadata for not-claimed path"
     },
     {
       "parameters": {
@@ -658,7 +680,7 @@
       "name": "Respond (Skip Claimed)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1520, 540]
+      "position": [1740, 540]
     }
   ],
   "connections": {
@@ -694,7 +716,17 @@
     },
     "Step Claimed?": {
       "main": [
-        [{ "node": "Load Invoice + Supplier", "type": "main", "index": 0 }],
+        [{ "node": "Event Data", "type": "main", "index": 0 }],
+        [{ "node": "Event Data (Not Claimed)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Event Data": {
+      "main": [
+        [{ "node": "Load Invoice + Supplier", "type": "main", "index": 0 }]
+      ]
+    },
+    "Event Data (Not Claimed)": {
+      "main": [
         [{ "node": "Handle Not Claimed", "type": "main", "index": 0 }]
       ]
     },
