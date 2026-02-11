@@ -1,0 +1,807 @@
+{
+  "name": "M6_03_Lexware_Pull_Sales",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "id": "c6030001-0001-4000-8000-000000000001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300],
+      "notes": "Runs every 15 minutes to pull sales invoices from Lexware"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(\n  to_char(MAX(lexware_last_synced_at) AT TIME ZONE 'Europe/Berlin',\n    'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"+01:00\"'),\n  '2025-01-01T00:00:00.000+01:00'\n) as last_sync\nFROM sales_invoices\nWHERE source = 'lexware';",
+        "options": {}
+      },
+      "id": "c6030001-0002-4000-8000-000000000002",
+      "name": "Get Last Sync Time",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [420, 300],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Gets the most recent lexware_last_synced_at for incremental sync"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.lexware.io/v1/voucherlist",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "voucherType", "value": "invoice,creditnote,downpaymentinvoice" },
+            { "name": "voucherStatus", "value": "open,paid,paidoff,voided" },
+            { "name": "updatedDateFrom", "value": "={{ $('Get Last Sync Time').item.json.last_sync }}" },
+            { "name": "page", "value": "0" },
+            { "name": "size", "value": "250" },
+            { "name": "sort", "value": "updatedDate,ASC" }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c6030001-0003-4000-8000-000000000003",
+      "name": "Fetch Voucherlist",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LEXWARE_CREDENTIAL_ID",
+          "name": "Lexware API"
+        }
+      },
+      "notes": "GET /v1/voucherlist — fetches updated invoices since last sync"
+    },
+    {
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      },
+      "id": "c6030001-0003-4000-8000-000000000030",
+      "name": "Wait (Post Voucherlist)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [860, 300],
+      "notes": "500ms rate limit wait"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.lexware.io/v1/voucherlist",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "voucherType", "value": "invoice" },
+            { "name": "voucherStatus", "value": "overdue" },
+            { "name": "page", "value": "0" },
+            { "name": "size", "value": "250" },
+            { "name": "sort", "value": "updatedDate,ASC" }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c6030001-0004-4000-8000-000000000004",
+      "name": "Fetch Overdue Invoices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LEXWARE_CREDENTIAL_ID",
+          "name": "Lexware API"
+        }
+      },
+      "notes": "GET /v1/voucherlist — overdue must be queried separately"
+    },
+    {
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      },
+      "id": "c6030001-0004-4000-8000-000000000040",
+      "name": "Wait (Post Overdue)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1300, 300],
+      "notes": "500ms rate limit wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge voucherlist + overdue results, deduplicate by id\nconst mainResult = $('Fetch Voucherlist').first().json;\nconst overdueResult = $('Fetch Overdue Invoices').first().json;\n\nconst mainContent = mainResult.body?.content || mainResult.content || [];\nconst overdueContent = overdueResult.body?.content || overdueResult.content || [];\n\n// Deduplicate: overdue entries override main entries\nconst map = new Map();\nfor (const v of mainContent) {\n  map.set(v.id, { ...v, _overdueFlag: false });\n}\nfor (const v of overdueContent) {\n  map.set(v.id, { ...v, voucherStatus: 'overdue', _overdueFlag: true });\n}\n\nconst merged = Array.from(map.values());\n\nconst totalMain = mainResult.body?.totalElements || mainResult.totalElements || 0;\nconst totalOverdue = overdueResult.body?.totalElements || overdueResult.totalElements || 0;\nconst pagesMain = mainResult.body?.totalPages || mainResult.totalPages || 1;\n\nif (merged.length === 0) {\n  return { json: { _empty: true, count: 0, message: 'No updated invoices found' } };\n}\n\n// Return each voucher as separate item for loop processing\nreturn merged.map(v => ({\n  json: {\n    voucher_id: v.id,\n    voucher_type: v.voucherType,\n    voucher_status: v.voucherStatus,\n    voucher_number: v.voucherNumber,\n    voucher_date: v.voucherDate,\n    due_date: v.dueDate || null,\n    contact_id: v.contactId || null,\n    contact_name: v.contactName || null,\n    total_amount: v.totalAmount || 0,\n    open_amount: v.openAmount || 0,\n    currency: v.currency || 'EUR',\n    updated_date: v.updatedDate,\n    total_vouchers: merged.length,\n    _needs_pagination: pagesMain > 1,\n    _total_pages_main: pagesMain\n  }\n}));"
+      },
+      "id": "c6030001-0005-4000-8000-000000000005",
+      "name": "Merge & Split Vouchers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 300],
+      "notes": "Merges main + overdue lists, deduplicates, splits into individual items"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-empty",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6030001-0005-4000-8000-000000000050",
+      "name": "Has Vouchers?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1740, 300],
+      "notes": "If empty result → stop early"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nothing to sync\nreturn { json: { status: 'idle', message: 'No updated invoices from Lexware' } };"
+      },
+      "id": "c6030001-0005-4000-8000-000000000051",
+      "name": "No Updates (Stop)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1960, 180],
+      "notes": "No new invoices — stop gracefully"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, status::text as old_status, paid_at, pdf_storage_path\nFROM sales_invoices\nWHERE lexware_invoice_id = '{{ $json.voucher_id }}';",
+        "options": {}
+      },
+      "id": "c6030001-0006-4000-8000-000000000006",
+      "name": "Load Existing Invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1960, 420],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Check if invoice exists & get old status for change detection"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Merge & Split Vouchers').item.json.voucher_type }}",
+                    "rightValue": "creditnote",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "creditnote"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "c6030001-0007-4000-8000-000000000007",
+      "name": "Route by Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [2180, 420],
+      "notes": "creditnote → /credit-notes/{id}, everything else → /invoices/{id}"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.lexware.io/v1/invoices/' + $('Merge & Split Vouchers').item.json.voucher_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c6030001-0008-4000-8000-000000000008",
+      "name": "Fetch Invoice Detail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 480],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LEXWARE_CREDENTIAL_ID",
+          "name": "Lexware API"
+        }
+      },
+      "notes": "GET /v1/invoices/{id} — full invoice detail",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.lexware.io/v1/credit-notes/' + $('Merge & Split Vouchers').item.json.voucher_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c6030001-0009-4000-8000-000000000009",
+      "name": "Fetch Credit Note Detail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LEXWARE_CREDENTIAL_ID",
+          "name": "Lexware API"
+        }
+      },
+      "notes": "GET /v1/credit-notes/{id} — full credit note detail",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      },
+      "id": "c6030001-0010-4000-8000-000000000010",
+      "name": "Wait (Post Detail)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2620, 420],
+      "notes": "500ms rate limit wait after detail fetch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build unified data object from detail response + list data\nconst voucher = $('Merge & Split Vouchers').item.json;\nconst existing = $('Load Existing Invoice').first().json;\nconst detailRaw = $input.first().json;\nconst detail = detailRaw.body || detailRaw;\n\nconst vType = voucher.voucher_type;\nconst vStatus = voucher.voucher_status;\n\n// Map Lexware voucherType → BG invoice_type enum\nconst typeMap = {\n  'invoice': 'SCHLUSS',\n  'creditnote': 'GUTSCHRIFT',\n  'downpaymentinvoice': 'ABSCHLAG'\n};\n\n// Map Lexware voucherStatus → BG sales_invoice_status enum\nconst statusMap = {\n  'draft': 'DRAFT',\n  'open': 'SENT',\n  'paid': 'PAID',\n  'paidoff': 'PAIDOFF',\n  'voided': 'VOIDED',\n  'overdue': 'OVERDUE',\n  'accepted': 'SENT',\n  'rejected': 'REJECTED'\n};\n\n// Extract amounts from detail\nconst totalPrice = detail.totalPrice || {};\nconst address = detail.address || {};\n\n// Build address string\nconst addressParts = [address.street, `${address.zip || ''} ${address.city || ''}`].filter(Boolean);\nconst addressStr = addressParts.join(', ').trim();\n\n// Date extraction (strip time portion for date fields)\nconst extractDate = (d) => d ? d.substring(0, 10) : null;\n\n// Status change detection\nconst oldStatus = existing.old_status || null;\nconst newStatus = statusMap[vStatus] || 'SENT';\nconst isNewPayment = (oldStatus && oldStatus !== 'PAID' && oldStatus !== 'PAIDOFF')\n  && (newStatus === 'PAID' || newStatus === 'PAIDOFF');\nconst isNew = !existing.id;\nconst needsPdf = !existing.pdf_storage_path && vType !== 'creditnote';\n\n// Extract remark for project matching\nconst remark = detail.remark || '';\nconst projectMatch = remark.match(/P-\\d{4}/) || remark.match(/BG-\\d+/);\n\nreturn {\n  json: {\n    // Identifiers\n    voucher_id: voucher.voucher_id,\n    voucher_number: detail.voucherNumber || voucher.voucher_number,\n    existing_id: existing.id || null,\n\n    // Mapped fields\n    invoice_type: typeMap[vType] || 'SCHLUSS',\n    status: newStatus,\n    invoice_date: extractDate(detail.voucherDate || voucher.voucher_date),\n    due_date: extractDate(detail.dueDate || voucher.due_date),\n\n    // Amounts\n    total_net: totalPrice.totalNetAmount || 0,\n    vat_amount: totalPrice.totalTaxAmount || 0,\n    total_gross: totalPrice.totalGrossAmount || voucher.total_amount || 0,\n    vat_rate: 19,\n    currency: totalPrice.currency || voucher.currency || 'EUR',\n\n    // Customer\n    customer_name: address.name || voucher.contact_name || '',\n    customer_address: addressStr,\n    lexware_contact_id: address.contactId || voucher.contact_id || null,\n\n    // Change detection\n    old_status: oldStatus,\n    is_new_payment: isNewPayment,\n    is_new: isNew,\n    needs_pdf: needsPdf,\n\n    // Project matching hint\n    project_number_hint: projectMatch ? projectMatch[0] : null,\n    remark: remark,\n\n    // Raw data for storage\n    raw_data: detail\n  }\n};"
+      },
+      "id": "c6030001-0011-4000-8000-000000000011",
+      "name": "Build Upsert Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2840, 420],
+      "notes": "Maps Lexware fields to BG schema, detects status changes"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sales_invoices (\n  lexware_invoice_id, invoice_number, invoice_type, status,\n  invoice_date, due_date, total_net, total_vat, total_gross,\n  vat_rate, currency, customer_name, customer_address,\n  lexware_contact_id, lexware_last_synced_at, lexware_synced_at,\n  lexware_raw_data, lexware_sync_status, source\n) VALUES (\n  '{{ $json.voucher_id }}',\n  '{{ $json.voucher_number }}',\n  '{{ $json.invoice_type }}'::sales_invoice_type,\n  '{{ $json.status }}'::sales_invoice_status,\n  '{{ $json.invoice_date }}'::date,\n  {{ $json.due_date ? \"'\" + $json.due_date + \"'::date\" : 'NULL' }},\n  {{ $json.total_net }},\n  {{ $json.vat_amount }},\n  {{ $json.total_gross }},\n  {{ $json.vat_rate }},\n  '{{ $json.currency }}',\n  '{{ ($json.customer_name || '').replace(/'/g, \"''\") }}',\n  '{{ ($json.customer_address || '').replace(/'/g, \"''\") }}',\n  {{ $json.lexware_contact_id ? \"'\" + $json.lexware_contact_id + \"'\" : 'NULL' }},\n  now(), now(),\n  '{{ JSON.stringify($json.raw_data).replace(/'/g, \"''\") }}'::jsonb,\n  'synced',\n  'lexware'\n)\nON CONFLICT (lexware_invoice_id) DO UPDATE SET\n  status = EXCLUDED.status,\n  due_date = EXCLUDED.due_date,\n  total_net = EXCLUDED.total_net,\n  total_vat = EXCLUDED.total_vat,\n  total_gross = EXCLUDED.total_gross,\n  customer_name = EXCLUDED.customer_name,\n  customer_address = EXCLUDED.customer_address,\n  lexware_contact_id = EXCLUDED.lexware_contact_id,\n  lexware_last_synced_at = now(),\n  lexware_synced_at = now(),\n  lexware_raw_data = EXCLUDED.lexware_raw_data,\n  lexware_sync_status = 'synced'\nRETURNING id, invoice_number, status::text;",
+        "options": {}
+      },
+      "id": "c6030001-0012-4000-8000-000000000012",
+      "name": "Upsert Sales Invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [3060, 420],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "INSERT ... ON CONFLICT (lexware_invoice_id) DO UPDATE"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-payment",
+              "leftValue": "={{ $('Build Upsert Data').item.json.is_new_payment }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6030001-0013-4000-8000-000000000013",
+      "name": "Payment Received?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3280, 420],
+      "notes": "Detects status transition to PAID/PAIDOFF"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Mark as paid\nUPDATE sales_invoices SET paid_at = now()\nWHERE lexware_invoice_id = '{{ $('Build Upsert Data').item.json.voucher_id }}';\n\n-- Emit payment event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PAYMENT_RECEIVED',\n  (SELECT project_id FROM sales_invoices WHERE lexware_invoice_id = '{{ $('Build Upsert Data').item.json.voucher_id }}'),\n  jsonb_build_object(\n    'entity_type', 'sales_invoice',\n    'entity_id', '{{ $('Upsert Sales Invoice').item.json.id }}',\n    'invoice_number', '{{ $('Build Upsert Data').item.json.voucher_number }}',\n    'total_gross', {{ $('Build Upsert Data').item.json.total_gross }},\n    'customer_name', '{{ ($('Build Upsert Data').item.json.customer_name || '').replace(/'/g, \"''\") }}'\n  ),\n  'n8n',\n  'M6_03_Lexware_Pull_Sales',\n  'sales_invoices',\n  '{{ $('Upsert Sales Invoice').item.json.id }}'::uuid\n);",
+        "options": {}
+      },
+      "id": "c6030001-0014-4000-8000-000000000014",
+      "name": "Mark Paid + Emit Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [3500, 300],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Sets paid_at and emits LEXWARE_PAYMENT_RECEIVED"
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=💰 *Zahlung eingegangen*\n📄 {{ $('Build Upsert Data').item.json.voucher_number }}\n💶 {{ $('Build Upsert Data').item.json.total_gross }} EUR\n🏢 {{ $('Build Upsert Data').item.json.customer_name }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "c6030001-0015-4000-8000-000000000015",
+      "name": "Telegram Payment",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3720, 300],
+      "notes": "Notifies Dennis about incoming payment"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-needs-pdf",
+              "leftValue": "={{ $('Build Upsert Data').item.json.needs_pdf }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6030001-0016-4000-8000-000000000016",
+      "name": "Needs PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3500, 540],
+      "notes": "Only download PDF if not already stored"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.lexware.io/v1/invoices/' + $('Build Upsert Data').item.json.voucher_id + '/files' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/pdf" }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "c6030001-0017-4000-8000-000000000017",
+      "name": "Download Invoice PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3720, 600],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LEXWARE_CREDENTIAL_ID",
+          "name": "Lexware API"
+        }
+      },
+      "notes": "GET /v1/invoices/{id}/files — downloads PDF",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      },
+      "id": "c6030001-0017-4000-8000-000000000170",
+      "name": "Wait (Post PDF Download)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3940, 600],
+      "notes": "500ms rate limit wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build storage path for PDF upload\nconst data = $('Build Upsert Data').first().json;\nconst year = data.invoice_date ? data.invoice_date.substring(0, 4) : new Date().getFullYear().toString();\nconst safeNumber = (data.voucher_number || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');\nconst storagePath = `invoices/sales/${year}/${safeNumber}.pdf`;\n\nreturn {\n  json: {\n    storage_path: storagePath,\n    voucher_id: data.voucher_id,\n    invoice_id: $('Upsert Sales Invoice').first().json.id\n  }\n};"
+      },
+      "id": "c6030001-0018-4000-8000-000000000018",
+      "name": "Build Storage Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4160, 600],
+      "notes": "Generates Supabase Storage path: invoices/sales/YYYY/number.pdf"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://yetwntwayhmzmhhgdkli.supabase.co/storage/v1/object/invoices/sales/' + $json.storage_path.split('/').slice(2).join('/') }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "contentType": "binaryData",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/pdf" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c6030001-0019-4000-8000-000000000019",
+      "name": "Upload PDF to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4380, 600],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SUPABASE_SERVICE_CREDENTIAL_ID",
+          "name": "Supabase Service Key"
+        }
+      },
+      "notes": "Uploads PDF to Supabase Storage bucket",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sales_invoices\nSET pdf_storage_path = '{{ $('Build Storage Path').item.json.storage_path }}'\nWHERE id = '{{ $('Build Storage Path').item.json.invoice_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "c6030001-0020-4000-8000-000000000020",
+      "name": "Save PDF Path",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [4600, 600],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Stores PDF storage path on sales_invoices"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Auto-match: client by customer name\nUPDATE sales_invoices si SET\n  client_id = c.id\nFROM clients c\nWHERE si.lexware_invoice_id = '{{ $('Build Upsert Data').item.json.voucher_id }}'\n  AND si.client_id IS NULL\n  AND c.company_name ILIKE '%' || '{{ ($('Build Upsert Data').item.json.customer_name || '').replace(/'/g, \"''\").substring(0, 50) }}' || '%'\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "c6030001-0021-4000-8000-000000000021",
+      "name": "Auto-Match Client",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [3940, 420],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Tries to match customer_name to BG clients table"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Auto-match: project by number pattern in remark\nWITH hint AS (\n  SELECT '{{ $('Build Upsert Data').item.json.project_number_hint }}' as pnum\n)\nUPDATE sales_invoices si SET\n  project_id = p.id\nFROM projects p, hint\nWHERE si.lexware_invoice_id = '{{ $('Build Upsert Data').item.json.voucher_id }}'\n  AND si.project_id IS NULL\n  AND hint.pnum IS NOT NULL\n  AND hint.pnum != ''\n  AND p.project_number = hint.pnum;",
+        "options": {}
+      },
+      "id": "c6030001-0022-4000-8000-000000000022",
+      "name": "Auto-Match Project",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [4160, 420],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Tries to match project number from invoice remark"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lexware_sync_log\n  (sync_direction, entity_type, entity_id, lexware_id, action, sync_status)\nVALUES\n  ('pull', 'sales_invoice',\n   '{{ $('Upsert Sales Invoice').item.json.id }}'::uuid,\n   '{{ $('Build Upsert Data').item.json.voucher_id }}',\n   '{{ $('Build Upsert Data').item.json.is_new ? 'create' : 'update' }}',\n   'success');",
+        "options": {}
+      },
+      "id": "c6030001-0023-4000-8000-000000000023",
+      "name": "Log Sync Success",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [4380, 420],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Logs successful sync to lexware_sync_log"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect results from all processed vouchers\nconst items = $input.all();\nconst total = items.length;\n\nconst newCount = items.filter(i => i.json?.is_new).length;\nconst updatedCount = total - newCount;\n\nreturn {\n  json: {\n    status: 'completed',\n    total_processed: total,\n    new_invoices: newCount,\n    updated_invoices: updatedCount\n  }\n};"
+      },
+      "id": "c6030001-0030-4000-8000-000000000030",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4600, 420],
+      "notes": "Aggregates sync results for final summary"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle detail fetch error — log and continue\nconst voucher = $('Merge & Split Vouchers').item.json;\nconst input = $input.first().json;\nconst errorMsg = input.body?.message || input.message || JSON.stringify(input).substring(0, 500);\n\n// Log error but don't stop the batch\nreturn {\n  json: {\n    error: true,\n    voucher_id: voucher.voucher_id,\n    voucher_number: voucher.voucher_number,\n    error_message: `Detail fetch failed: ${errorMsg}`\n  }\n};"
+      },
+      "id": "c6030001-0040-4000-8000-000000000040",
+      "name": "Handle Detail Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2620, 600],
+      "notes": "Logs detail fetch error, continues batch"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lexware_sync_log\n  (sync_direction, entity_type, entity_id, lexware_id, action, sync_status, error_message)\nVALUES\n  ('pull', 'sales_invoice',\n   COALESCE((SELECT id FROM sales_invoices WHERE lexware_invoice_id = '{{ $json.voucher_id }}'), gen_random_uuid()),\n   '{{ $json.voucher_id }}',\n   'fetch', 'error',\n   '{{ ($json.error_message || '').replace(/'/g, \"''\").substring(0, 1000) }}');",
+        "options": {}
+      },
+      "id": "c6030001-0041-4000-8000-000000000041",
+      "name": "Log Detail Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2840, 600],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Logs fetch error to sync_log, continues processing"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [{ "node": "Get Last Sync Time", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Last Sync Time": {
+      "main": [
+        [{ "node": "Fetch Voucherlist", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Voucherlist": {
+      "main": [
+        [{ "node": "Wait (Post Voucherlist)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait (Post Voucherlist)": {
+      "main": [
+        [{ "node": "Fetch Overdue Invoices", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Overdue Invoices": {
+      "main": [
+        [{ "node": "Wait (Post Overdue)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait (Post Overdue)": {
+      "main": [
+        [{ "node": "Merge & Split Vouchers", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge & Split Vouchers": {
+      "main": [
+        [{ "node": "Has Vouchers?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Vouchers?": {
+      "main": [
+        [{ "node": "No Updates (Stop)", "type": "main", "index": 0 }],
+        [{ "node": "Load Existing Invoice", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Existing Invoice": {
+      "main": [
+        [{ "node": "Route by Type", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route by Type": {
+      "main": [
+        [{ "node": "Fetch Credit Note Detail", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Invoice Detail", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Invoice Detail": {
+      "main": [
+        [{ "node": "Wait (Post Detail)", "type": "main", "index": 0 }],
+        [{ "node": "Handle Detail Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Credit Note Detail": {
+      "main": [
+        [{ "node": "Wait (Post Detail)", "type": "main", "index": 0 }],
+        [{ "node": "Handle Detail Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait (Post Detail)": {
+      "main": [
+        [{ "node": "Build Upsert Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Upsert Data": {
+      "main": [
+        [{ "node": "Upsert Sales Invoice", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert Sales Invoice": {
+      "main": [
+        [{ "node": "Payment Received?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Payment Received?": {
+      "main": [
+        [{ "node": "Mark Paid + Emit Event", "type": "main", "index": 0 }],
+        [{ "node": "Needs PDF?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Mark Paid + Emit Event": {
+      "main": [
+        [{ "node": "Telegram Payment", "type": "main", "index": 0 }]
+      ]
+    },
+    "Telegram Payment": {
+      "main": [
+        [{ "node": "Needs PDF?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Needs PDF?": {
+      "main": [
+        [{ "node": "Download Invoice PDF", "type": "main", "index": 0 }],
+        [{ "node": "Auto-Match Client", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download Invoice PDF": {
+      "main": [
+        [{ "node": "Wait (Post PDF Download)", "type": "main", "index": 0 }],
+        [{ "node": "Auto-Match Client", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait (Post PDF Download)": {
+      "main": [
+        [{ "node": "Build Storage Path", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Storage Path": {
+      "main": [
+        [{ "node": "Upload PDF to Storage", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upload PDF to Storage": {
+      "main": [
+        [{ "node": "Save PDF Path", "type": "main", "index": 0 }],
+        [{ "node": "Auto-Match Client", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save PDF Path": {
+      "main": [
+        [{ "node": "Auto-Match Client", "type": "main", "index": 0 }]
+      ]
+    },
+    "Auto-Match Client": {
+      "main": [
+        [{ "node": "Auto-Match Project", "type": "main", "index": 0 }]
+      ]
+    },
+    "Auto-Match Project": {
+      "main": [
+        [{ "node": "Log Sync Success", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Sync Success": {
+      "main": [
+        [{ "node": "Summary", "type": "main", "index": 0 }]
+      ]
+    },
+    "Handle Detail Error": {
+      "main": [
+        [{ "node": "Log Detail Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
