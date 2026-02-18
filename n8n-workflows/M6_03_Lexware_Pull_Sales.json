@@ -16,7 +16,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT COALESCE(\n  to_char(MAX(lexware_last_synced_at) AT TIME ZONE 'Europe/Berlin',\n    'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"+01:00\"'),\n  '2025-01-01T00:00:00.000+01:00'\n) as last_sync\nFROM sales_invoices\nWHERE source = 'lexware';",
+        "query": "SELECT COALESCE(\n  to_char(MAX(lexware_last_synced_at) AT TIME ZONE 'Europe/Berlin',\n    'YYYY-MM-DD'),\n  '2025-01-01'\n) as last_sync\nFROM sales_invoices\nWHERE source = 'lexware';",
         "options": {}
       },
       "id": "d6030001-0002-4000-8000-000000000002",
