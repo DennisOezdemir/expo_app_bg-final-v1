@@ -6,6 +6,7 @@ import {
   Pressable,
   FlatList,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
@@ -18,14 +19,18 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
+
+/* ─── Types ──────────────────────────────────── */
 
 interface Product {
   id: string;
   name: string;
   supplier: string;
+  supplierId?: string;
   articleNr: string;
   price: string;
   priceNum: number;
@@ -35,68 +40,16 @@ interface Product {
   isNew?: boolean;
 }
 
-const PRODUCTS: Product[] = [
-  {
-    id: "p1",
-    name: "Erfurt Vlies Rauhfaser 52",
-    supplier: "MEGA",
-    articleNr: "4523100",
-    price: "18,90",
-    priceNum: 18.9,
-    unit: "Rolle",
-    favorite: true,
-    useCount: 3,
-  },
-  {
-    id: "p2",
-    name: "Marburg Patent Vlies",
-    supplier: "Delmes",
-    articleNr: "9871",
-    price: "22,50",
-    priceNum: 22.5,
-    unit: "Rolle",
-    favorite: false,
-    useCount: 1,
-  },
-  {
-    id: "p3",
-    name: "Brillux Vliesfaser 120",
-    supplier: "Brillux Direkt",
-    articleNr: "VF120",
-    price: "24,80",
-    priceNum: 24.8,
-    unit: "Rolle",
-    favorite: false,
-    useCount: 0,
-    isNew: true,
-  },
-  {
-    id: "p4",
-    name: "Erfurt EcoVlies 73",
-    supplier: "MEGA",
-    articleNr: "4523200",
-    price: "21,40",
-    priceNum: 21.4,
-    unit: "Rolle",
-    favorite: false,
-    useCount: 2,
-  },
-  {
-    id: "p5",
-    name: "Rasch Vlies Premium",
-    supplier: "Farben Schmidt",
-    articleNr: "RP-440",
-    price: "26,90",
-    priceNum: 26.9,
-    unit: "Rolle",
-    favorite: false,
-    useCount: 0,
-    isNew: true,
-  },
-];
+interface MaterialInfo {
+  id: string;
+  materialType: string;
+  trade: string;
+  quantity: number;
+  unit: string;
+  positionCount: number;
+}
 
-const SUPPLIERS_LIST = ["MEGA", "Delmes", "Brillux Direkt", "Farben Schmidt", "Weber", "Caparol"];
-const UNITS = ["Rolle", "Eimer", "Kartusche", "Kanister", "Paket", "Stuck"];
+/* ─── ProductCard ────────────────────────────── */
 
 function ProductCard({
   product,
@@ -124,16 +77,16 @@ function ProductCard({
           </Text>
         </View>
         <Text style={pStyles.meta}>
-          {product.supplier} {"\u2022"} Art. {product.articleNr}
+          {product.supplier} • Art. {product.articleNr}
         </Text>
         <Text style={pStyles.usage}>
           {product.isNew ? "Neu" : `${product.useCount}x verwendet`}
         </Text>
       </View>
       <View style={pStyles.right}>
-        <Text style={pStyles.price}>{"\u20AC"}{product.price}</Text>
+        <Text style={pStyles.price}>€{product.price}</Text>
         <View style={pStyles.selectBtn}>
-          <Text style={pStyles.selectText}>WAHLEN</Text>
+          <Text style={pStyles.selectText}>WÄHLEN</Text>
         </View>
       </View>
     </Pressable>
@@ -152,42 +105,13 @@ const pStyles = StyleSheet.create({
     padding: 16,
     marginBottom: 8,
   },
-  left: {
-    flex: 1,
-    marginRight: 14,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 4,
-  },
-  name: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: Colors.raw.white,
-    flex: 1,
-  },
-  meta: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.raw.zinc500,
-    marginBottom: 2,
-  },
-  usage: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: Colors.raw.zinc600,
-  },
-  right: {
-    alignItems: "flex-end",
-    gap: 8,
-  },
-  price: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: Colors.raw.white,
-  },
+  left: { flex: 1, marginRight: 14 },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  name: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.white, flex: 1 },
+  meta: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500, marginBottom: 2 },
+  usage: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.raw.zinc600 },
+  right: { alignItems: "flex-end", gap: 8 },
+  price: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.raw.white },
   selectBtn: {
     backgroundColor: Colors.raw.amber500 + "20",
     borderRadius: 8,
@@ -202,30 +126,36 @@ const pStyles = StyleSheet.create({
   },
 });
 
-function NewProductForm({ onSave }: { onSave: (p: Product) => void }) {
+/* ─── NewProductForm ─────────────────────────── */
+
+function NewProductForm({
+  onSave,
+  suppliers,
+}: {
+  onSave: (p: { name: string; supplier: string; supplierId?: string; articleNr: string; price: number; unit: string }) => void;
+  suppliers: { id: string; name: string }[];
+}) {
   const [name, setName] = useState("");
-  const [supplier, setSupplier] = useState(SUPPLIERS_LIST[0]);
+  const [supplierIdx, setSupplierIdx] = useState(0);
   const [articleNr, setArticleNr] = useState("");
   const [price, setPrice] = useState("");
-  const [unit, setUnit] = useState(UNITS[0]);
+  const [unit, setUnit] = useState("Stk");
   const [showSupplierPicker, setShowSupplierPicker] = useState(false);
 
+  const UNITS = ["Stk", "Rolle", "Eimer", "Kartusche", "Kanister", "Paket", "m²", "L", "kg"];
   const canSave = name.trim().length > 0 && price.trim().length > 0;
+  const selectedSupplier = suppliers[supplierIdx] || { id: undefined, name: "Kein Lieferant" };
 
   const handleSave = () => {
     if (!canSave) return;
     const priceNum = parseFloat(price.replace(",", ".")) || 0;
     onSave({
-      id: "new-" + Date.now(),
       name: name.trim(),
-      supplier,
+      supplier: selectedSupplier.name,
+      supplierId: selectedSupplier.id,
       articleNr: articleNr.trim() || "-",
-      price: priceNum.toFixed(2).replace(".", ","),
-      priceNum,
+      price: priceNum,
       unit,
-      favorite: false,
-      useCount: 0,
-      isNew: true,
     });
   };
 
@@ -248,7 +178,7 @@ function NewProductForm({ onSave }: { onSave: (p: Product) => void }) {
         onPress={() => setShowSupplierPicker(!showSupplierPicker)}
         style={nfStyles.dropdown}
       >
-        <Text style={nfStyles.dropdownText}>{supplier}</Text>
+        <Text style={nfStyles.dropdownText}>{selectedSupplier.name}</Text>
         <Ionicons
           name={showSupplierPicker ? "chevron-up" : "chevron-down"}
           size={16}
@@ -257,25 +187,25 @@ function NewProductForm({ onSave }: { onSave: (p: Product) => void }) {
       </Pressable>
       {showSupplierPicker && (
         <View style={nfStyles.pickerOptions}>
-          {SUPPLIERS_LIST.map((s) => (
+          {suppliers.map((s, idx) => (
             <Pressable
-              key={s}
+              key={s.id}
               onPress={() => {
-                setSupplier(s);
+                setSupplierIdx(idx);
                 setShowSupplierPicker(false);
               }}
               style={[
                 nfStyles.pickerOption,
-                supplier === s && nfStyles.pickerOptionActive,
+                supplierIdx === idx && nfStyles.pickerOptionActive,
               ]}
             >
               <Text
                 style={[
                   nfStyles.pickerOptionText,
-                  supplier === s && nfStyles.pickerOptionTextActive,
+                  supplierIdx === idx && nfStyles.pickerOptionTextActive,
                 ]}
               >
-                {s}
+                {s.name}
               </Text>
             </Pressable>
           ))}
@@ -294,7 +224,7 @@ function NewProductForm({ onSave }: { onSave: (p: Product) => void }) {
           />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={nfStyles.label}>Preis ({"\u20AC"}) *</Text>
+          <Text style={nfStyles.label}>Preis (€) *</Text>
           <TextInput
             style={nfStyles.input}
             placeholder="0,00"
@@ -309,7 +239,7 @@ function NewProductForm({ onSave }: { onSave: (p: Product) => void }) {
 
       <Text style={nfStyles.label}>Einheit</Text>
       <View style={nfStyles.unitRow}>
-        {UNITS.slice(0, 4).map((u) => (
+        {UNITS.slice(0, 5).map((u) => (
           <Pressable
             key={u}
             onPress={() => setUnit(u)}
@@ -355,12 +285,7 @@ const nfStyles = StyleSheet.create({
     borderColor: Colors.raw.zinc800,
     marginBottom: 16,
   },
-  title: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 17,
-    color: Colors.raw.white,
-    marginBottom: 18,
-  },
+  title: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.raw.white, marginBottom: 18 },
   label: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 12,
@@ -392,11 +317,7 @@ const nfStyles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  dropdownText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 15,
-    color: Colors.raw.white,
-  },
+  dropdownText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.white },
   pickerOptions: {
     backgroundColor: Colors.raw.zinc800,
     borderRadius: 10,
@@ -404,52 +325,20 @@ const nfStyles = StyleSheet.create({
     borderColor: Colors.raw.zinc700,
     marginTop: 4,
     overflow: "hidden",
+    maxHeight: 200,
   },
-  pickerOption: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  pickerOptionActive: {
-    backgroundColor: Colors.raw.amber500 + "18",
-  },
-  pickerOptionText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: Colors.raw.zinc400,
-  },
-  pickerOptionTextActive: {
-    color: Colors.raw.amber500,
-  },
-  row: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  unitRow: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  unitChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  unitChipActive: {
-    backgroundColor: Colors.raw.amber500,
-  },
-  unitChipInactive: {
-    backgroundColor: Colors.raw.zinc800,
-  },
-  unitChipText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-  },
-  unitChipTextActive: {
-    color: "#000",
-  },
-  unitChipTextInactive: {
-    color: Colors.raw.zinc400,
-  },
+  pickerOption: { paddingHorizontal: 14, paddingVertical: 10 },
+  pickerOptionActive: { backgroundColor: Colors.raw.amber500 + "18" },
+  pickerOptionText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc400 },
+  pickerOptionTextActive: { color: Colors.raw.amber500 },
+  row: { flexDirection: "row", gap: 12 },
+  unitRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  unitChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+  unitChipActive: { backgroundColor: Colors.raw.amber500 },
+  unitChipInactive: { backgroundColor: Colors.raw.zinc800 },
+  unitChipText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
+  unitChipTextActive: { color: "#000" },
+  unitChipTextInactive: { color: Colors.raw.zinc400 },
   saveBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -460,12 +349,10 @@ const nfStyles = StyleSheet.create({
     paddingVertical: 14,
     marginTop: 18,
   },
-  saveBtnText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 15,
-    color: "#fff",
-  },
+  saveBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#fff" },
 });
+
+/* ─── SuccessToast ───────────────────────────── */
 
 function SuccessToast({ productName }: { productName: string }) {
   return (
@@ -496,46 +383,292 @@ const toastStyles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 12,
   },
-  text: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 15,
-    color: Colors.raw.emerald500,
-    flex: 1,
-  },
+  text: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.emerald500, flex: 1 },
 });
 
+/* ─── Main Screen ────────────────────────────── */
+
 export default function AssignMaterialSheet() {
-  const { name } = useLocalSearchParams<{ name: string }>();
+  const { name, materialId, trade } = useLocalSearchParams<{
+    name: string;
+    materialId?: string;
+    trade?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState("");
   const [showNewForm, setShowNewForm] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [materialInfo, setMaterialInfo] = useState<MaterialInfo | null>(null);
   const flashValue = useSharedValue(0);
+
+  // Load material info if materialId provided
+  useEffect(() => {
+    if (materialId) {
+      loadMaterialInfo();
+    }
+  }, [materialId]);
+
+  // Load products matching this material type
+  useEffect(() => {
+    loadProducts();
+    loadSuppliers();
+  }, [name, trade]);
+
+  const loadMaterialInfo = async () => {
+    if (!materialId) return;
+    const { data } = await supabase
+      .from("project_materials")
+      .select("id, material_type, trade, quantity, quantity_unit")
+      .eq("id", materialId)
+      .single();
+
+    if (data) {
+      // Count how many positions use this material type in the same project
+      const { count } = await supabase
+        .from("project_materials")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", (await supabase.from("project_materials").select("project_id").eq("id", materialId).single()).data?.project_id || "")
+        .eq("material_type", data.material_type);
+
+      setMaterialInfo({
+        id: data.id,
+        materialType: data.material_type,
+        trade: data.trade || "Sonstiges",
+        quantity: parseFloat(data.quantity) || 0,
+        unit: data.quantity_unit || "Stk",
+        positionCount: count ?? 1,
+      });
+    }
+  };
+
+  const loadProducts = async () => {
+    setLoading(true);
+
+    // Search products matching the material type or trade
+    let query = supabase
+      .from("products")
+      .select(
+        `id, name, sku, last_price_net_eur, unit, is_favorite, use_count, material_type,
+         suppliers:supplier_id (id, name, short_name)`
+      )
+      .eq("is_active", true)
+      .order("is_favorite", { ascending: false })
+      .order("use_count", { ascending: false })
+      .limit(50);
+
+    // Filter by material_type if we have a name
+    if (name) {
+      // Try exact match first, then broader search
+      query = query.or(`material_type.ilike.%${name}%,name.ilike.%${name}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (!error && data) {
+      const mapped: Product[] = (data as any[]).map((p) => {
+        const supplier = p.suppliers;
+        return {
+          id: p.id,
+          name: p.name,
+          supplier: supplier?.short_name || supplier?.name || "—",
+          supplierId: supplier?.id,
+          articleNr: p.sku || "—",
+          price: p.last_price_net_eur
+            ? Number(p.last_price_net_eur).toFixed(2).replace(".", ",")
+            : "—",
+          priceNum: p.last_price_net_eur ? Number(p.last_price_net_eur) : 0,
+          unit: p.unit || "Stk",
+          favorite: p.is_favorite || false,
+          useCount: p.use_count || 0,
+        };
+      });
+      setProducts(mapped);
+    }
+
+    // If no products found with material_type filter, load all products
+    if ((!data || data.length === 0) && name) {
+      const { data: allData } = await supabase
+        .from("products")
+        .select(
+          `id, name, sku, last_price_net_eur, unit, is_favorite, use_count, material_type,
+           suppliers:supplier_id (id, name, short_name)`
+        )
+        .eq("is_active", true)
+        .order("is_favorite", { ascending: false })
+        .order("use_count", { ascending: false })
+        .limit(50);
+
+      if (allData) {
+        const mapped: Product[] = (allData as any[]).map((p) => {
+          const supplier = p.suppliers;
+          return {
+            id: p.id,
+            name: p.name,
+            supplier: supplier?.short_name || supplier?.name || "—",
+            supplierId: supplier?.id,
+            articleNr: p.sku || "—",
+            price: p.last_price_net_eur
+              ? Number(p.last_price_net_eur).toFixed(2).replace(".", ",")
+              : "—",
+            priceNum: p.last_price_net_eur ? Number(p.last_price_net_eur) : 0,
+            unit: p.unit || "Stk",
+            favorite: p.is_favorite || false,
+            useCount: p.use_count || 0,
+          };
+        });
+        setProducts(mapped);
+      }
+    }
+
+    setLoading(false);
+  };
+
+  const loadSuppliers = async () => {
+    const { data } = await supabase
+      .from("suppliers")
+      .select("id, name")
+      .eq("is_active", true)
+      .order("is_preferred", { ascending: false })
+      .order("name")
+      .limit(20);
+
+    if (data) {
+      setSuppliers(data);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return PRODUCTS.filter(
+    if (!q) return products;
+    return products.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.supplier.toLowerCase().includes(q) ||
         p.articleNr.toLowerCase().includes(q)
-    ).sort((a, b) => {
-      if (a.favorite && !b.favorite) return -1;
-      if (!a.favorite && b.favorite) return 1;
-      return b.useCount - a.useCount;
-    });
-  }, [search]);
+    );
+  }, [search, products]);
 
   const flashStyle = useAnimatedStyle(() => ({
     opacity: flashValue.value,
   }));
 
+  // Assign product to material
+  const assignProduct = async (productId: string, productName: string) => {
+    if (!materialId) {
+      // No material ID → just show success and go back
+      return true;
+    }
+
+    setSaving(true);
+    const { error } = await supabase
+      .from("project_materials")
+      .update({
+        product_id: productId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", materialId);
+
+    // Increment use_count on the product
+    const { error: rpcError } = await supabase.rpc("increment_use_count", { product_id_param: productId });
+    if (rpcError) {
+      // If RPC doesn't exist, do manual update
+      await supabase
+        .from("products")
+        .update({
+          use_count: (filtered.find((p) => p.id === productId)?.useCount ?? 0) + 1,
+          last_used_at: new Date().toISOString(),
+        })
+        .eq("id", productId);
+    }
+
+    setSaving(false);
+    return !error;
+  };
+
   const handleSelect = useCallback(
-    (product: Product) => {
+    async (product: Product) => {
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-      setSelectedProduct(product);
+
+      const success = await assignProduct(product.id, product.name);
+      if (success) {
+        setSelectedProduct(product);
+        flashValue.value = withSequence(
+          withTiming(0.35, { duration: 150 }),
+          withTiming(0, { duration: 400 })
+        );
+        setTimeout(() => {
+          router.back();
+        }, 1000);
+      }
+    },
+    [flashValue, materialId]
+  );
+
+  const handleNewProductSave = useCallback(
+    async (p: { name: string; supplier: string; supplierId?: string; articleNr: string; price: number; unit: string }) => {
+      setSaving(true);
+
+      // Create product in DB
+      const { data: newProduct, error } = await supabase
+        .from("products")
+        .insert({
+          name: p.name,
+          name_normalized: p.name.toLowerCase(),
+          supplier_id: p.supplierId || null,
+          sku: p.articleNr !== "-" ? p.articleNr : null,
+          last_price_net_eur: p.price,
+          unit: p.unit,
+          material_type: name || null,
+          trade: trade || null,
+          is_active: true,
+          is_favorite: false,
+          use_count: 1,
+          source: "manual",
+        })
+        .select("id")
+        .single();
+
+      if (error || !newProduct) {
+        setSaving(false);
+        return;
+      }
+
+      // Assign to material
+      if (materialId) {
+        await supabase
+          .from("project_materials")
+          .update({
+            product_id: newProduct.id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", materialId);
+      }
+
+      setSaving(false);
+
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+
+      setSelectedProduct({
+        id: newProduct.id,
+        name: p.name,
+        supplier: p.supplier,
+        articleNr: p.articleNr,
+        price: p.price.toFixed(2).replace(".", ","),
+        priceNum: p.price,
+        unit: p.unit,
+        favorite: false,
+        useCount: 1,
+        isNew: true,
+      });
+
       flashValue.value = withSequence(
         withTiming(0.35, { duration: 150 }),
         withTiming(0, { duration: 400 })
@@ -544,14 +677,7 @@ export default function AssignMaterialSheet() {
         router.back();
       }, 1000);
     },
-    [flashValue]
-  );
-
-  const handleNewProductSave = useCallback(
-    (product: Product) => {
-      handleSelect(product);
-    },
-    [handleSelect]
+    [flashValue, materialId, name, trade]
   );
 
   const materialLabel = name || "Material";
@@ -568,10 +694,18 @@ export default function AssignMaterialSheet() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>{materialLabel} zuordnen</Text>
-          <Text style={styles.subtitle}>Bedarf: 12 Rollen (25m)</Text>
-          <Text style={styles.subtitle}>
-            Fur: 8 Positionen (Wohnzimmer, Flur, Schlafzimmer)
-          </Text>
+          {materialInfo ? (
+            <>
+              <Text style={styles.subtitle}>
+                Bedarf: {materialInfo.quantity.toFixed(1)} {materialInfo.unit}
+              </Text>
+              <Text style={styles.subtitle}>
+                Gewerk: {materialInfo.trade} • {materialInfo.positionCount} Positionen
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.subtitle}>Produkt auswählen</Text>
+          )}
         </View>
         <Pressable
           onPress={() => router.back()}
@@ -582,9 +716,21 @@ export default function AssignMaterialSheet() {
         </Pressable>
       </View>
 
+      {saving && (
+        <View style={styles.savingOverlay}>
+          <ActivityIndicator size="small" color={Colors.raw.amber500} />
+          <Text style={styles.savingText}>Wird gespeichert...</Text>
+        </View>
+      )}
+
       {selectedProduct ? (
         <View style={styles.successArea}>
           <SuccessToast productName={selectedProduct.name} />
+        </View>
+      ) : loading ? (
+        <View style={styles.loadingArea}>
+          <ActivityIndicator size="large" color={Colors.raw.amber500} />
+          <Text style={styles.loadingText}>Produkte werden geladen...</Text>
         </View>
       ) : (
         <>
@@ -617,7 +763,7 @@ export default function AssignMaterialSheet() {
             )}
             ListHeaderComponent={
               showNewForm ? (
-                <NewProductForm onSave={handleNewProductSave} />
+                <NewProductForm onSave={handleNewProductSave} suppliers={suppliers} />
               ) : null
             }
             ListFooterComponent={
@@ -639,7 +785,12 @@ export default function AssignMaterialSheet() {
               !showNewForm ? (
                 <View style={styles.empty}>
                   <Ionicons name="search-outline" size={36} color={Colors.raw.zinc700} />
-                  <Text style={styles.emptyText}>Kein Produkt gefunden</Text>
+                  <Text style={styles.emptyText}>
+                    {search ? "Kein Produkt gefunden" : "Keine passenden Produkte vorhanden"}
+                  </Text>
+                  <Text style={styles.emptySubtext}>
+                    Neues Produkt anlegen oder Suche anpassen
+                  </Text>
                 </View>
               ) : null
             }
@@ -650,16 +801,11 @@ export default function AssignMaterialSheet() {
   );
 }
 
+/* ─── Styles ─────────────────────────────────── */
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.raw.zinc950,
-    paddingTop: 8,
-  },
-  flashOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 90,
-  },
+  container: { flex: 1, backgroundColor: Colors.raw.zinc950, paddingTop: 8 },
+  flashOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 90 },
   handle: {
     width: 40,
     height: 4,
@@ -674,25 +820,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     marginBottom: 20,
   },
-  title: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: Colors.raw.white,
-    marginBottom: 6,
-  },
+  title: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.raw.white, marginBottom: 6 },
   subtitle: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: Colors.raw.zinc400,
     marginBottom: 2,
   },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 8,
-  },
+  closeBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", marginLeft: 8 },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -713,10 +848,7 @@ const styles = StyleSheet.create({
     color: Colors.raw.white,
     height: 48,
   },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
+  listContent: { paddingHorizontal: 20, paddingBottom: 20 },
   newProductBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -729,23 +861,28 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginTop: 4,
   },
-  newProductText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.amber500,
+  newProductText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.amber500 },
+  successArea: { flex: 1, justifyContent: "center" },
+  loadingArea: { flex: 1, justifyContent: "center", alignItems: "center", gap: 16 },
+  loadingText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.zinc500 },
+  empty: { alignItems: "center", paddingVertical: 40, gap: 10 },
+  emptyText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.zinc600 },
+  emptySubtext: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc700,
+    textAlign: "center",
   },
-  successArea: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  empty: {
+  savingOverlay: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 40,
-    gap: 10,
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 8,
+    backgroundColor: Colors.raw.zinc900,
+    marginHorizontal: 20,
+    borderRadius: 10,
+    marginBottom: 8,
   },
-  emptyText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 15,
-    color: Colors.raw.zinc600,
-  },
+  savingText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc400 },
 });

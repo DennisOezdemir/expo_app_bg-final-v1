@@ -1,0 +1,247 @@
+{
+  "name": "M2_02_Sync_ZB_Progress",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m2-02-sync-zb-progress",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "m2-02-sync-zb-progress"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT claim_workflow_step(\n  'm2_02:' || '{{ $json.body.event_id || $json.event_id }}',\n  'M2_02_Sync_ZB_Progress',\n  '{{ $json.body.event_id || $json.event_id }}'::uuid,\n  '{{ $json.body.project_id || $json.project_id }}'::uuid\n) as claimed;",
+        "options": {}
+      },
+      "id": "claim-step",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [220, 300],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "claimed-check",
+              "leftValue": "={{ $json.claimed }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-claimed",
+      "name": "IF Claimed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  ip.id,\n  ip.protocol_type,\n  ip.protocol_number,\n  ip.project_id\nFROM inspection_protocols ip\nWHERE ip.id = '{{ $('Webhook Trigger').item.json.body.payload.protocol_id || $('Webhook Trigger').item.json.payload.protocol_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "load-protocol",
+      "name": "Load Protocol",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [660, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "zb-check",
+              "leftValue": "={{ $json.protocol_type }}",
+              "rightValue": "zwischenbegehung",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-zb",
+      "name": "IF Zwischenbegehung",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  ipi.offer_position_id,\n  ipi.progress_percent\nFROM inspection_protocol_items ipi\nWHERE ipi.protocol_id = '{{ $('Load Protocol').item.json.id }}'::uuid\n  AND ipi.offer_position_id IS NOT NULL\n  AND ipi.progress_percent IS NOT NULL;",
+        "options": {}
+      },
+      "id": "load-items",
+      "name": "Load Protocol Items",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1100, 100],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE offer_positions\nSET \n  progress_percent = {{ $json.progress_percent }},\n  progress_updated_at = now(),\n  last_inspection_id = '{{ $('Load Protocol').item.json.id }}'::uuid\nWHERE id = '{{ $json.offer_position_id }}'::uuid\nRETURNING id, progress_percent;",
+        "options": {}
+      },
+      "id": "update-positions",
+      "name": "Update Offer Positions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1320, 100],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst count = items.length;\nconst sum = items.reduce((acc, item) => acc + (item.json.progress_percent || 0), 0);\nconst avg = count > 0 ? Math.round(sum / count) : 0;\n\nconst protocol = $('Load Protocol').first().json;\n\nreturn [{\n  json: {\n    count,\n    avg,\n    protocol_number: protocol.protocol_number,\n    protocol_id: protocol.id,\n    project_id: protocol.project_id\n  }\n}];"
+      },
+      "id": "calc-stats",
+      "name": "Calculate Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": \"✅ {{ $json.protocol_number }} synced:\\n{{ $json.count }} Positionen\\nØ {{ $json.avg }}% Fortschritt\",\n  \"parse_mode\": \"HTML\"\n}"
+      },
+      "id": "telegram",
+      "name": "Telegram Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (event_type, project_id, payload, source_system, source_flow)\nVALUES (\n  'ZB_PROGRESS_SYNCED',\n  '{{ $json.project_id }}'::uuid,\n  '{ \"protocol_id\": \"{{ $json.protocol_id }}\", \"positions_synced\": {{ $json.count }}, \"avg_progress\": {{ $json.avg }} }'::jsonb,\n  'n8n',\n  'M2_02_Sync_ZB_Progress'\n)\nRETURNING id;",
+        "options": {}
+      },
+      "id": "fire-event",
+      "name": "Fire ZB_PROGRESS_SYNCED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1980, 100],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step(\n  'm2_02:' || '{{ $('Webhook Trigger').item.json.body.event_id || $('Webhook Trigger').item.json.event_id }}'\n);",
+        "options": {}
+      },
+      "id": "complete-step",
+      "name": "Complete Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2200, 100],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'ok', message: 'ZB progress synced' } }];"
+      },
+      "id": "response-ok",
+      "name": "Response OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'skipped', reason: 'Not a Zwischenbegehung' } }];"
+      },
+      "id": "skip-not-zb",
+      "name": "Skip (Not ZB)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'skipped', reason: 'Already processed (idempotency)' } }];"
+      },
+      "id": "skip-claimed",
+      "name": "Skip (Already Claimed)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]] },
+    "Claim Workflow Step": { "main": [[{ "node": "IF Claimed", "type": "main", "index": 0 }]] },
+    "IF Claimed": { 
+      "main": [
+        [{ "node": "Load Protocol", "type": "main", "index": 0 }],
+        [{ "node": "Skip (Already Claimed)", "type": "main", "index": 0 }]
+      ] 
+    },
+    "Load Protocol": { "main": [[{ "node": "IF Zwischenbegehung", "type": "main", "index": 0 }]] },
+    "IF Zwischenbegehung": { 
+      "main": [
+        [{ "node": "Load Protocol Items", "type": "main", "index": 0 }],
+        [{ "node": "Skip (Not ZB)", "type": "main", "index": 0 }]
+      ] 
+    },
+    "Load Protocol Items": { "main": [[{ "node": "Update Offer Positions", "type": "main", "index": 0 }]] },
+    "Update Offer Positions": { "main": [[{ "node": "Calculate Stats", "type": "main", "index": 0 }]] },
+    "Calculate Stats": { "main": [[{ "node": "Telegram Notification", "type": "main", "index": 0 }]] },
+    "Telegram Notification": { "main": [[{ "node": "Fire ZB_PROGRESS_SYNCED", "type": "main", "index": 0 }]] },
+    "Fire ZB_PROGRESS_SYNCED": { "main": [[{ "node": "Complete Workflow Step", "type": "main", "index": 0 }]] },
+    "Complete Workflow Step": { "main": [[{ "node": "Response OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  }
+}

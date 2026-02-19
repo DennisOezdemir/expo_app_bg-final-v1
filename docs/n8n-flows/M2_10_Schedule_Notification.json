@@ -1,0 +1,200 @@
+{
+  "name": "M2_10_Schedule_Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m2-10-schedule-notification",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "m2-10-schedule-notification"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse event data from webhook body\nconst body = $input.first().json.body || $input.first().json;\nconst event_id = body.event_id || '';\nconst project_id = body.project_id || '';\nconst event_type = body.event_type || 'SCHEDULE_GENERATED';\nconst payload = body.payload || {};\n\nreturn [{ json: { event_id, project_id, event_type, payload } }];"
+      },
+      "id": "parse-event",
+      "name": "Parse Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT claim_workflow_step(\n  'm2_10:' || '{{ $json.event_id }}',\n  'M2_10_Schedule_Notification',\n  '{{ $json.event_id }}'::uuid,\n  '{{ $json.project_id }}'::uuid\n) as claimed;"
+      },
+      "id": "claim-step",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [440, 300],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "claimed-check",
+              "leftValue": "={{ $json.claimed }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-claimed",
+      "name": "IF Claimed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  p.project_number,\n  p.name AS project_name,\n  COALESCE(p.object_street, p.name) AS address,\n  p.planned_start,\n  p.planned_end,\n  json_agg(\n    json_build_object(\n      'phase_number', sp.phase_number,\n      'trade', sp.trade,\n      'start_date', sp.start_date,\n      'end_date', sp.end_date,\n      'team_member', COALESCE(tm.name, 'Offen'),\n      'estimated_hours', sp.estimated_hours\n    ) ORDER BY sp.phase_number\n  ) AS phases\nFROM projects p\nLEFT JOIN schedule_phases sp ON sp.project_id = p.id\nLEFT JOIN team_members tm ON tm.id = sp.assigned_team_member_id\nWHERE p.id = '{{ $('Parse Event Data').first().json.project_id }}'::uuid\nGROUP BY p.id;"
+      },
+      "id": "load-schedule",
+      "name": "Load Schedule Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [880, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst projectId = $('Parse Event Data').first().json.project_id;\nconst phases = typeof data.phases === 'string' ? JSON.parse(data.phases) : data.phases;\n\n// Format dates\nfunction fmtDate(d) {\n  if (!d) return '?';\n  const dt = new Date(d);\n  return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.`;\n}\n\nlet lines = [];\nlines.push(`📅 <b>Zeitplan generiert</b>`);\nlines.push(`<b>${data.project_number}</b> — ${data.address}`);\nlines.push('');\nlines.push(`<b>Gewerke:</b>`);\n\nif (phases && phases.length > 0) {\n  for (const p of phases) {\n    const initial = p.team_member ? p.team_member.split(' ').map(n => n[0]).join('.') + '.' : '?';\n    lines.push(`${p.phase_number}. ${p.trade}: ${fmtDate(p.start_date)} – ${fmtDate(p.end_date)} (${p.team_member})`);\n  }\n} else {\n  lines.push('Keine Phasen vorhanden.');\n}\n\nlines.push('');\nlines.push(`Zeitraum: ${fmtDate(data.planned_start)} – ${fmtDate(data.planned_end)}${data.planned_end ? new Date(data.planned_end).getFullYear() : ''}`);\n\nconst text = lines.join('\\n');\n\n// Build approval URL\nconst approveUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m2-10-schedule-approve?project_id=${projectId}&action=approve`;\nconst rejectUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m2-10-schedule-approve?project_id=${projectId}&action=reject`;\n\nreturn [{ json: { text, approveUrl, rejectUrl, projectId, project_number: data.project_number } }];"
+      },
+      "id": "format-message",
+      "name": "Format Telegram Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"parse_mode\": \"HTML\",\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Genehmigen\", \"url\": {{ JSON.stringify($json.approveUrl) }} },\n      {\"text\": \"❌ Ablehnen\", \"url\": {{ JSON.stringify($json.rejectUrl) }} }\n    ]]\n  }\n}"
+      },
+      "id": "send-telegram",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE events SET processed_at = now() WHERE id = '{{ $('Parse Event Data').first().json.event_id }}'::uuid;"
+      },
+      "id": "mark-processed",
+      "name": "Mark Event Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1540, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step('m2_10:' || '{{ $('Parse Event Data').first().json.event_id }}');"
+      },
+      "id": "complete-step",
+      "name": "Complete Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1760, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "skip-node",
+      "name": "Skip (Already Claimed)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [880, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok', workflow: 'M2_10_Schedule_Notification' }) }}"
+      },
+      "id": "response-ok",
+      "name": "Response OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1980, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Event Data", "type": "main", "index": 0 }]]
+    },
+    "Parse Event Data": {
+      "main": [[{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]]
+    },
+    "Claim Workflow Step": {
+      "main": [[{ "node": "IF Claimed", "type": "main", "index": 0 }]]
+    },
+    "IF Claimed": {
+      "main": [
+        [{ "node": "Load Schedule Data", "type": "main", "index": 0 }],
+        [{ "node": "Skip (Already Claimed)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Schedule Data": {
+      "main": [[{ "node": "Format Telegram Message", "type": "main", "index": 0 }]]
+    },
+    "Format Telegram Message": {
+      "main": [[{ "node": "Send Telegram", "type": "main", "index": 0 }]]
+    },
+    "Send Telegram": {
+      "main": [[{ "node": "Mark Event Processed", "type": "main", "index": 0 }]]
+    },
+    "Mark Event Processed": {
+      "main": [[{ "node": "Complete Workflow Step", "type": "main", "index": 0 }]]
+    },
+    "Complete Workflow Step": {
+      "main": [[{ "node": "Response OK", "type": "main", "index": 0 }]]
+    },
+    "Skip (Already Claimed)": {
+      "main": [[{ "node": "Response OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  }
+}

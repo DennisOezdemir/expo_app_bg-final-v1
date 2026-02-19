@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   Dimensions,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -17,11 +18,14 @@ import Animated, {
   FadeIn,
   FadeOut,
 } from "react-native-reanimated";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
 
 const SCREEN_W = Dimensions.get("window").width;
+
+// ── types ───────────────────────────────────────────────────────────
 
 interface Trade {
   id: string;
@@ -33,6 +37,8 @@ interface Trade {
   positionen: { done: number; total: number };
   color: string;
   status: "fertig" | "aktiv" | "geplant" | "verzug";
+  startDate: string;
+  endDate: string;
 }
 
 interface TeamMember {
@@ -49,85 +55,51 @@ interface Meilenstein {
   daysInfo?: string;
 }
 
-const TOTAL_DAYS = 15;
-const _START_DATE = "03.02.2026";
-const _END_DATE = "21.02.2026";
-const CURRENT_DAY = 5;
+interface ProjectData {
+  id: string;
+  project_number: string;
+  name: string;
+  object_street: string;
+  planned_start: string | null;
+  planned_end: string | null;
+  status: string;
+  inspection_date: string | null;
+  handover_date: string | null;
+}
 
-const WEEKS = [
-  { label: "KW 5", startDay: 1, endDay: 5 },
-  { label: "KW 6", startDay: 6, endDay: 10 },
-  { label: "KW 7", startDay: 11, endDay: 15 },
-  { label: "KW 8", startDay: 16, endDay: 20 },
-  { label: "KW 9", startDay: 21, endDay: 25 },
-];
-const ACTIVE_WEEK = 1;
+// ── helpers ─────────────────────────────────────────────────────────
 
-const DAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr"];
+function diffDays(a: Date, b: Date): number {
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
 
-const TRADES: Trade[] = [
-  {
-    id: "t1",
-    name: "Maler",
-    person: "Mehmet",
-    startDay: 1,
-    endDay: 10,
-    doneDay: 5,
-    positionen: { done: 3, total: 8 },
-    color: Colors.raw.emerald500,
-    status: "aktiv",
-  },
-  {
-    id: "t2",
-    name: "Boden",
-    person: "Stefan",
-    startDay: 6,
-    endDay: 12,
-    doneDay: 0,
-    positionen: { done: 0, total: 5 },
-    color: Colors.raw.zinc700,
-    status: "geplant",
-  },
-  {
-    id: "t3",
-    name: "Sanit\u00E4r",
-    person: "Ali",
-    startDay: 10,
-    endDay: 14,
-    doneDay: 0,
-    positionen: { done: 0, total: 4 },
-    color: Colors.raw.zinc700,
-    status: "geplant",
-  },
-  {
-    id: "t4",
-    name: "Elektro",
-    person: "Mehmet",
-    startDay: 3,
-    endDay: 4,
-    doneDay: 2,
-    positionen: { done: 2, total: 2 },
-    color: Colors.raw.emerald500,
-    status: "fertig",
-  },
-];
+function formatDateDE(d: string | null): string {
+  if (!d) return "";
+  const dt = new Date(d + "T00:00:00");
+  return `${String(dt.getDate()).padStart(2, "0")}.${String(dt.getMonth() + 1).padStart(2, "0")}.`;
+}
 
-const TEAM: TeamMember[] = [
-  { name: "Mehmet", role: "Maler", days: "Mo\u2013Fr KW 6", project: "Schwentnerring" },
-  { name: "Ayse", role: "Bauleitung", days: "Mo, Mi, Fr", project: "Schwentnerring" },
-  { name: "Stefan", role: "Bodenleger", days: "Mo\u2013Fr KW 7", project: "Schwentnerring" },
-  { name: "Ali", role: "Sanit\u00E4r", days: "Mi\u2013Fr KW 8", project: "Schwentnerring" },
-];
+function formatDateDEFull(d: string | null): string {
+  if (!d) return "";
+  const dt = new Date(d + "T00:00:00");
+  return `${String(dt.getDate()).padStart(2, "0")}.${String(dt.getMonth() + 1).padStart(2, "0")}.${dt.getFullYear()}`;
+}
 
-const MEILENSTEINE: Meilenstein[] = [
-  { label: "Material geliefert", date: "05.02.", status: "done" },
-  { label: "Zwischenbegehung", date: "10.02.", status: "soon", daysInfo: "in 5 Tagen" },
-  { label: "Abnahme", date: "21.02.", status: "future" },
-];
+function getWeekLabel(start: Date, end: Date): string {
+  const dayNames = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  const startDay = dayNames[start.getDay()];
+  const endDay = dayNames[end.getDay()];
+  return `${startDay}–${endDay}`;
+}
 
-const CONFLICTS = [
-  { person: "Mehmet", date: "12.02.", trades: ["Maler", "Elektro"] },
-];
+function phaseStatus(phase: any, projectStart: Date, today: Date): "fertig" | "aktiv" | "geplant" | "verzug" {
+  if (phase.status === "completed" || phase.progress >= 100) return "fertig";
+  const phaseEnd = new Date(phase.end_date + "T00:00:00");
+  const phaseStart = new Date(phase.start_date + "T00:00:00");
+  if (today > phaseEnd && phase.progress < 100) return "verzug";
+  if (today >= phaseStart && today <= phaseEnd) return "aktiv";
+  return "geplant";
+}
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   fertig: { label: "Fertig", color: Colors.raw.emerald500 },
@@ -136,17 +108,21 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   verzug: { label: "Verzug", color: Colors.raw.rose500 },
 };
 
+// ── GanttBar ────────────────────────────────────────────────────────
+
 function GanttBar({
   trade,
+  totalDays,
+  currentDay,
   onPress,
   expanded,
-  isEditing,
   hasConflict,
 }: {
   trade: Trade;
+  totalDays: number;
+  currentDay: number;
   onPress: () => void;
   expanded: boolean;
-  isEditing: boolean;
   hasConflict: boolean;
 }) {
   const scale = useSharedValue(1);
@@ -154,21 +130,20 @@ function GanttBar({
     transform: [{ scale: scale.value }],
   }));
 
-  const barLeft = ((trade.startDay - 1) / TOTAL_DAYS) * 100;
-  const barWidth = ((trade.endDay - trade.startDay + 1) / TOTAL_DAYS) * 100;
+  const barLeft = ((trade.startDay - 1) / totalDays) * 100;
+  const barWidth = ((trade.endDay - trade.startDay + 1) / totalDays) * 100;
   const doneWidth =
     trade.doneDay > 0
-      ? ((Math.min(trade.doneDay, trade.endDay - trade.startDay + 1)) /
+      ? (Math.min(trade.doneDay, trade.endDay - trade.startDay + 1) /
           (trade.endDay - trade.startDay + 1)) *
         100
       : 0;
 
   const todayInBar =
-    CURRENT_DAY >= trade.startDay && CURRENT_DAY <= trade.endDay;
+    currentDay >= trade.startDay && currentDay <= trade.endDay;
   const todayOffset =
     todayInBar
-      ? ((CURRENT_DAY - trade.startDay) / (trade.endDay - trade.startDay + 1)) *
-        100
+      ? ((currentDay - trade.startDay) / (trade.endDay - trade.startDay + 1)) * 100
       : -1;
 
   const statusCfg = STATUS_LABELS[trade.status];
@@ -177,11 +152,6 @@ function GanttBar({
     if (trade.status === "fertig") return Colors.raw.emerald500;
     if (trade.status === "verzug") return Colors.raw.rose500;
     return Colors.raw.zinc700;
-  };
-
-  const getDoneColor = () => {
-    if (trade.status === "fertig") return Colors.raw.emerald500;
-    return Colors.raw.emerald500;
   };
 
   return (
@@ -221,7 +191,7 @@ function GanttBar({
                   ganttStyles.barDone,
                   {
                     width: `${doneWidth}%`,
-                    backgroundColor: getDoneColor(),
+                    backgroundColor: Colors.raw.emerald500,
                   },
                 ]}
               />
@@ -233,16 +203,6 @@ function GanttBar({
                   { left: `${todayOffset}%` },
                 ]}
               />
-            )}
-            {isEditing && (
-              <>
-                <View style={ganttStyles.dragHandleLeft}>
-                  <Ionicons name="code" size={10} color={Colors.raw.zinc300} />
-                </View>
-                <View style={ganttStyles.dragHandleRight}>
-                  <Ionicons name="code" size={10} color={Colors.raw.zinc300} />
-                </View>
-              </>
             )}
           </View>
         </View>
@@ -268,7 +228,7 @@ function GanttBar({
           </View>
           <View style={ganttStyles.expandedMeta}>
             <Text style={ganttStyles.expandedDateLabel}>
-              Tag {trade.startDay} {"\u2192"} Tag {trade.endDay}
+              {formatDateDE(trade.startDate)} {"\u2192"} {formatDateDE(trade.endDate)}
             </Text>
             <Text style={ganttStyles.expandedPos}>
               {trade.positionen.done} von {trade.positionen.total} Positionen fertig
@@ -330,24 +290,6 @@ const ganttStyles = StyleSheet.create({
     height: "100%",
     backgroundColor: Colors.raw.amber500,
     borderRadius: 2,
-  },
-  dragHandleLeft: {
-    position: "absolute",
-    left: 2,
-    top: 0,
-    bottom: 0,
-    width: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  dragHandleRight: {
-    position: "absolute",
-    right: 2,
-    top: 0,
-    bottom: 0,
-    width: 16,
-    justifyContent: "center",
-    alignItems: "center",
   },
   expandedCard: {
     marginLeft: 60,
@@ -423,111 +365,317 @@ const ganttStyles = StyleSheet.create({
   },
 });
 
-export default function PlanungScreen() {
-  const { id: _id } = useLocalSearchParams<{ id: string }>();
+// ── main screen ─────────────────────────────────────────────────────
+
+export default function PlanungDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [selectedWeek, setSelectedWeek] = useState(ACTIVE_WEEK);
+  const [loading, setLoading] = useState(true);
+  const [project, setProject] = useState<ProjectData | null>(null);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [meilensteine, setMeilensteine] = useState<Meilenstein[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
 
-  const _ganttScrollRef = useRef<ScrollView>(null);
+  const fetchData = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
 
-  const progressPercent = Math.round((CURRENT_DAY / TOTAL_DAYS) * 100);
-  const onSchedule = true;
+    // Determine if id is UUID or project_number
+    const isUuid = id.length === 36 && id.includes("-");
 
+    // Load project
+    const projectQuery = supabase
+      .from("projects")
+      .select("id, project_number, name, object_street, planned_start, planned_end, status, inspection_date, handover_date");
+
+    const { data: proj } = isUuid
+      ? await projectQuery.eq("id", id).single()
+      : await projectQuery.eq("project_number", id).single();
+
+    if (!proj) {
+      setLoading(false);
+      return;
+    }
+    setProject(proj);
+
+    // Load schedule phases
+    const { data: phases } = await supabase
+      .from("schedule_phases")
+      .select("*, team_members!assigned_team_member_id(name, role)")
+      .eq("project_id", proj.id)
+      .order("phase_number");
+
+    if (phases && phases.length > 0 && proj.planned_start) {
+      const projectStart = new Date(proj.planned_start + "T00:00:00");
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const tradesList: Trade[] = phases.map((phase: any) => {
+        const phaseStart = new Date(phase.start_date + "T00:00:00");
+        const phaseEnd = new Date(phase.end_date + "T00:00:00");
+        const startDay = diffDays(projectStart, phaseStart) + 1;
+        const endDay = diffDays(projectStart, phaseEnd) + 1;
+        const status = phaseStatus(phase, projectStart, today);
+        const doneDay = status === "fertig"
+          ? endDay - startDay + 1
+          : status === "aktiv"
+          ? Math.max(0, diffDays(phaseStart, today) + 1)
+          : 0;
+
+        const tm = phase.team_members;
+        return {
+          id: phase.id,
+          name: phase.trade || phase.name,
+          person: tm?.name || (phase.is_external ? phase.external_name || "Extern" : "Offen"),
+          startDay,
+          endDay,
+          doneDay,
+          positionen: { done: Math.round((phase.progress || 0) / 100 * 1), total: 1 },
+          color: status === "fertig" ? Colors.raw.emerald500 : Colors.raw.zinc700,
+          status,
+          startDate: phase.start_date,
+          endDate: phase.end_date,
+        };
+      });
+
+      setTrades(tradesList);
+    } else {
+      setTrades([]);
+    }
+
+    // Load team assignments
+    const { data: assignments } = await supabase
+      .from("project_assignments")
+      .select("*, team_members!team_member_id(name, role)")
+      .eq("project_id", proj.id);
+
+    if (assignments && assignments.length > 0) {
+      setTeam(
+        assignments.map((a: any) => {
+          const tm = a.team_members;
+          const startDt = new Date(a.start_date + "T00:00:00");
+          const endDt = new Date(a.end_date + "T00:00:00");
+          return {
+            name: tm?.name || "Unbekannt",
+            role: a.role_in_project || tm?.role || "",
+            days: `${getWeekLabel(startDt, endDt)} ${formatDateDE(a.start_date)}–${formatDateDE(a.end_date)}`,
+            project: proj.object_street || proj.name || "",
+          };
+        })
+      );
+    } else if (phases && phases.length > 0) {
+      // Fallback: derive team from phases
+      const teamMap = new Map<string, TeamMember>();
+      for (const phase of phases) {
+        const tm = phase.team_members;
+        if (tm && !teamMap.has(tm.name)) {
+          teamMap.set(tm.name, {
+            name: tm.name,
+            role: phase.trade || tm.role,
+            days: `${formatDateDE(phase.start_date)}–${formatDateDE(phase.end_date)}`,
+            project: proj.object_street || proj.name || "",
+          });
+        }
+      }
+      setTeam(Array.from(teamMap.values()));
+    } else {
+      setTeam([]);
+    }
+
+    // Build milestones
+    const ms: Meilenstein[] = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (proj.planned_start) {
+      const startDt = new Date(proj.planned_start + "T00:00:00");
+      const daysAgo = diffDays(startDt, today);
+      ms.push({
+        label: "Baustart",
+        date: formatDateDE(proj.planned_start),
+        status: daysAgo >= 0 ? "done" : "future",
+      });
+    }
+
+    if (proj.inspection_date) {
+      const inspDt = new Date(proj.inspection_date + "T00:00:00");
+      const daysUntil = diffDays(today, inspDt);
+      ms.push({
+        label: "Zwischenbegehung",
+        date: formatDateDE(proj.inspection_date),
+        status: daysUntil < 0 ? "done" : daysUntil <= 7 ? "soon" : "future",
+        daysInfo: daysUntil > 0 ? `in ${daysUntil} Tagen` : daysUntil === 0 ? "heute" : undefined,
+      });
+    }
+
+    if (proj.planned_end) {
+      const endDt = new Date(proj.planned_end + "T00:00:00");
+      const daysUntil = diffDays(today, endDt);
+      ms.push({
+        label: "Abnahme",
+        date: formatDateDE(proj.planned_end),
+        status: daysUntil < 0 ? "done" : daysUntil <= 7 ? "soon" : "future",
+        daysInfo: daysUntil > 0 ? `in ${daysUntil} Tagen` : undefined,
+      });
+    }
+
+    setMeilensteine(ms);
+    setLoading(false);
+  }, [id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const totalDays = useMemo(() => {
+    if (!project?.planned_start || !project?.planned_end) return 15;
+    return Math.max(diffDays(
+      new Date(project.planned_start + "T00:00:00"),
+      new Date(project.planned_end + "T00:00:00")
+    ) + 1, 1);
+  }, [project]);
+
+  const currentDay = useMemo(() => {
+    if (!project?.planned_start) return 1;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.max(1, diffDays(new Date(project.planned_start + "T00:00:00"), today) + 1);
+  }, [project]);
+
+  const progressPercent = Math.min(100, Math.max(0, Math.round((currentDay / totalDays) * 100)));
+  const onSchedule = useMemo(() => {
+    return !trades.some((t) => t.status === "verzug");
+  }, [trades]);
+
+  // Detect conflicts: same person in overlapping phases
   const conflictTradeIds = useMemo(() => {
     const ids = new Set<string>();
-    CONFLICTS.forEach((c) => {
-      TRADES.forEach((t) => {
-        if (c.trades.includes(t.name) && t.person === c.person) {
-          ids.add(t.id);
+    for (let i = 0; i < trades.length; i++) {
+      for (let j = i + 1; j < trades.length; j++) {
+        const a = trades[i];
+        const b = trades[j];
+        if (
+          a.person === b.person &&
+          a.person !== "Offen" &&
+          a.startDay <= b.endDay &&
+          b.startDay <= a.endDay
+        ) {
+          ids.add(a.id);
+          ids.add(b.id);
         }
-      });
-    });
+      }
+    }
     return ids;
-  }, []);
+  }, [trades]);
 
-  const handleWeekPress = (index: number) => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  // Week chips from project dates
+  const weeks = useMemo(() => {
+    if (!project?.planned_start) return [];
+    const start = new Date(project.planned_start + "T00:00:00");
+    const result: { label: string; startDay: number; endDay: number }[] = [];
+    let day = 1;
+    let weekStart = new Date(start);
+    // Go to Monday of first week
+    const dow = weekStart.getDay();
+    if (dow !== 1) {
+      weekStart.setDate(weekStart.getDate() - ((dow + 6) % 7));
     }
-    setSelectedWeek(index);
-  };
 
-  const toggleEdit = () => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    while (day <= totalDays + 5) {
+      const kwDate = new Date(weekStart);
+      const kw = getISOWeek(kwDate);
+      result.push({ label: `KW ${kw}`, startDay: day, endDay: day + 4 });
+      day += 5;
+      weekStart.setDate(weekStart.getDate() + 7);
+      if (result.length >= 8) break;
     }
-    setIsEditing(!isEditing);
-    setExpandedTrade(null);
-  };
+    return result;
+  }, [project, totalDays]);
 
-  const todayLinePos = ((CURRENT_DAY - 0.5) / TOTAL_DAYS) * 100;
+  const [selectedWeek, setSelectedWeek] = useState(0);
+
+  // Determine active week
+  useEffect(() => {
+    const idx = weeks.findIndex((w) => currentDay >= w.startDay && currentDay <= w.endDay);
+    if (idx >= 0) setSelectedWeek(idx);
+  }, [weeks, currentDay]);
+
+  const DAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr"];
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+        <ActivityIndicator size="large" color={Colors.raw.amber500} />
+        <Text style={{ color: Colors.raw.zinc500, marginTop: 12, fontFamily: "Inter_500Medium" }}>
+          Lade Projektplanung...
+        </Text>
+      </View>
+    );
+  }
+
+  if (!project) {
+    return (
+      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+        <Ionicons name="alert-circle-outline" size={48} color={Colors.raw.zinc600} />
+        <Text style={{ color: Colors.raw.zinc400, marginTop: 12, fontFamily: "Inter_600SemiBold", fontSize: 16 }}>
+          Projekt nicht gefunden
+        </Text>
+        <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
+          <Text style={{ color: Colors.raw.amber500, fontFamily: "Inter_600SemiBold" }}>Zurück</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <View style={[styles.headerBar, { paddingTop: topInset + 8 }]}>
         <Pressable
           onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.backButton,
-            { opacity: pressed ? 0.7 : 1 },
-          ]}
-          testID="back-button"
+          style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.7 : 1 }]}
         >
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={styles.headerCenter}>
           <Text style={styles.headerProjectCode} numberOfLines={1}>
-            BL-2026-003
+            {project.project_number}
           </Text>
         </View>
-        <Pressable
-          onPress={toggleEdit}
-          style={({ pressed }) => [
-            styles.editButton,
-            isEditing && styles.editButtonActive,
-            { opacity: pressed ? 0.7 : 1 },
-          ]}
-          testID="edit-button"
-        >
-          <Feather name="edit-2" size={18} color={isEditing ? "#000" : Colors.raw.amber500} />
-        </Pressable>
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          {
-            paddingTop: topInset + 64,
-            paddingBottom: isEditing ? bottomInset + 90 : bottomInset + 30,
-          },
+          { paddingTop: topInset + 64, paddingBottom: bottomInset + 30 },
         ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.titleSection}>
           <Text style={styles.titleText}>Planung</Text>
           <Text style={styles.subtitleText}>
-            BL-2026-003 {"\u2022"} Schwentnerring 13c
+            {project.project_number} {"\u2022"} {project.object_street || project.name}
           </Text>
         </View>
 
+        {/* Hero card */}
         <View style={styles.card}>
           <View style={styles.heroTop}>
             <View>
               <Text style={styles.heroDayLabel}>Tag</Text>
               <View style={styles.heroDayRow}>
-                <Text style={styles.heroDayBig}>{CURRENT_DAY}</Text>
-                <Text style={styles.heroDayOf}>von {TOTAL_DAYS}</Text>
+                <Text style={styles.heroDayBig}>{Math.min(currentDay, totalDays)}</Text>
+                <Text style={styles.heroDayOf}>von {totalDays}</Text>
               </View>
             </View>
             <View style={styles.heroRight}>
               <Text style={styles.heroDateRange}>
-                03.02. {"\u2192"} 21.02.2026
+                {formatDateDE(project.planned_start)} {"\u2192"} {formatDateDEFull(project.planned_end)}
               </Text>
               <View
                 style={[
@@ -547,14 +695,10 @@ export default function PlanungScreen() {
                 <Text
                   style={[
                     styles.scheduleText,
-                    {
-                      color: onSchedule
-                        ? Colors.raw.emerald500
-                        : Colors.raw.rose500,
-                    },
+                    { color: onSchedule ? Colors.raw.emerald500 : Colors.raw.rose500 },
                   ]}
                 >
-                  {onSchedule ? "Im Plan" : "2 Tage \u00FCber"}
+                  {onSchedule ? "Im Plan" : "Verzug"}
                 </Text>
               </View>
             </View>
@@ -565,9 +709,7 @@ export default function PlanungScreen() {
                 styles.heroProgressFill,
                 {
                   width: `${progressPercent}%`,
-                  backgroundColor: onSchedule
-                    ? Colors.raw.emerald500
-                    : Colors.raw.rose500,
+                  backgroundColor: onSchedule ? Colors.raw.emerald500 : Colors.raw.rose500,
                 },
               ]}
             />
@@ -575,239 +717,214 @@ export default function PlanungScreen() {
           <Text style={styles.heroProgressLabel}>{progressPercent}% abgeschlossen</Text>
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.weekScroll}
-          contentContainerStyle={styles.weekScrollContent}
-        >
-          {WEEKS.map((week, i) => (
-            <Pressable
-              key={i}
-              onPress={() => handleWeekPress(i)}
-              style={[
-                styles.weekChip,
-                selectedWeek === i && styles.weekChipActive,
-              ]}
-            >
-              <Text
+        {/* Week chips */}
+        {weeks.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.weekScroll}
+            contentContainerStyle={styles.weekScrollContent}
+          >
+            {weeks.map((week, i) => (
+              <Pressable
+                key={i}
+                onPress={() => {
+                  if (Platform.OS !== "web") {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                  setSelectedWeek(i);
+                }}
                 style={[
-                  styles.weekChipText,
-                  selectedWeek === i && styles.weekChipTextActive,
+                  styles.weekChip,
+                  selectedWeek === i && styles.weekChipActive,
                 ]}
               >
-                {week.label}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <View style={styles.card}>
-          <View style={styles.ganttHeader}>
-            <View style={styles.ganttLabelSpace} />
-            <View style={styles.ganttDayHeaders}>
-              {DAY_LABELS.map((d, i) => (
-                <Text key={i} style={styles.ganttDayLabel}>
-                  {d}
+                <Text
+                  style={[
+                    styles.weekChipText,
+                    selectedWeek === i && styles.weekChipTextActive,
+                  ]}
+                >
+                  {week.label}
                 </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Gantt chart */}
+        {trades.length > 0 ? (
+          <View style={styles.card}>
+            <View style={styles.ganttHeader}>
+              <View style={styles.ganttLabelSpace} />
+              <View style={styles.ganttDayHeaders}>
+                {DAY_LABELS.map((d, i) => (
+                  <Text key={i} style={styles.ganttDayLabel}>
+                    {d}
+                  </Text>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.ganttBody}>
+              {trades.map((trade) => (
+                <GanttBar
+                  key={trade.id}
+                  trade={trade}
+                  totalDays={totalDays}
+                  currentDay={currentDay}
+                  onPress={() =>
+                    setExpandedTrade(expandedTrade === trade.id ? null : trade.id)
+                  }
+                  expanded={expandedTrade === trade.id}
+                  hasConflict={conflictTradeIds.has(trade.id)}
+                />
               ))}
             </View>
-          </View>
 
-          <View style={styles.ganttBody}>
-            <View
-              style={[
-                styles.todayLine,
-                { left: `${60 + ((SCREEN_W - 80) * todayLinePos) / 100}` },
-              ]}
-            />
-
-            {TRADES.map((trade) => (
-              <GanttBar
-                key={trade.id}
-                trade={trade}
-                onPress={() =>
-                  setExpandedTrade(
-                    expandedTrade === trade.id ? null : trade.id
-                  )
-                }
-                expanded={expandedTrade === trade.id}
-                isEditing={isEditing}
-                hasConflict={conflictTradeIds.has(trade.id)}
-              />
-            ))}
-          </View>
-
-          <View style={styles.ganttLegend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: Colors.raw.emerald500 }]} />
-              <Text style={styles.legendText}>Erledigt</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: Colors.raw.amber500 }]} />
-              <Text style={styles.legendText}>Heute</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: Colors.raw.zinc700 }]} />
-              <Text style={styles.legendText}>Geplant</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: Colors.raw.rose500 }]} />
-              <Text style={styles.legendText}>Verzug</Text>
+            <View style={styles.ganttLegend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: Colors.raw.emerald500 }]} />
+                <Text style={styles.legendText}>Erledigt</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: Colors.raw.amber500 }]} />
+                <Text style={styles.legendText}>Heute</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: Colors.raw.zinc700 }]} />
+                <Text style={styles.legendText}>Geplant</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: Colors.raw.rose500 }]} />
+                <Text style={styles.legendText}>Verzug</Text>
+              </View>
             </View>
           </View>
-        </View>
+        ) : (
+          <View style={[styles.card, { alignItems: "center", paddingVertical: 32 }]}>
+            <Ionicons name="calendar-outline" size={40} color={Colors.raw.zinc600} />
+            <Text style={{ color: Colors.raw.zinc400, fontFamily: "Inter_600SemiBold", fontSize: 15, marginTop: 12 }}>
+              Noch kein Zeitplan vorhanden
+            </Text>
+            <Text style={{ color: Colors.raw.zinc600, fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 4 }}>
+              Erstbegehung abschliessen um Zeitplan zu generieren
+            </Text>
+          </View>
+        )}
 
-        {CONFLICTS.length > 0 && (
+        {/* Conflicts */}
+        {conflictTradeIds.size > 0 && (
           <View style={styles.conflictCard}>
             <View style={styles.conflictIcon}>
               <Ionicons name="warning" size={18} color={Colors.raw.rose500} />
             </View>
             <View style={{ flex: 1 }}>
-              {CONFLICTS.map((c, i) => (
-                <Text key={i} style={styles.conflictMsg}>
-                  {c.person}: Doppelbelegung am {c.date}
-                </Text>
-              ))}
+              <Text style={styles.conflictMsg}>
+                {conflictTradeIds.size / 2} Doppelbelegung(en) erkannt
+              </Text>
             </View>
           </View>
         )}
 
-        <View style={styles.card}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Team diese Woche</Text>
-            <View style={styles.sectionBadge}>
-              <Text style={styles.sectionBadgeText}>{TEAM.length}</Text>
-            </View>
-          </View>
-          {TEAM.map((member, i) => (
-            <View
-              key={i}
-              style={[
-                styles.teamRow,
-                i < TEAM.length - 1 && styles.teamRowBorder,
-              ]}
-            >
-              <View style={styles.teamAvatar}>
-                <MaterialCommunityIcons
-                  name="hard-hat"
-                  size={20}
-                  color={Colors.raw.amber500}
-                />
+        {/* Team */}
+        {team.length > 0 && (
+          <View style={styles.card}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Team</Text>
+              <View style={styles.sectionBadge}>
+                <Text style={styles.sectionBadgeText}>{team.length}</Text>
               </View>
-              <View style={styles.teamInfo}>
-                <View style={styles.teamTopRow}>
-                  <Text style={styles.teamName}>{member.name}</Text>
-                  <Text style={styles.teamRole}>{member.role}</Text>
+            </View>
+            {team.map((member, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.teamRow,
+                  i < team.length - 1 && styles.teamRowBorder,
+                ]}
+              >
+                <View style={styles.teamAvatar}>
+                  <MaterialCommunityIcons
+                    name="hard-hat"
+                    size={20}
+                    color={Colors.raw.amber500}
+                  />
                 </View>
-                <Text style={styles.teamSchedule}>
-                  {member.days} {"\u2022"} {member.project}
-                </Text>
+                <View style={styles.teamInfo}>
+                  <View style={styles.teamTopRow}>
+                    <Text style={styles.teamName}>{member.name}</Text>
+                    <Text style={styles.teamRole}>{member.role}</Text>
+                  </View>
+                  <Text style={styles.teamSchedule}>
+                    {member.days} {"\u2022"} {member.project}
+                  </Text>
+                </View>
               </View>
-            </View>
-          ))}
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Meilensteine</Text>
+            ))}
           </View>
-          {MEILENSTEINE.map((m, i) => {
-            const isLast = i === MEILENSTEINE.length - 1;
-            const dotColor =
-              m.status === "done"
-                ? Colors.raw.emerald500
-                : m.status === "soon"
-                ? Colors.raw.amber500
-                : Colors.raw.zinc600;
-            return (
-              <View key={i} style={styles.milestoneRow}>
-                <View style={styles.milestoneTimeline}>
-                  <View
-                    style={[styles.milestoneDot, { backgroundColor: dotColor }]}
-                  >
+        )}
+
+        {/* Milestones */}
+        {meilensteine.length > 0 && (
+          <View style={styles.card}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Meilensteine</Text>
+            </View>
+            {meilensteine.map((m, i) => {
+              const isLast = i === meilensteine.length - 1;
+              const dotColor =
+                m.status === "done"
+                  ? Colors.raw.emerald500
+                  : m.status === "soon"
+                  ? Colors.raw.amber500
+                  : Colors.raw.zinc600;
+              return (
+                <View key={i} style={styles.milestoneRow}>
+                  <View style={styles.milestoneTimeline}>
+                    <View style={[styles.milestoneDot, { backgroundColor: dotColor }]}>
+                      {m.status === "done" && (
+                        <Ionicons name="checkmark" size={12} color="#000" />
+                      )}
+                    </View>
+                    {!isLast && <View style={styles.milestoneLine} />}
+                  </View>
+                  <View style={[styles.milestoneContent]}>
+                    <View>
+                      <Text style={styles.milestoneLabel}>{m.label}</Text>
+                      <Text style={styles.milestoneDate}>
+                        {m.date}
+                        {m.daysInfo ? ` \u2022 ${m.daysInfo}` : ""}
+                      </Text>
+                    </View>
                     {m.status === "done" && (
-                      <Ionicons name="checkmark" size={12} color="#000" />
+                      <Ionicons name="checkmark-circle" size={20} color={Colors.raw.emerald500} />
+                    )}
+                    {m.status === "soon" && (
+                      <Ionicons name="time" size={20} color={Colors.raw.amber500} />
                     )}
                   </View>
-                  {!isLast && <View style={styles.milestoneLine} />}
                 </View>
-                <View
-                  style={[
-                    styles.milestoneContent,
-                    !isLast && styles.milestoneContentBorder,
-                  ]}
-                >
-                  <View>
-                    <Text style={styles.milestoneLabel}>{m.label}</Text>
-                    <Text style={styles.milestoneDate}>
-                      {m.date}
-                      {m.daysInfo ? ` \u2022 ${m.daysInfo}` : ""}
-                    </Text>
-                  </View>
-                  {m.status === "done" && (
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={20}
-                      color={Colors.raw.emerald500}
-                    />
-                  )}
-                  {m.status === "soon" && (
-                    <Ionicons
-                      name="time"
-                      size={20}
-                      color={Colors.raw.amber500}
-                    />
-                  )}
-                </View>
-              </View>
-            );
-          })}
-        </View>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
-
-      {isEditing && (
-        <Animated.View
-          entering={FadeIn.duration(200)}
-          style={[
-            styles.stickyBar,
-            { paddingBottom: Platform.OS === "web" ? 34 : insets.bottom + 8 },
-          ]}
-        >
-          <Pressable
-            onPress={toggleEdit}
-            style={({ pressed }) => [
-              styles.cancelBtn,
-              { opacity: pressed ? 0.8 : 1 },
-            ]}
-          >
-            <Text style={styles.cancelBtnText}>Abbrechen</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              if (Platform.OS !== "web") {
-                Haptics.notificationAsync(
-                  Haptics.NotificationFeedbackType.Success
-                );
-              }
-              setIsEditing(false);
-            }}
-            style={({ pressed }) => [
-              styles.saveBtn,
-              {
-                opacity: pressed ? 0.9 : 1,
-                transform: [{ scale: pressed ? 0.98 : 1 }],
-              },
-            ]}
-          >
-            <Feather name="save" size={18} color="#000" />
-            <Text style={styles.saveBtnText}>Speichern</Text>
-          </Pressable>
-        </Animated.View>
-      )}
     </View>
   );
 }
+
+// ── ISO week helper ─────────────────────────────────────────────────
+
+function getISOWeek(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+// ── styles ──────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
@@ -839,19 +956,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
     color: Colors.raw.zinc500,
-  },
-  editButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc700,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  editButtonActive: {
-    backgroundColor: Colors.raw.amber500,
-    borderColor: Colors.raw.amber500,
   },
   scrollView: {
     flex: 1,
@@ -995,15 +1099,6 @@ const styles = StyleSheet.create({
   ganttBody: {
     position: "relative",
   },
-  todayLine: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 2,
-    backgroundColor: Colors.raw.amber500,
-    opacity: 0.4,
-    zIndex: 5,
-  },
   ganttLegend: {
     flexDirection: "row",
     gap: 16,
@@ -1145,7 +1240,6 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     paddingBottom: 20,
   },
-  milestoneContentBorder: {},
   milestoneLabel: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
@@ -1156,47 +1250,5 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.raw.zinc500,
-  },
-  stickyBar: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    backgroundColor: Colors.raw.zinc950,
-    borderTopWidth: 1,
-    borderTopColor: Colors.raw.zinc800,
-  },
-  cancelBtn: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc700,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: Colors.raw.zinc400,
-  },
-  saveBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: Colors.raw.amber500,
-    borderRadius: 14,
-    paddingVertical: 16,
-  },
-  saveBtnText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 15,
-    color: "#000",
   },
 });

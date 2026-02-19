@@ -1,0 +1,243 @@
+{
+  "name": "M4_03_Order_Suggester",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m4-03-order-suggester",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "m4-03-order-suggester"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst event_id = body.event_id || '';\nconst project_id = body.project_id || '';\nconst event_type = body.event_type || 'MATERIALS_CALCULATED';\nconst payload = body.payload || {};\n\nreturn [{ json: { event_id, project_id, event_type, payload } }];"
+      },
+      "id": "parse-event",
+      "name": "Parse Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT claim_workflow_step(\n  'm4_03:' || '{{ $json.event_id }}',\n  'M4_03_Order_Suggester',\n  '{{ $json.event_id }}'::uuid,\n  '{{ $json.project_id }}'::uuid\n) as claimed;"
+      },
+      "id": "claim-step",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [440, 300],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "claimed-check",
+              "leftValue": "={{ $json.claimed }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-claimed",
+      "name": "IF Claimed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT suggest_purchase_orders('{{ $('Parse Event Data').first().json.project_id }}'::uuid) AS result;"
+      },
+      "id": "suggest-orders",
+      "name": "Suggest Purchase Orders",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [880, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json.result;\nconst parsed = typeof result === 'string' ? JSON.parse(result) : result;\nconst projectId = $('Parse Event Data').first().json.project_id;\n\nif (!parsed || !parsed.success) {\n  return [{ json: { text: '⚠️ Bestellvorschlag fehlgeschlagen', projectId, suggestions: [], hasSuggestions: false } }];\n}\n\nconst suggestions = parsed.suggestions || [];\nconst summary = parsed.summary || {};\n\nlet lines = [];\nlines.push('🛒 <b>Bestellvorschlag</b>');\nlines.push(`<b>${parsed.project_name}</b>`);\nlines.push('');\n\nif (suggestions.length === 0) {\n  lines.push('Keine offenen Materialien gefunden.');\n  return [{ json: { text: lines.join('\\n'), projectId, suggestions: [], hasSuggestions: false } }];\n}\n\nlines.push(`<b>${summary.total_materials_needed || 0}</b> Materialien offen`);\nlines.push('');\n\nfor (const s of suggestions) {\n  const val = Number(s.est_total_value || 0).toFixed(0);\n  lines.push(`<b>${s.trade}</b>: ${s.item_count} Artikel (~€${val})`);\n  \n  // Show first 3 items per trade\n  const items = s.items || [];\n  for (let i = 0; i < Math.min(items.length, 3); i++) {\n    const it = items[i];\n    const name = it.product_name || it.category || 'Unbekannt';\n    lines.push(`  • ${name} (${it.quantity} ${it.unit})`);\n  }\n  if (items.length > 3) {\n    lines.push(`  ... +${items.length - 3} weitere`);\n  }\n  lines.push('');\n}\n\nconst totalVal = Number(summary.total_est_value || 0).toFixed(0);\nlines.push(`<b>Geschätzt: ~€${totalVal}</b>`);\n\nconst text = lines.join('\\n');\n\n// Build approve URL\nconst approveUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m4-03-order-approve?project_id=${projectId}&action=approve`;\nconst rejectUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m4-03-order-approve?project_id=${projectId}&action=reject`;\n\nreturn [{ json: { text, projectId, approveUrl, rejectUrl, suggestions, hasSuggestions: true, totalValue: totalVal } }];"
+      },
+      "id": "format-message",
+      "name": "Format Telegram Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-suggestions",
+              "leftValue": "={{ $json.hasSuggestions }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-has-suggestions",
+      "name": "IF Has Suggestions",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"parse_mode\": \"HTML\",\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Bestellen\", \"url\": {{ JSON.stringify($json.approveUrl) }} },\n      {\"text\": \"❌ Ablehnen\", \"url\": {{ JSON.stringify($json.rejectUrl) }} }\n    ]]\n  }\n}"
+      },
+      "id": "send-telegram",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"parse_mode\": \"HTML\"\n}"
+      },
+      "id": "send-telegram-no-suggestions",
+      "name": "Send Telegram (No Orders)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE events SET processed_at = now() WHERE id = '{{ $('Parse Event Data').first().json.event_id }}'::uuid;"
+      },
+      "id": "mark-processed",
+      "name": "Mark Event Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1760, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step('m4_03:' || '{{ $('Parse Event Data').first().json.event_id }}');"
+      },
+      "id": "complete-step",
+      "name": "Complete Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1980, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "skip-node",
+      "name": "Skip (Already Claimed)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [880, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok', workflow: 'M4_03_Order_Suggester' }) }}"
+      },
+      "id": "response-ok",
+      "name": "Response OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2200, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Event Data", "type": "main", "index": 0 }]]
+    },
+    "Parse Event Data": {
+      "main": [[{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]]
+    },
+    "Claim Workflow Step": {
+      "main": [[{ "node": "IF Claimed", "type": "main", "index": 0 }]]
+    },
+    "IF Claimed": {
+      "main": [
+        [{ "node": "Suggest Purchase Orders", "type": "main", "index": 0 }],
+        [{ "node": "Skip (Already Claimed)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Suggest Purchase Orders": {
+      "main": [[{ "node": "Format Telegram Message", "type": "main", "index": 0 }]]
+    },
+    "Format Telegram Message": {
+      "main": [[{ "node": "IF Has Suggestions", "type": "main", "index": 0 }]]
+    },
+    "IF Has Suggestions": {
+      "main": [
+        [{ "node": "Send Telegram", "type": "main", "index": 0 }],
+        [{ "node": "Send Telegram (No Orders)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Telegram": {
+      "main": [[{ "node": "Mark Event Processed", "type": "main", "index": 0 }]]
+    },
+    "Send Telegram (No Orders)": {
+      "main": [[{ "node": "Mark Event Processed", "type": "main", "index": 0 }]]
+    },
+    "Mark Event Processed": {
+      "main": [[{ "node": "Complete Workflow Step", "type": "main", "index": 0 }]]
+    },
+    "Complete Workflow Step": {
+      "main": [[{ "node": "Response OK", "type": "main", "index": 0 }]]
+    },
+    "Skip (Already Claimed)": {
+      "main": [[{ "node": "Response OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  }
+}

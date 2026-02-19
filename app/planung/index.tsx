@@ -7,13 +7,15 @@ import {
   Pressable,
   Dimensions,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
 
 const SCREEN_W = Dimensions.get("window").width;
 const NAME_COL_W = 76;
@@ -22,6 +24,8 @@ const BAR_H = 28;
 const ROW_H = 72;
 
 const BLUE = "#3b82f6";
+
+// ── helpers ──────────────────────────────────────────────────────────
 
 interface WeekDay {
   key: string;
@@ -53,163 +57,48 @@ interface ConflictInfo {
   projects: string[];
 }
 
-const WEEK_DATA: { kw: number; startDate: string; endDate: string; year: number; mon: number; startDay: number } = {
-  kw: 6,
-  startDate: "03.02.2026",
-  endDate: "07.02.2026",
-  year: 2026,
-  mon: 1,
-  startDay: 3,
-};
+interface UnassignedProject {
+  id: string;
+  name: string;
+  note: string;
+}
 
-function getWeekDays(startDay: number, month: number, year: number): WeekDay[] {
+function getMonday(offset: number): Date {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(now.getFullYear(), now.getMonth(), diff);
+  monday.setDate(monday.getDate() + offset * 7);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+function getWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+function getWeekDays(monday: Date): WeekDay[] {
   const dayNames = ["Mo", "Di", "Mi", "Do", "Fr"];
-  const _monthNames = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
   return dayNames.map((d, i) => {
-    const dayNum = startDay + i;
-    const dt = new Date(year, month, dayNum);
+    const dt = new Date(monday);
+    dt.setDate(monday.getDate() + i);
     return {
-      key: d + dayNum,
+      key: d + dt.getDate(),
       short: d,
-      dateStr: `${String(dayNum).padStart(2, "0")}.`,
-      dayNum,
+      dateStr: `${String(dt.getDate()).padStart(2, "0")}.`,
+      dayNum: dt.getDate(),
       date: dt,
     };
   });
 }
 
-const WEEK_DAYS = getWeekDays(WEEK_DATA.startDay, WEEK_DATA.mon, WEEK_DATA.year);
-
-const ASSIGNMENTS: Assignment[] = [
-  {
-    id: "a1",
-    person: "Mehmet",
-    role: "Maler",
-    days: [true, true, true, true, true],
-    projectId: "BL-2026-003",
-    projectName: "Schwentnerring 13c",
-    projectShort: "Schwentnerring",
-    address: "Schwentnerring 13c",
-    addressDetail: "EG Links",
-    color: Colors.raw.emerald500,
-    confirmed: true,
-    positionen: ["Wände spachteln (Wohnzimmer)", "Decken streichen (Flur, Küche)"],
-  },
-  {
-    id: "a2",
-    person: "Ali",
-    role: "Fliese",
-    days: [false, false, true, true, true],
-    projectId: "BL-2026-005",
-    projectName: "Haferweg 42",
-    projectShort: "Haferweg",
-    address: "Haferweg 42",
-    addressDetail: "2. OG",
-    color: Colors.raw.emerald500,
-    confirmed: true,
-    positionen: ["Bodenfliesen Bad", "Wandfliesen Küche"],
-  },
-  {
-    id: "a3",
-    person: "Ayse",
-    role: "PL",
-    days: [true, false, false, false, false],
-    projectId: "BL-2026-003",
-    projectName: "Schwentnerring 13c",
-    projectShort: "Schwentn.",
-    address: "Schwentnerring 13c",
-    addressDetail: "Baustellenbesichtigung",
-    color: Colors.raw.amber500,
-    confirmed: true,
-    positionen: ["Baufortschritt prüfen", "Aufmaß kontrollieren"],
-  },
-  {
-    id: "a4",
-    person: "Ayse",
-    role: "PL",
-    days: [false, false, true, false, false],
-    projectId: "BL-2026-005",
-    projectName: "Haferweg 42",
-    projectShort: "Haferweg",
-    address: "Haferweg 42",
-    addressDetail: "Baustellencheck",
-    color: Colors.raw.amber500,
-    confirmed: true,
-    positionen: ["Material-Anlieferung prüfen"],
-  },
-  {
-    id: "a5",
-    person: "Ayse",
-    role: "PL",
-    days: [false, false, false, false, true],
-    projectId: "BL-2026-003",
-    projectName: "Schwentnerring 13c",
-    projectShort: "Schwentn.",
-    address: "Schwentnerring 13c",
-    addressDetail: "Abnahme vorbereiten",
-    color: Colors.raw.amber500,
-    confirmed: true,
-    positionen: ["Abnahmeprotokoll vorbereiten"],
-  },
-  {
-    id: "a6",
-    person: "Dennis",
-    role: "Chef",
-    days: [false, false, true, false, false],
-    projectId: "BL-2026-003",
-    projectName: "Schwentnerring 13c",
-    projectShort: "Zwischenbegehung",
-    address: "Schwentnerring 13c",
-    addressDetail: "Zwischenbegehung",
-    color: Colors.raw.amber500,
-    confirmed: true,
-    positionen: ["Zwischenbegehung mit BH"],
-  },
-  {
-    id: "a7",
-    person: "Tomasz",
-    role: "Sub",
-    days: [true, true, true, true, false],
-    projectId: "BL-2026-003",
-    projectName: "Schwentnerring 13c",
-    projectShort: "Schwentnerring",
-    address: "Schwentnerring 13c",
-    addressDetail: "EG Rechts",
-    color: BLUE,
-    confirmed: true,
-    positionen: ["Trockenbau Wände", "Deckenabhängung"],
-  },
-  {
-    id: "a8",
-    person: "Fatih",
-    role: "Maler",
-    days: [true, true, false, false, false],
-    projectId: "BL-2026-007",
-    projectName: "Bramfelder Str. 90",
-    projectShort: "Bramfelder",
-    address: "Bramfelder Str. 90",
-    addressDetail: "3. OG",
-    color: Colors.raw.zinc700,
-    confirmed: false,
-    positionen: ["Tapezierarbeiten (geplant)"],
-  },
-];
-
-const MONTH_DAYS_DATA = [
-  { d: 2, workers: 1 }, { d: 3, workers: 4 }, { d: 4, workers: 3 },
-  { d: 5, workers: 4 }, { d: 6, workers: 4 }, { d: 7, workers: 3 },
-  { d: 9, workers: 2 }, { d: 10, workers: 3 }, { d: 11, workers: 4 },
-  { d: 12, workers: 3 }, { d: 13, workers: 4 }, { d: 14, workers: 2 },
-  { d: 16, workers: 3 }, { d: 17, workers: 4 }, { d: 18, workers: 3 },
-  { d: 19, workers: 3 }, { d: 20, workers: 4 }, { d: 21, workers: 1 },
-  { d: 23, workers: 4 }, { d: 24, workers: 3 }, { d: 25, workers: 4 },
-  { d: 26, workers: 3 }, { d: 27, workers: 4 }, { d: 28, workers: 2 },
-];
-
-const UNASSIGNED_PROJECTS = [
-  { id: "BL-2026-009", name: "Bramfelder Str.", note: "ab KW 8, kein Team" },
-  { id: "BL-2026-012", name: "Billstedt", note: "Material ausstehend" },
-];
+function formatDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 function getPersonRows(assignments: Assignment[]) {
   const personMap = new Map<string, { role: string; assignments: Assignment[] }>();
@@ -226,8 +115,7 @@ function getPersonRows(assignments: Assignment[]) {
   }));
 }
 
-function detectConflicts(assignments: Assignment[]): ConflictInfo[] {
-  const dayLabels = ["Mo 03.02.", "Di 04.02.", "Mi 05.02.", "Do 06.02.", "Fr 07.02."];
+function detectConflicts(assignments: Assignment[], weekDays: WeekDay[]): ConflictInfo[] {
   const conflicts: ConflictInfo[] = [];
   const personMap = new Map<string, Assignment[]>();
   for (const a of assignments) {
@@ -240,7 +128,7 @@ function detectConflicts(assignments: Assignment[]): ConflictInfo[] {
       if (activeOnDay.length > 1) {
         conflicts.push({
           person,
-          dayLabel: dayLabels[di],
+          dayLabel: `${weekDays[di].short} ${weekDays[di].dateStr}`,
           dayIndex: di,
           projects: activeOnDay.map((a) => a.projectShort),
         });
@@ -249,6 +137,53 @@ function detectConflicts(assignments: Assignment[]): ConflictInfo[] {
   }
   return conflicts;
 }
+
+const TRADE_COLORS: Record<string, string> = {
+  Maler: Colors.raw.emerald500,
+  Fliesen: "#3b82f6",
+  "Sanitär": "#06b6d4",
+  Elektro: Colors.raw.amber500,
+  Trockenbau: "#8b5cf6",
+  Sonstiges: Colors.raw.zinc500,
+};
+
+function phaseToAssignments(
+  phase: any,
+  weekDays: WeekDay[],
+): Assignment | null {
+  const phaseStart = new Date(phase.start_date + "T00:00:00");
+  const phaseEnd = new Date(phase.end_date + "T00:00:00");
+  const tm = phase.team_members;
+  const proj = phase.projects;
+
+  if (!proj) return null;
+
+  const days = weekDays.map((wd) => {
+    return wd.date >= phaseStart && wd.date <= phaseEnd;
+  });
+
+  if (!days.some(Boolean)) return null;
+
+  const street = proj.object_street || proj.name || "";
+  const shortName = street.length > 14 ? street.slice(0, 12) + ".." : street;
+
+  return {
+    id: phase.id,
+    person: tm?.name || (phase.is_external ? phase.external_name || "Extern" : "Offen"),
+    role: phase.trade || tm?.role || "",
+    days,
+    projectId: phase.project_id,
+    projectName: `${proj.project_number} ${street}`,
+    projectShort: shortName,
+    address: street,
+    addressDetail: phase.trade || "",
+    color: TRADE_COLORS[phase.trade] || Colors.raw.zinc500,
+    confirmed: phase.status !== "planned",
+    positionen: [`${phase.trade}: ${phase.estimated_qty || "?"} Einheiten`],
+  };
+}
+
+// ── components ──────────────────────────────────────────────────────
 
 function AssignmentBar({
   assignment,
@@ -271,7 +206,6 @@ function AssignmentBar({
         barStyles.bar,
         {
           backgroundColor: assignment.color + (assignment.confirmed ? "CC" : "50"),
-          borderLeftWidth: isStart ? 0 : 0,
           borderTopLeftRadius: isStart ? 6 : 0,
           borderBottomLeftRadius: isStart ? 6 : 0,
           borderTopRightRadius: isEnd ? 6 : 0,
@@ -279,7 +213,6 @@ function AssignmentBar({
           opacity: pressed ? 0.75 : 1,
         },
       ]}
-      testID={`bar-${assignment.id}-${dayIndex}`}
     >
       {isStart && (
         <Text style={barStyles.barLabel} numberOfLines={1}>
@@ -307,10 +240,12 @@ const barStyles = StyleSheet.create({
 function DetailSheet({
   visible,
   assignment,
+  weekDays,
   onClose,
 }: {
   visible: boolean;
   assignment: Assignment | null;
+  weekDays: WeekDay[];
   onClose: () => void;
 }) {
   if (!assignment) return null;
@@ -320,10 +255,10 @@ function DetailSheet({
   const dayLabels = ["Mo", "Di", "Mi", "Do", "Fr"];
   const dayRange =
     startIdx === endIdx
-      ? `${dayLabels[startIdx]} ${WEEK_DAYS[startIdx]?.dateStr} Feb`
+      ? `${dayLabels[startIdx]} ${weekDays[startIdx]?.dateStr}`
       : startIdx === 0 && endIdx === 4
-      ? `Mo 03. – Fr 07. Feb (ganze Woche)`
-      : `${dayLabels[startIdx]} ${WEEK_DAYS[startIdx]?.dateStr} – ${dayLabels[endIdx]} ${WEEK_DAYS[endIdx]?.dateStr} Feb`;
+      ? `Mo ${weekDays[0]?.dateStr} – Fr ${weekDays[4]?.dateStr} (ganze Woche)`
+      : `${dayLabels[startIdx]} ${weekDays[startIdx]?.dateStr} – ${dayLabels[endIdx]} ${weekDays[endIdx]?.dateStr}`;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -338,9 +273,7 @@ function DetailSheet({
           </View>
           <View style={dsStyles.row}>
             <Ionicons name="clipboard" size={18} color={Colors.raw.zinc400} />
-            <Text style={dsStyles.infoText}>
-              {assignment.projectId} {assignment.projectName}
-            </Text>
+            <Text style={dsStyles.infoText}>{assignment.projectName}</Text>
           </View>
           <View style={dsStyles.row}>
             <Ionicons name="calendar" size={18} color={Colors.raw.zinc400} />
@@ -379,7 +312,6 @@ function DetailSheet({
                 router.push(`/planung/${assignment.projectId}` as any);
               }}
               style={({ pressed }) => [dsStyles.actionBtn, dsStyles.actionPrimary, { opacity: pressed ? 0.9 : 1 }]}
-              testID="detail-btn"
             >
               <Text style={dsStyles.actionPrimaryText}>Details</Text>
               <Ionicons name="arrow-forward" size={16} color="#000" />
@@ -506,7 +438,6 @@ function ConflictBanner({
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [cbStyles.banner, { opacity: pressed ? 0.85 : 1 }]}
-      testID="conflict-banner"
     >
       <View style={cbStyles.left}>
         <Ionicons name="warning" size={16} color={Colors.raw.rose500} />
@@ -546,20 +477,41 @@ const cbStyles = StyleSheet.create({
   },
 });
 
-function MonthCalendar({ onDayPress }: { onDayPress: (day: number) => void }) {
+function MonthCalendar({
+  month,
+  year,
+  phases,
+  onDayPress,
+}: {
+  month: number;
+  year: number;
+  phases: any[];
+  onDayPress: (day: number) => void;
+}) {
   const dayHeaders = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-  const febDays = 28;
-  const startWeekday = 6;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfWeek = (new Date(year, month, 1).getDay() + 6) % 7;
 
   const cells: (number | null)[] = [];
-  for (let i = 0; i < startWeekday; i++) cells.push(null);
-  for (let d = 1; d <= febDays; d++) cells.push(d);
+  for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
   const workerMap = new Map<number, number>();
-  for (const md of MONTH_DAYS_DATA) {
-    workerMap.set(md.d, md.workers);
+  for (const phase of phases) {
+    const ps = new Date(phase.start_date + "T00:00:00");
+    const pe = new Date(phase.end_date + "T00:00:00");
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dt = new Date(year, month, d);
+      if (dt >= ps && dt <= pe && dt.getDay() !== 0 && dt.getDay() !== 6) {
+        workerMap.set(d, (workerMap.get(d) || 0) + 1);
+      }
+    }
   }
+
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+  const todayDay = isCurrentMonth ? today.getDate() : -1;
 
   return (
     <View style={mcStyles.container}>
@@ -575,7 +527,7 @@ function MonthCalendar({ onDayPress }: { onDayPress: (day: number) => void }) {
           {cells.slice(row * 7, row * 7 + 7).map((day, ci) => {
             const workers = day ? workerMap.get(day) || 0 : 0;
             const isWeekend = ci >= 5;
-            const isToday = day === 8;
+            const isToday = day === todayDay;
 
             const dotColor =
               workers >= 4
@@ -683,10 +635,12 @@ const mcStyles = StyleSheet.create({
 function WeekGrid({
   personRows,
   conflicts,
+  weekDays,
   onBarPress,
 }: {
   personRows: ReturnType<typeof getPersonRows>;
   conflicts: ConflictInfo[];
+  weekDays: WeekDay[];
   onBarPress: (a: Assignment) => void;
 }) {
   const conflictSet = useMemo(() => {
@@ -707,7 +661,7 @@ function WeekGrid({
           scrollEnabled={false}
           contentContainerStyle={wgStyles.daysHeaderContent}
         >
-          {WEEK_DAYS.map((d, _di) => (
+          {weekDays.map((d) => (
             <View key={d.key} style={[wgStyles.dayHeader, { width: DAY_COL_W }]}>
               <Text style={wgStyles.dayShort}>{d.short}</Text>
               <Text style={wgStyles.dayDate}>{d.dateStr}</Text>
@@ -730,7 +684,7 @@ function WeekGrid({
             scrollEnabled={false}
             contentContainerStyle={wgStyles.barRowContent}
           >
-            {WEEK_DAYS.map((d, di) => {
+            {weekDays.map((d, di) => {
               const dayAssignments = pAssignments.filter((a) => a.days[di]);
               const hasConflict = conflictSet.has(`${person}-${di}`);
 
@@ -847,10 +801,10 @@ const wgStyles = StyleSheet.create({
 
 function LegendRow() {
   const items = [
-    { color: Colors.raw.emerald500, label: "Arbeit" },
-    { color: Colors.raw.amber500, label: "Termin" },
-    { color: BLUE, label: "Sub" },
-    { color: Colors.raw.zinc700, label: "Geplant" },
+    { color: Colors.raw.emerald500, label: "Maler" },
+    { color: Colors.raw.amber500, label: "Elektro" },
+    { color: BLUE, label: "Fliesen" },
+    { color: Colors.raw.zinc500, label: "Sonstige" },
     { color: Colors.raw.rose500, label: "Konflikt" },
   ];
 
@@ -891,6 +845,8 @@ const legStyles = StyleSheet.create({
   },
 });
 
+// ── main screen ─────────────────────────────────────────────────────
+
 export default function PlanungScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -900,9 +856,112 @@ export default function PlanungScreen() {
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [phases, setPhases] = useState<any[]>([]);
+  const [unassigned, setUnassigned] = useState<UnassignedProject[]>([]);
 
-  const personRows = useMemo(() => getPersonRows(ASSIGNMENTS), []);
-  const conflicts = useMemo(() => detectConflicts(ASSIGNMENTS), []);
+  const monday = useMemo(() => getMonday(weekOffset), [weekOffset]);
+  const weekDays = useMemo(() => getWeekDays(monday), [monday]);
+  const kwNum = useMemo(() => getWeekNumber(monday), [monday]);
+  const friday = useMemo(() => {
+    const f = new Date(monday);
+    f.setDate(monday.getDate() + 4);
+    return f;
+  }, [monday]);
+
+  const monthDate = useMemo(() => monday, [monday]);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+
+    const weekStart = formatDate(monday);
+    const weekEnd = formatDate(friday);
+
+    const { data: phaseData, error: phaseErr } = await supabase
+      .from("schedule_phases")
+      .select(`
+        *,
+        team_members!assigned_team_member_id(name, role, skills),
+        projects!project_id(project_number, name, object_street, object_city, status)
+      `)
+      .gte("end_date", weekStart)
+      .lte("start_date", weekEnd)
+      .order("start_date");
+
+    if (!phaseErr && phaseData) {
+      setPhases(phaseData);
+    }
+
+    // Projects in PLANNING without schedule_phases
+    const { data: unassignedData } = await supabase
+      .from("projects")
+      .select("id, project_number, name, object_street, status, planned_start")
+      .eq("status", "PLANNING")
+      .order("created_at", { ascending: false });
+
+    if (unassignedData) {
+      // Filter projects that have no schedule_phases
+      const projectsWithPhases = new Set(
+        (phaseData || []).map((p: any) => p.project_id)
+      );
+      // Also check if they have any phases at all
+      const { data: allPhasedProjects } = await supabase
+        .from("schedule_phases")
+        .select("project_id")
+        .in(
+          "project_id",
+          unassignedData.map((p: any) => p.id)
+        );
+      const phasedIds = new Set((allPhasedProjects || []).map((p: any) => p.project_id));
+
+      setUnassigned(
+        unassignedData
+          .filter((p: any) => !projectsWithPhases.has(p.id) && !phasedIds.has(p.id))
+          .map((p: any) => ({
+            id: p.project_number || p.id,
+            name: p.object_street || p.name || "",
+            note: p.planned_start
+              ? `ab ${new Date(p.planned_start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`
+              : "kein Startdatum",
+          }))
+      );
+    }
+
+    setLoading(false);
+  }, [monday, friday]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Also fetch month phases for month view
+  const [monthPhases, setMonthPhases] = useState<any[]>([]);
+  useEffect(() => {
+    if (viewMode !== "month") return;
+    const m = monthDate.getMonth();
+    const y = monthDate.getFullYear();
+    const monthStart = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const monthEnd = `${y}-${String(m + 1).padStart(2, "0")}-${lastDay}`;
+
+    supabase
+      .from("schedule_phases")
+      .select("start_date, end_date, assigned_team_member_id")
+      .gte("end_date", monthStart)
+      .lte("start_date", monthEnd)
+      .then(({ data }) => {
+        if (data) setMonthPhases(data);
+      });
+  }, [viewMode, monthDate]);
+
+  const assignments = useMemo(() => {
+    return phases
+      .map((p) => phaseToAssignments(p, weekDays))
+      .filter(Boolean) as Assignment[];
+  }, [phases, weekDays]);
+
+  const personRows = useMemo(() => getPersonRows(assignments), [assignments]);
+  const conflicts = useMemo(() => detectConflicts(assignments, weekDays), [assignments, weekDays]);
 
   const handleBarPress = useCallback((a: Assignment) => {
     if (Platform.OS !== "web") {
@@ -926,16 +985,17 @@ export default function PlanungScreen() {
     setWeekOffset((o) => o + 1);
   }, []);
 
-  const kwNum = WEEK_DATA.kw + weekOffset;
+  const startDateStr = `${String(weekDays[0]?.dayNum).padStart(2, "0")}.${String(monday.getMonth() + 1).padStart(2, "0")}.`;
+  const endDateStr = `${String(weekDays[4]?.dayNum).padStart(2, "0")}.${String(friday.getMonth() + 1).padStart(2, "0")}.${friday.getFullYear()}`;
 
   const mitarbeiterCount = personRows.length;
-  const projekteCount = new Set(ASSIGNMENTS.map((a) => a.projectId)).size;
-  const totalSlots = mitarbeiterCount * 5;
-  const filledSlots = ASSIGNMENTS.reduce(
+  const projekteCount = new Set(assignments.map((a) => a.projectId)).size;
+  const totalSlots = Math.max(mitarbeiterCount * 5, 1);
+  const filledSlots = assignments.reduce(
     (acc, a) => acc + a.days.filter(Boolean).length,
     0
   );
-  const auslastung = Math.round((filledSlots / totalSlots) * 100);
+  const auslastung = mitarbeiterCount > 0 ? Math.round((filledSlots / totalSlots) * 100) : 0;
   const auslastungColor =
     auslastung >= 80
       ? Colors.raw.emerald500
@@ -949,14 +1009,12 @@ export default function PlanungScreen() {
         <Pressable
           onPress={() => router.back()}
           style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}
-          testID="back-button"
         >
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={{ flex: 1 }} />
         <Pressable
           style={({ pressed }) => [s.addBtn, { opacity: pressed ? 0.8 : 1 }]}
-          testID="add-entry"
         >
           <Ionicons name="add" size={18} color="#000" />
           <Text style={s.addBtnText}>Eintrag</Text>
@@ -977,17 +1035,15 @@ export default function PlanungScreen() {
           <Pressable
             onPress={handleWeekPrev}
             style={({ pressed }) => [s.weekArrow, { opacity: pressed ? 0.6 : 1 }]}
-            testID="week-prev"
           >
             <Ionicons name="chevron-back" size={20} color={Colors.raw.zinc400} />
           </Pressable>
           <Text style={s.weekLabel}>
-            KW {kwNum} {"\u2022"} {WEEK_DATA.startDate.slice(0, 6)}–{WEEK_DATA.endDate} 
+            KW {kwNum} {"\u2022"} {startDateStr}–{endDateStr}
           </Text>
           <Pressable
             onPress={handleWeekNext}
             style={({ pressed }) => [s.weekArrow, { opacity: pressed ? 0.6 : 1 }]}
-            testID="week-next"
           >
             <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc400} />
           </Pressable>
@@ -1000,7 +1056,6 @@ export default function PlanungScreen() {
               s.toggleBtn,
               viewMode === "week" ? s.toggleActive : s.toggleInactive,
             ]}
-            testID="toggle-week"
           >
             <Text
               style={[
@@ -1017,7 +1072,6 @@ export default function PlanungScreen() {
               s.toggleBtn,
               viewMode === "month" ? s.toggleActive : s.toggleInactive,
             ]}
-            testID="toggle-month"
           >
             <Text
               style={[
@@ -1030,42 +1084,64 @@ export default function PlanungScreen() {
           </Pressable>
         </View>
 
-        {conflicts.length > 0 &&
-          viewMode === "week" &&
-          conflicts.map((c, i) => (
-            <ConflictBanner
-              key={`conflict-${i}`}
-              conflict={c}
-              onPress={() => {}}
-            />
-          ))}
-
-        {viewMode === "week" ? (
+        {loading ? (
+          <View style={s.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.raw.amber500} />
+            <Text style={s.loadingText}>Lade Planung...</Text>
+          </View>
+        ) : viewMode === "week" ? (
           <>
-            <WeekGrid
-              personRows={personRows}
-              conflicts={conflicts}
-              onBarPress={handleBarPress}
-            />
+            {conflicts.length > 0 &&
+              conflicts.map((c, i) => (
+                <ConflictBanner
+                  key={`conflict-${i}`}
+                  conflict={c}
+                  onPress={() => {}}
+                />
+              ))}
+
+            {personRows.length === 0 ? (
+              <View style={s.emptyState}>
+                <Ionicons name="calendar-outline" size={48} color={Colors.raw.zinc600} />
+                <Text style={s.emptyTitle}>Keine Einsätze in KW {kwNum}</Text>
+                <Text style={s.emptySubtitle}>
+                  In dieser Woche sind keine Mitarbeiter eingeplant.
+                </Text>
+              </View>
+            ) : (
+              <WeekGrid
+                personRows={personRows}
+                conflicts={conflicts}
+                weekDays={weekDays}
+                onBarPress={handleBarPress}
+              />
+            )}
             <LegendRow />
           </>
         ) : (
           <>
-            <MonthCalendar onDayPress={() => {}} />
+            <MonthCalendar
+              month={monthDate.getMonth()}
+              year={monthDate.getFullYear()}
+              phases={monthPhases}
+              onDayPress={() => {}}
+            />
 
-            <View style={s.unassignedSection}>
-              <View style={s.unassignedHeader}>
-                <Ionicons name="warning" size={18} color={Colors.raw.amber500} />
-                <Text style={s.unassignedTitle}>Nicht eingeplant:</Text>
-              </View>
-              {UNASSIGNED_PROJECTS.map((p) => (
-                <View key={p.id} style={s.unassignedRow}>
-                  <Text style={s.unassignedId}>{p.id}</Text>
-                  <Text style={s.unassignedName}>{p.name}</Text>
-                  <Text style={s.unassignedNote}>{p.note}</Text>
+            {unassigned.length > 0 && (
+              <View style={s.unassignedSection}>
+                <View style={s.unassignedHeader}>
+                  <Ionicons name="warning" size={18} color={Colors.raw.amber500} />
+                  <Text style={s.unassignedTitle}>Nicht eingeplant:</Text>
                 </View>
-              ))}
-            </View>
+                {unassigned.map((p) => (
+                  <View key={p.id} style={s.unassignedRow}>
+                    <Text style={s.unassignedId}>{p.id}</Text>
+                    <Text style={s.unassignedName}>{p.name}</Text>
+                    <Text style={s.unassignedNote}>{p.note}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </>
         )}
       </ScrollView>
@@ -1082,6 +1158,7 @@ export default function PlanungScreen() {
       <DetailSheet
         visible={showDetail}
         assignment={selectedAssignment}
+        weekDays={weekDays}
         onClose={() => setShowDetail(false)}
       />
     </View>
@@ -1193,6 +1270,36 @@ const s = StyleSheet.create({
   },
   toggleTextInactive: {
     color: Colors.raw.zinc500,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    gap: 12,
+  },
+  loadingText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.zinc500,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 48,
+    marginHorizontal: 20,
+    gap: 8,
+  },
+  emptyTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: Colors.raw.zinc400,
+    marginTop: 8,
+  },
+  emptySubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.raw.zinc600,
+    textAlign: "center",
   },
   unassignedSection: {
     marginHorizontal: 20,

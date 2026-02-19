@@ -1,0 +1,462 @@
+{
+  "name": "MX_03_V2_Superchat_Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mx-03-superchat-intake-v2",
+        "options": {},
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "⚡ Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "mx-03-v2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst content = body.content || body;\n\n// Superchat Message\nconst messageId = content.id || content.message_id || null;\nconst conversationId = content.conversationId || content.conversation_id || null;\n\n// Email Content\nconst email = content.email || {};\nconst fromAddress = (email.from?.email || email.from || content.from_address || '').toLowerCase();\nconst subject = email.subject || content.subject || '';\nconst textBody = email.text || email.body || content.body || '';\n\n// Extract domain\nconst domain = fromAddress.includes('@') ? fromAddress.split('@')[1] : '';\n\n// Attachments\nconst files = content.files || content.attachments || [];\nconst fileIds = files.map(f => f.id || f.file_id).filter(Boolean);\n\n// Known spam domains (skip immediately)\nconst SPAM_DOMAINS = [\n  'linkedin.com',\n  'onepage.io',\n  'mobbin.com',\n  'skool.com',\n  'auftrag.jetzt',\n  'primus-personal.de',\n  'email.contorion.de',\n  'baumarkt.toom.de',\n  'xing.com',\n  'newsletter.',\n  'marketing.',\n  'noreply@'\n];\n\nconst isSpam = SPAM_DOMAINS.some(spam => \n  domain.endsWith(spam) || \n  domain.includes(spam) ||\n  fromAddress.includes(spam)\n);\n\n// MagicPlan special handling\nconst isMagicPlan = domain === 'magicplan.app' || \n                    subject.toLowerCase().includes('magicplan') ||\n                    fromAddress.includes('magicplan');\n\nreturn {\n  json: {\n    superchat_message_id: messageId,\n    superchat_conversation_id: conversationId,\n    from_address: fromAddress,\n    domain: domain,\n    subject: subject,\n    body_preview: textBody.substring(0, 1500),\n    file_ids: fileIds,\n    has_attachments: fileIds.length > 0,\n    is_spam: isSpam,\n    is_magicplan: isMagicPlan\n  }\n};"
+      },
+      "id": "extract-metadata",
+      "name": "📋 Extract Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "not-spam",
+              "leftValue": "={{ $json.is_spam }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "spam-filter",
+      "name": "🚫 Spam?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, doc_type \nFROM classified_emails \nWHERE superchat_message_id = '{{ $json.superchat_message_id }}'\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "already-classified",
+      "name": "🔍 Already Classified?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [910, 200],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "is-new",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-new-check",
+      "name": "❓ Is New?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  s.id::text as supplier_id,\n  s.name as supplier_name,\n  s.supplier_type::text,\n  s.default_expense_category::text\nFROM suppliers s\nJOIN supplier_aliases sa ON sa.supplier_id = s.id\nWHERE LOWER('{{ $('📋 Extract Metadata').first().json.from_address }}') LIKE '%' || LOWER(sa.alias_name) || '%'\n   OR sa.alias_name = '@' || '{{ $('📋 Extract Metadata').first().json.domain }}'\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "supplier-lookup",
+      "name": "🏢 Supplier Lookup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1350, 100],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "modelId": {
+          "__rl": true,
+          "value": "claude-sonnet-4-5-20250929",
+          "mode": "list",
+          "cachedResultName": "claude-sonnet-4-5-20250929"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "=BETREFF: {{ $('📋 Extract Metadata').first().json.subject }}\n\nABSENDER: {{ $('📋 Extract Metadata').first().json.from_address }}\n\nANHÄNGE: {{ $('📋 Extract Metadata').first().json.has_attachments ? $('📋 Extract Metadata').first().json.file_ids.length + ' Datei(en)' : 'Keine' }}\n\nINHALT:\n{{ $('📋 Extract Metadata').first().json.body_preview }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 500,
+          "systemMessage": "=Du klassifizierst eingehende Emails für ein Bauunternehmen (Deine Baulöwen).\n\nBEKANNTE ABSENDER-INFO:\n{{ $('🏢 Supplier Lookup').first().json.supplier_name ? \n   'Bekannter Lieferant: ' + $('🏢 Supplier Lookup').first().json.supplier_name + \n   ' (Typ: ' + $('🏢 Supplier Lookup').first().json.supplier_type + \n   ', Kategorie: ' + $('🏢 Supplier Lookup').first().json.default_expense_category + ')' :\n   'Absender nicht in Lieferanten-Datenbank'\n}}\n\nWICHTIG: Die Absender-Info ist nur ein HINWEIS. Klassifiziere nach INHALT, nicht nach Absender!\nEin Lieferant kann Rechnungen, Lieferscheine, Mahnungen, Auftragsbestätigungen oder Werbung schicken.\n\nDOKUMENT-TYPEN:\n- PROJECT_ORDER: Echter Bauauftrag mit konkreter Adresse, Leistungsbeschreibung, Auftraggeber (SAGA, WBS, Hausverwaltung). Muss spezifische Bauleistungen beschreiben.\n- INVOICE_IN: Eingangsrechnung mit Rechnungsnummer, Betrag, Zahlungsziel, Bankverbindung\n- DELIVERY_NOTE: Lieferschein - Warenübergabe OHNE Zahlungsaufforderung (\"Lieferschein\" im Betreff ist starkes Signal)\n- CREDIT_NOTE: Gutschrift vom Lieferanten\n- REMINDER: Mahnung oder Zahlungserinnerung\n- MAGICPLAN: Export aus MagicPlan App (Raumpläne, PDF-Anhänge)\n- INFO_ONLY: Newsletter, Werbung, Marketing, Job-Vermittlungsportale, Social Media Benachrichtigungen\n- OTHER: Allgemeine Korrespondenz, Anfragen, Terminbestätigungen\n\nSPAM/INFO_ONLY ERKENNUNG:\n- Job-Portale wie auftrag.jetzt, my-hammer.de = IMMER INFO_ONLY\n- \"Neuer Auftrag verfügbar\" ohne konkrete Adresse = INFO_ONLY\n- \"Freie Plätze\", \"Jetzt bewerben\" = INFO_ONLY\n- Newsletter, Marketing-Emails = INFO_ONLY\n- LinkedIn, Xing Benachrichtigungen = INFO_ONLY\n\nLIEFERSCHEIN vs RECHNUNG:\n- \"Lieferschein\" oder \"Delivery Note\" im Betreff = DELIVERY_NOTE\n- Betrag 0,00€ oder kein Zahlungsziel = wahrscheinlich DELIVERY_NOTE\n- Rechnungsnummer + Zahlungsziel + Betrag > 0 = INVOICE_IN\n\nAntworte NUR mit JSON, keine Erklärung:\n{\"doc_type\": \"...\", \"confidence\": 0.0-1.0, \"reason\": \"kurze Begründung auf Deutsch\"}"
+        }
+      },
+      "id": "claude-classify",
+      "name": "🤖 Claude Classify",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [1570, 100],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst metadata = $('📋 Extract Metadata').first().json;\nconst supplierData = $('🏢 Supplier Lookup').first().json || {};\n\n// Parse Claude response\nlet claudeResponse;\nconst content = input.content?.[0]?.text || input.text || input.message?.content || JSON.stringify(input);\n\ntry {\n  const cleaned = content.replace(/```json\\s*/gi, '').replace(/```\\s*/g, '').trim();\n  claudeResponse = JSON.parse(cleaned);\n} catch (e) {\n  claudeResponse = { doc_type: 'OTHER', confidence: 0.5, reason: 'Parse error: ' + e.message };\n}\n\n// Override: MagicPlan detection\nif (metadata.is_magicplan) {\n  claudeResponse.doc_type = 'MAGICPLAN';\n  claudeResponse.confidence = 1.0;\n  claudeResponse.reason = 'MagicPlan erkannt (Domain/Betreff)';\n}\n\n// Validate doc_type\nconst VALID_TYPES = [\n  'PROJECT_ORDER', 'INVOICE_IN', 'DELIVERY_NOTE', 'CREDIT_NOTE',\n  'REMINDER', 'MAGICPLAN', 'INFO_ONLY', 'OTHER'\n];\nif (!VALID_TYPES.includes(claudeResponse.doc_type)) {\n  claudeResponse.doc_type = 'OTHER';\n}\n\n// Determine routing\nconst ROUTES = {\n  'PROJECT_ORDER': 'M1',\n  'INVOICE_IN': 'M4',\n  'DELIVERY_NOTE': 'ARCHIVE',\n  'CREDIT_NOTE': 'M4',\n  'REMINDER': 'M4',\n  'MAGICPLAN': 'M1',\n  'INFO_ONLY': null,\n  'OTHER': null\n};\n\n// Event types that REQUIRE attachments\nconst NEEDS_ATTACHMENTS = ['PROJECT_ORDER', 'MAGICPLAN'];\nconst needsEvent = ROUTES[claudeResponse.doc_type] !== null;\nconst hasRequiredAttachments = !NEEDS_ATTACHMENTS.includes(claudeResponse.doc_type) || metadata.has_attachments;\n\n// SQL escaping\nconst escapeSQL = (str) => str ? String(str).replace(/'/g, \"''\") : '';\n\nreturn {\n  json: {\n    // Classification\n    doc_type: claudeResponse.doc_type,\n    confidence: claudeResponse.confidence || 0.8,\n    reason: escapeSQL(claudeResponse.reason || 'Klassifiziert'),\n    routed_to: ROUTES[claudeResponse.doc_type],\n    \n    // Metadata passthrough\n    superchat_message_id: metadata.superchat_message_id,\n    superchat_conversation_id: metadata.superchat_conversation_id,\n    from_address: escapeSQL(metadata.from_address),\n    subject: escapeSQL(metadata.subject),\n    file_ids: metadata.file_ids,\n    has_attachments: metadata.has_attachments,\n    \n    // Supplier (if matched)\n    supplier_id: supplierData.supplier_id || null,\n    supplier_name: supplierData.supplier_name || null,\n    \n    // Flow control\n    needs_event: needsEvent && hasRequiredAttachments,\n    skip_reason: needsEvent && !hasRequiredAttachments ? 'Keine Anhänge für ' + claudeResponse.doc_type : null\n  }\n};"
+      },
+      "id": "parse-response",
+      "name": "📋 Parse Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO classified_emails (\n  superchat_message_id,\n  superchat_conversation_id,\n  from_address,\n  subject,\n  doc_type,\n  confidence,\n  routed_to,\n  classification_reason\n)\nVALUES (\n  '{{ $json.superchat_message_id }}',\n  '{{ $json.superchat_conversation_id }}',\n  '{{ $json.from_address }}',\n  '{{ $json.subject }}',\n  '{{ $json.doc_type }}'::doc_type,\n  {{ $json.confidence }},\n  {{ $json.routed_to ? \"'\" + $json.routed_to + \"'\" : 'NULL' }},\n  '{{ $json.reason }}'\n)\nON CONFLICT (superchat_message_id) DO UPDATE SET\n  doc_type = EXCLUDED.doc_type,\n  confidence = EXCLUDED.confidence,\n  routed_to = EXCLUDED.routed_to,\n  updated_at = now()\nRETURNING id::text, (xmax = 0) as is_new;",
+        "options": {}
+      },
+      "id": "save-classification",
+      "name": "💾 Save Classification",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2010, 100],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "needs-event",
+              "leftValue": "={{ $('📋 Parse Response').first().json.needs_event }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "needs-event-check",
+      "name": "❓ Needs Event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2230, 100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (\n  event_type,\n  payload,\n  source_system,\n  source_flow,\n  dedupe_key\n)\nVALUES (\n  ('DOC_CLASSIFIED_' || '{{ $('📋 Parse Response').first().json.doc_type }}')::event_type,\n  jsonb_build_object(\n    'doc_type', '{{ $('📋 Parse Response').first().json.doc_type }}',\n    'subject', '{{ $('📋 Parse Response').first().json.subject }}',\n    'from_address', '{{ $('📋 Parse Response').first().json.from_address }}',\n    'file_ids', '{{ JSON.stringify($('📋 Parse Response').first().json.file_ids) }}'::jsonb,\n    'has_attachments', {{ $('📋 Parse Response').first().json.has_attachments }},\n    'confidence', {{ $('📋 Parse Response').first().json.confidence }},\n    'routed_to', '{{ $('📋 Parse Response').first().json.routed_to }}',\n    'superchat_message_id', '{{ $('📋 Parse Response').first().json.superchat_message_id }}',\n    'superchat_conversation_id', '{{ $('📋 Parse Response').first().json.superchat_conversation_id }}',\n    'supplier_id', {{ $('📋 Parse Response').first().json.supplier_id ? \"'\" + $('📋 Parse Response').first().json.supplier_id + \"'\" : 'NULL' }},\n    'classification_id', '{{ $('💾 Save Classification').first().json.id }}'\n  ),\n  'n8n',\n  'MX_03_V2',\n  'MX03V2_' || '{{ $('📋 Parse Response').first().json.superchat_message_id }}'\n)\nON CONFLICT (dedupe_key) DO NOTHING\nRETURNING id::text, event_type::text;",
+        "options": {}
+      },
+      "id": "create-event",
+      "name": "📢 Create Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2450, 0],
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=📬 *Email klassifiziert* (V2)\n\n📄 Typ: {{ $('📋 Parse Response').first().json.doc_type }}\n🎯 Konfidenz: {{ Math.round($('📋 Parse Response').first().json.confidence * 100) }}%\n📁 Route: {{ $('📋 Parse Response').first().json.routed_to || 'Keine' }}\n\n📧 Von: {{ $('📋 Parse Response').first().json.from_address }}\n📝 Betreff: {{ $('📋 Parse Response').first().json.subject.substring(0, 60) }}{{ $('📋 Parse Response').first().json.subject.length > 60 ? '...' : '' }}\n\n{{ $('📋 Parse Response').first().json.has_attachments ? '📎 ' + $('📋 Parse Response').first().json.file_ids.length + ' Anhang/Anhänge' : '📭 Keine Anhänge' }}\n{{ $('📋 Parse Response').first().json.supplier_name ? '🏢 Lieferant: ' + $('📋 Parse Response').first().json.supplier_name : '' }}\n\n💡 {{ $('📋 Parse Response').first().json.reason }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-notify",
+      "name": "📱 Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2670, 0],
+      "credentials": {
+        "telegramApi": {
+          "id": "TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"status\": \"success\",\n  \"doc_type\": $('📋 Parse Response').first().json.doc_type,\n  \"confidence\": $('📋 Parse Response').first().json.confidence,\n  \"routed_to\": $('📋 Parse Response').first().json.routed_to,\n  \"event_created\": $('📢 Create Event').first().json.id ? true : false,\n  \"classification_id\": $('💾 Save Classification').first().json.id\n} }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "✅ Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2890, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"status\": \"skipped\",\n  \"reason\": \"no_event_needed\",\n  \"doc_type\": $('📋 Parse Response').first().json.doc_type,\n  \"classification_id\": $('💾 Save Classification').first().json.id\n} }}",
+        "options": {}
+      },
+      "id": "respond-no-event",
+      "name": "✅ Respond (No Event)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2450, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"status\": \"skipped\",\n  \"reason\": \"already_classified\",\n  \"existing_id\": $('🔍 Already Classified?').first().json.id,\n  \"existing_doc_type\": $('🔍 Already Classified?').first().json.doc_type\n} }}",
+        "options": {}
+      },
+      "id": "respond-duplicate",
+      "name": "⏭️ Already Exists",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"status\": \"skipped\",\n  \"reason\": \"spam\",\n  \"domain\": $json.domain,\n  \"from\": $json.from_address\n} }}",
+        "options": {}
+      },
+      "id": "respond-spam",
+      "name": "🚫 Spam Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [910, 400]
+    }
+  ],
+  "connections": {
+    "⚡ Webhook": {
+      "main": [
+        [
+          {
+            "node": "📋 Extract Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Extract Metadata": {
+      "main": [
+        [
+          {
+            "node": "🚫 Spam?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🚫 Spam?": {
+      "main": [
+        [
+          {
+            "node": "🔍 Already Classified?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🚫 Spam Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Already Classified?": {
+      "main": [
+        [
+          {
+            "node": "❓ Is New?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Is New?": {
+      "main": [
+        [
+          {
+            "node": "🏢 Supplier Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "⏭️ Already Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🏢 Supplier Lookup": {
+      "main": [
+        [
+          {
+            "node": "🤖 Claude Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🤖 Claude Classify": {
+      "main": [
+        [
+          {
+            "node": "📋 Parse Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Parse Response": {
+      "main": [
+        [
+          {
+            "node": "💾 Save Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "💾 Save Classification": {
+      "main": [
+        [
+          {
+            "node": "❓ Needs Event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Needs Event?": {
+      "main": [
+        [
+          {
+            "node": "📢 Create Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "✅ Respond (No Event)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📢 Create Event": {
+      "main": [
+        [
+          {
+            "node": "📱 Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📱 Telegram": {
+      "main": [
+        [
+          {
+            "node": "✅ Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {}
+}

@@ -1,0 +1,166 @@
+{
+  "name": "M2_10_Schedule_Approve",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "m2-10-schedule-approve",
+        "options": {
+          "responseMode": "lastNode"
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "m2-10-schedule-approve"
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $input.first().json.query || {};\nconst project_id = query.project_id || '';\nconst action = query.action || 'unknown';\n\nreturn [{ json: { project_id, action } }];"
+      },
+      "id": "parse-params",
+      "name": "Parse Query Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "action-check",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "approve",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-approve",
+      "name": "IF Approve",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT approve_project_schedule('{{ $('Parse Query Params').first().json.project_id }}'::uuid) AS result;"
+      },
+      "id": "approve-schedule",
+      "name": "Approve Schedule",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [660, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json.result;\nconst parsed = typeof result === 'string' ? JSON.parse(result) : result;\nconst projectId = $('Parse Query Params').first().json.project_id;\n\nlet text;\nif (parsed && parsed.success) {\n  text = `✅ Zeitplan genehmigt!\\n\\nProjekt ist jetzt IN_PROGRESS.\\n${parsed.assignments_created || 0} Team-Zuweisungen erstellt.`;\n} else {\n  text = `⚠️ Zeitplan konnte nicht genehmigt werden.\\n\\nGrund: ${parsed?.error || 'Unbekannt'}`;\n}\n\nreturn [{ json: { text, projectId, success: parsed?.success } }];"
+      },
+      "id": "format-approve-msg",
+      "name": "Format Approve Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"parse_mode\": \"HTML\"\n}"
+      },
+      "id": "telegram-approve",
+      "name": "Telegram Approve Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (event_type, project_id, payload, source_system, source_flow)\nVALUES (\n  'SCHEDULE_APPROVED',\n  '{{ $('Parse Query Params').first().json.project_id }}'::uuid,\n  '{}'::jsonb,\n  'n8n',\n  'M2_10_Schedule_Approve'\n)\nRETURNING id;"
+      },
+      "id": "fire-approved-event",
+      "name": "Fire SCHEDULE_APPROVED Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1320, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": \"❌ Zeitplan wurde abgelehnt.\\n\\nBitte den Zeitplan manuell überprüfen und anpassen.\",\n  \"parse_mode\": \"HTML\"\n}"
+      },
+      "id": "telegram-reject",
+      "name": "Telegram Reject Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=Zeitplan {{ $('Parse Query Params').first().json.action === 'approve' ? 'genehmigt ✅' : 'abgelehnt ❌' }}. Du kannst dieses Fenster schließen."
+      },
+      "id": "response",
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1540, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Query Params", "type": "main", "index": 0 }]]
+    },
+    "Parse Query Params": {
+      "main": [[{ "node": "IF Approve", "type": "main", "index": 0 }]]
+    },
+    "IF Approve": {
+      "main": [
+        [{ "node": "Approve Schedule", "type": "main", "index": 0 }],
+        [{ "node": "Telegram Reject Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Approve Schedule": {
+      "main": [[{ "node": "Format Approve Message", "type": "main", "index": 0 }]]
+    },
+    "Format Approve Message": {
+      "main": [[{ "node": "Telegram Approve Notification", "type": "main", "index": 0 }]]
+    },
+    "Telegram Approve Notification": {
+      "main": [[{ "node": "Fire SCHEDULE_APPROVED Event", "type": "main", "index": 0 }]]
+    },
+    "Fire SCHEDULE_APPROVED Event": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    },
+    "Telegram Reject Notification": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  }
+}

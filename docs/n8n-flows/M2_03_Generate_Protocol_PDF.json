@@ -1,0 +1,271 @@
+{
+  "name": "M2_03_Generate_Protocol_PDF",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m2-03-generate-protocol-pdf",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "m2-03-generate-protocol-pdf"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nlet protocol_id = null;\nlet event_id = null;\nlet project_id = null;\n\nif (input.body?.payload?.protocol_id) {\n  protocol_id = input.body.payload.protocol_id;\n  event_id = input.body.event_id;\n  project_id = input.body.project_id;\n}\nelse if (input.body?.protocol_id) {\n  protocol_id = input.body.protocol_id;\n  event_id = input.body.event_id || 'manual-' + Date.now();\n  project_id = input.body.project_id;\n}\nelse if (input.payload?.protocol_id) {\n  protocol_id = input.payload.protocol_id;\n  event_id = input.event_id;\n  project_id = input.project_id;\n}\nelse if (input.protocol_id) {\n  protocol_id = input.protocol_id;\n  event_id = input.event_id || 'manual-' + Date.now();\n  project_id = input.project_id;\n}\n\nif (!protocol_id) {\n  throw new Error('protocol_id not found in request');\n}\n\nreturn [{\n  json: {\n    protocol_id,\n    event_id,\n    project_id,\n    idempotency_key: 'm2_03:' + (event_id || protocol_id)\n  }\n}];"
+      },
+      "id": "extract-ids",
+      "name": "Extract IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT claim_workflow_step(\n  '{{ $json.idempotency_key }}',\n  'M2_03_Generate_Protocol_PDF',\n  NULLIF('{{ $json.event_id }}', '')::uuid,\n  NULLIF('{{ $json.project_id }}', '')::uuid\n) as claimed;",
+        "options": {}
+      },
+      "id": "claim-step",
+      "name": "Claim Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [440, 300],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "claimed-check",
+              "leftValue": "={{ $json.claimed }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-claimed",
+      "name": "IF Claimed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT get_inspection_protocol_details('{{ $('Extract IDs').item.json.protocol_id }}'::uuid) as details;",
+        "options": {}
+      },
+      "id": "load-details",
+      "name": "Load Protocol Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [880, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst details = typeof result.details === 'string' ? JSON.parse(result.details) : result.details;\n\nconst templateKey = details.protocol_type === 'zwischenbegehung' \n  ? 'inspection_zb' \n  : 'inspection_eb_ab';\n\nreturn [{\n  json: {\n    ...details,\n    template_key: templateKey\n  }\n}];"
+      },
+      "id": "parse-details",
+      "name": "Parse Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT html_content FROM document_templates WHERE template_key = '{{ $json.template_key }}' AND is_active = true LIMIT 1;",
+        "options": {}
+      },
+      "id": "load-template",
+      "name": "Load Template",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1320, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const details = $('Parse Details').first().json;\nconst templateResult = $input.first().json;\nlet html = templateResult.html_content;\n\nif (!html) {\n  throw new Error('Template not found: ' + details.template_key);\n}\n\nconst items = details.items || [];\nlet itemsHtml = '';\nfor (const item of items) {\n  const statusClass = item.status === 'completed' ? 'status-ok' : \n                      item.status === 'issue' ? 'status-issue' : '';\n  const progressHtml = details.protocol_type !== 'erstbegehung' \n    ? `<td>${item.progress_percent || 0}%</td>` \n    : '';\n  \n  itemsHtml += `<tr class=\"${statusClass}\">\n    <td>${item.position_code || ''}</td>\n    <td>${item.description || item.position_title || ''}</td>\n    <td>${item.room || ''}</td>\n    <td>${item.status || 'pending'}</td>\n    ${progressHtml}\n    <td>${item.notes || ''}</td>\n  </tr>`;\n}\n\nconst typeLabels = {\n  'erstbegehung': 'Erstbegehung',\n  'zwischenbegehung': 'Zwischenbegehung', \n  'abnahme': 'Abnahme'\n};\n\nconst replacements = {\n  '{{protocol_number}}': details.protocol_number || '',\n  '{{protocol_type}}': details.protocol_type || '',\n  '{{protocol_type_label}}': typeLabels[details.protocol_type] || details.protocol_type,\n  '{{project_number}}': details.project_number || '',\n  '{{project_name}}': details.project_name || '',\n  '{{client_name}}': details.client_name || '',\n  '{{property_address}}': details.property_address || '',\n  '{{inspection_date}}': details.inspection_date ? new Date(details.inspection_date).toLocaleDateString('de-DE') : '',\n  '{{inspector_name}}': details.inspector_name || '',\n  '{{items_html}}': itemsHtml,\n  '{{logo_url}}': 'https://krtxhxajrphymrzuinna.supabase.co/storage/v1/object/public/assets/LOGO%20DBL.webp',\n  '{{total_positions}}': String(details.total_positions || items.length),\n  '{{completed_count}}': String(details.completed_count || 0),\n  '{{issue_count}}': String(details.issue_count || 0),\n  '{{avg_progress}}': String(details.avg_progress || 0),\n  '{{notes}}': details.notes || '',\n  '{{next_appointment}}': details.next_appointment ? new Date(details.next_appointment).toLocaleDateString('de-DE') : ''\n};\n\nfor (const [key, value] of Object.entries(replacements)) {\n  html = html.split(key).join(value);\n}\n\nreturn [{\n  json: {\n    html,\n    protocol_id: details.id,\n    protocol_number: details.protocol_number,\n    project_number: details.project_number,\n    filename: `${details.protocol_number}.pdf`\n  }\n}];"
+      },
+      "id": "build-html",
+      "name": "Build HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://gotenberg:3000/forms/chromium/convert/html",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "files",
+              "parameterType": "formData",
+              "inputDataFieldName": "={{ { data: Buffer.from($json.html), fileName: 'index.html', mimeType: 'text/html' } }}"
+            },
+            { "name": "marginTop", "value": "0.5" },
+            { "name": "marginBottom", "value": "0.5" },
+            { "name": "marginLeft", "value": "0.5" },
+            { "name": "marginRight", "value": "0.5" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "file" } },
+          "timeout": 60000
+        }
+      },
+      "id": "gotenberg-pdf",
+      "name": "Gotenberg PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://krtxhxajrphymrzuinna.supabase.co/storage/v1/object/documents/protocols/{{ $('Build HTML').item.json.project_number }}/{{ $('Build HTML').item.json.filename }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "upload-storage",
+      "name": "Upload to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1980, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "supabase-service-key",
+          "name": "Supabase Service Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE inspection_protocols\nSET pdf_storage_path = 'protocols/{{ $('Build HTML').item.json.project_number }}/{{ $('Build HTML').item.json.filename }}'\nWHERE id = '{{ $('Build HTML').item.json.protocol_id }}'::uuid\nRETURNING id, pdf_storage_path;",
+        "options": {}
+      },
+      "id": "update-db",
+      "name": "Update DB with Path",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2200, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": \"📄 {{ $('Build HTML').item.json.protocol_number }} PDF generiert\\n<a href=\\\"https://krtxhxajrphymrzuinna.supabase.co/storage/v1/object/public/documents/{{ $json.pdf_storage_path }}\\\">Download</a>\",\n  \"parse_mode\": \"HTML\"\n}"
+      },
+      "id": "telegram",
+      "name": "Telegram Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2420, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT complete_workflow_step('{{ $('Extract IDs').item.json.idempotency_key }}');",
+        "options": {}
+      },
+      "id": "complete-step",
+      "name": "Complete Workflow Step",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2640, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const buildHtml = $('Build HTML').first().json;\nconst updateDb = $('Update DB with Path').first().json;\n\nreturn [{\n  json: {\n    status: 'ok',\n    protocol_number: buildHtml.protocol_number,\n    pdf_path: updateDb.pdf_storage_path\n  }\n}];"
+      },
+      "id": "response-ok",
+      "name": "Response OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'skipped', reason: 'Already processed (idempotency)' } }];"
+      },
+      "id": "skip-claimed",
+      "name": "Skip (Already Claimed)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Extract IDs", "type": "main", "index": 0 }]] },
+    "Extract IDs": { "main": [[{ "node": "Claim Workflow Step", "type": "main", "index": 0 }]] },
+    "Claim Workflow Step": { "main": [[{ "node": "IF Claimed", "type": "main", "index": 0 }]] },
+    "IF Claimed": { 
+      "main": [
+        [{ "node": "Load Protocol Details", "type": "main", "index": 0 }],
+        [{ "node": "Skip (Already Claimed)", "type": "main", "index": 0 }]
+      ] 
+    },
+    "Load Protocol Details": { "main": [[{ "node": "Parse Details", "type": "main", "index": 0 }]] },
+    "Parse Details": { "main": [[{ "node": "Load Template", "type": "main", "index": 0 }]] },
+    "Load Template": { "main": [[{ "node": "Build HTML", "type": "main", "index": 0 }]] },
+    "Build HTML": { "main": [[{ "node": "Gotenberg PDF", "type": "main", "index": 0 }]] },
+    "Gotenberg PDF": { "main": [[{ "node": "Upload to Storage", "type": "main", "index": 0 }]] },
+    "Upload to Storage": { "main": [[{ "node": "Update DB with Path", "type": "main", "index": 0 }]] },
+    "Update DB with Path": { "main": [[{ "node": "Telegram Notification", "type": "main", "index": 0 }]] },
+    "Telegram Notification": { "main": [[{ "node": "Complete Workflow Step", "type": "main", "index": 0 }]] },
+    "Complete Workflow Step": { "main": [[{ "node": "Response OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  }
+}
