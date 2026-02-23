@@ -5,7 +5,9 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "m2-10-schedule-notification",
-        "options": {}
+        "options": {
+          "responseMode": "lastNode"
+        }
       },
       "id": "webhook-trigger",
       "name": "Webhook Trigger",
@@ -27,7 +29,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT claim_workflow_step(\n  'm2_10:' || '{{ $json.event_id }}',\n  'M2_10_Schedule_Notification',\n  '{{ $json.event_id }}'::uuid,\n  '{{ $json.project_id }}'::uuid\n) as claimed;"
+        "query": "SELECT * FROM claim_workflow_step(\n  'm2_10:' || '{{ $json.event_id }}',\n  '{{ $json.project_id }}'::uuid,\n  'M2_10_Schedule_Notification'\n);"
       },
       "id": "claim-step",
       "name": "Claim Workflow Step",
@@ -90,16 +92,24 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"parse_mode\": \"HTML\",\n  \"reply_markup\": {\n    \"inline_keyboard\": [[\n      {\"text\": \"✅ Genehmigen\", \"url\": {{ JSON.stringify($json.approveUrl) }} },\n      {\"text\": \"❌ Ablehnen\", \"url\": {{ JSON.stringify($json.rejectUrl) }} }\n    ]]\n  }\n}"
+        "chatId": "6088921678",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "reply_markup": {
+            "inline_keyboard": [
+              [
+                { "text": "✅ Genehmigen", "url": "={{ $json.approveUrl }}" },
+                { "text": "❌ Ablehnen", "url": "={{ $json.rejectUrl }}" }
+              ]
+            ]
+          }
+        }
       },
       "id": "send-telegram",
       "name": "Send Telegram",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [1320, 200]
     },
     {
