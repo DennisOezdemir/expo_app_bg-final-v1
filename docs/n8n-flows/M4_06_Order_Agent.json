@@ -1,10 +1,10 @@
 {
-  "name": "M4_03_Order_Suggester",
+  "name": "M4_06_Order_Agent",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "m4-03-order-suggester",
+        "path": "m4-06-order-agent",
         "responseMode": "responseNode",
         "options": {}
       },
@@ -13,7 +13,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [0, 300],
-      "webhookId": "m4-03-order-suggester"
+      "webhookId": "m4-06-order-agent"
     },
     {
       "parameters": {
@@ -28,7 +28,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT * FROM claim_workflow_step(\n  'm4_03:' || '{{ $json.event_id }}',\n  '{{ $json.project_id }}'::uuid,\n  'M4_03_Order_Suggester'\n);"
+        "query": "SELECT * FROM claim_workflow_step(\n  'm4_06:' || '{{ $json.event_id }}',\n  '{{ $json.project_id }}'::uuid,\n  'M4_06_Order_Agent'\n);"
       },
       "id": "claim-step",
       "name": "Claim Workflow Step",
@@ -65,10 +65,10 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT suggest_purchase_orders('{{ $('Parse Event Data').first().json.project_id }}'::uuid) AS result;"
+        "query": "SELECT \n  p.project_number, p.name AS project_name, CONCAT(p.object_street, ', ', p.object_zip, ' ', p.object_city) AS address,\n  (SELECT COUNT(*) FROM project_room_measurements WHERE project_id = p.id) AS room_count,\n  (SELECT json_agg(json_build_object(\n    'label', pmn.label, 'quantity', pmn.total_quantity, 'unit', pmn.quantity_unit,\n    'product_name', pmn.product_name, 'unit_price', pmn.unit_price_net,\n    'notes', pmn.notes, 'trade', pmn.trade,\n    'supplier_name', s.name, 'supplier_email', s.email,\n    'supplier_short', s.short_name\n  ) ORDER BY s.name NULLS LAST, pmn.label)\n  FROM project_material_needs pmn\n  LEFT JOIN products prod ON prod.id = pmn.product_id\n  LEFT JOIN suppliers s ON s.id = prod.supplier_id\n  WHERE pmn.project_id = p.id AND pmn.source = 'auto' AND pmn.status = 'planned'\n  ) AS materials,\n  (SELECT json_agg(json_build_object(\n    'trade', sp.trade, 'start_date', sp.start_date, 'end_date', sp.end_date\n  ) ORDER BY sp.start_date)\n  FROM schedule_phases sp WHERE sp.project_id = p.id AND sp.status != 'cancelled'\n  ) AS schedule\nFROM projects p\nWHERE p.id = '{{ $('Parse Event Data').first().json.project_id }}'::uuid;"
       },
-      "id": "suggest-orders",
-      "name": "Suggest Purchase Orders",
+      "id": "load-project-materials",
+      "name": "Load Project + Materials",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [880, 200],
@@ -81,7 +81,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const result = $input.first().json.result;\nconst parsed = typeof result === 'string' ? JSON.parse(result) : result;\nconst projectId = $('Parse Event Data').first().json.project_id;\n\nif (!parsed || !parsed.success) {\n  return [{ json: { text: '⚠️ Bestellvorschlag fehlgeschlagen', projectId, hasSuggestions: false } }];\n}\n\nconst orders = parsed.orders || [];\nconst summary = parsed.summary || {};\nconst pn = parsed.project_number || '';\n\nlet lines = [];\nlines.push(`🛒 <b>Bestellvorschlag ${pn}</b>`);\nlines.push(`${parsed.project_name}`);\nlines.push('');\n\nconst realOrders = orders.filter(o => o.supplier !== '⚠️ Kein Lieferant');\nconst noSupplier = orders.find(o => o.supplier === '⚠️ Kein Lieferant');\n\nif (realOrders.length === 0 && !noSupplier) {\n  lines.push('Keine offenen Materialien gefunden.');\n  return [{ json: { text: lines.join('\\n'), projectId, hasSuggestions: false } }];\n}\n\n// Per-supplier orders\nfor (const o of realOrders) {\n  const email = o.email ? `📧 ${o.email}` : '⚠️ keine E-Mail';\n  lines.push(`<b>📦 ${o.supplier_short || o.supplier}</b>`);\n  lines.push(`${o.product_count} Produkte · ~€${Number(o.total_value).toFixed(0)} · ${email}`);\n  \n  const tops = o.top_products || [];\n  for (const p of tops) {\n    lines.push(`  • ${p.qty}× ${p.name} (€${Number(p.total).toFixed(0)})`);\n  }\n  if (o.product_count > tops.length) {\n    lines.push(`  ... +${o.product_count - tops.length} weitere`);\n  }\n  lines.push('');\n}\n\n// Warnings\nif (noSupplier) {\n  lines.push(`⚠️ <b>${noSupplier.product_count} Materialien</b> ohne Lieferant (~€${Number(noSupplier.total_value).toFixed(0)})`);\n}\nif (summary.total_unassigned > 0) {\n  lines.push(`⚠️ <b>${summary.total_unassigned} Materialien</b> ohne Produkt-Zuordnung`);\n}\nif (summary.missing_email > 0) {\n  lines.push(`⚠️ <b>${summary.missing_email} Lieferanten</b> ohne E-Mail`);\n}\nlines.push('');\n\nconst totalVal = Number(summary.total_est_value || 0).toFixed(0);\nlines.push(`<b>Gesamt: ${summary.total_orderable || 0} Materialien · ${summary.total_suppliers || 0} Lieferanten · ~€${totalVal}</b>`);\n\nconst text = lines.join('\\n');\n\nconst approveUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m4-03-order-approve?project_id=${projectId}&action=approve`;\nconst rejectUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m4-03-order-approve?project_id=${projectId}&action=reject`;\n\nreturn [{ json: { text, projectId, approveUrl, rejectUrl, hasSuggestions: realOrders.length > 0, totalValue: totalVal } }];"
+        "jsCode": "const data = $input.first().json;\nconst projectId = $('Parse Event Data').first().json.project_id;\nconst materials = data.materials || [];\nconst schedule = data.schedule || [];\nconst pn = data.project_number || '';\nconst name = data.project_name || '';\n\nif (!materials || materials.length === 0) {\n  return [{ json: { text: '\\u26a0\\ufe0f Keine Materialien berechnet f\\u00fcr ' + pn, projectId, hasMaterials: false } }];\n}\n\n// Group by supplier\nconst bySupplier = {};\nlet noSupplierItems = [];\nlet totalValue = 0;\n\nfor (const m of materials) {\n  const supplierKey = m.supplier_name || null;\n  const lineValue = (Number(m.quantity) || 0) * (Number(m.unit_price) || 0);\n  totalValue += lineValue;\n  \n  if (!supplierKey) {\n    noSupplierItems.push(m);\n    continue;\n  }\n  if (!bySupplier[supplierKey]) {\n    bySupplier[supplierKey] = { name: supplierKey, short: m.supplier_short || supplierKey, email: m.supplier_email, items: [], total: 0 };\n  }\n  bySupplier[supplierKey].items.push(m);\n  bySupplier[supplierKey].total += lineValue;\n}\n\nlet lines = [];\nlines.push(`\\ud83d\\uded2 <b>Bestellvorschlag ${pn}</b>`);\nlines.push(`${name}`);\nlines.push('');\n\n// Schedule info\nif (schedule && schedule.length > 0) {\n  const nextPhase = schedule.find(s => new Date(s.start_date) > new Date());\n  if (nextPhase) {\n    lines.push(`\\ud83d\\udcc5 N\\u00e4chste Phase: <b>${nextPhase.trade}</b> ab ${new Date(nextPhase.start_date).toLocaleDateString('de-DE')}`);\n    lines.push('');\n  }\n}\n\n// Per-supplier groups\nconst suppliers = Object.values(bySupplier);\nfor (const s of suppliers) {\n  const emailInfo = s.email ? `\\ud83d\\udce7 ${s.email}` : '\\u26a0\\ufe0f keine E-Mail';\n  lines.push(`<b>\\ud83d\\udce6 ${s.short}</b> (${emailInfo})`);\n  lines.push(`${s.items.length} Materialien \\u00b7 ~\\u20ac${s.total.toFixed(0)}`);\n  \n  // Show top 5 items\n  const topItems = s.items.slice(0, 5);\n  for (const item of topItems) {\n    const price = item.unit_price ? ` (\\u20ac${(Number(item.quantity) * Number(item.unit_price)).toFixed(0)})` : '';\n    const product = item.product_name ? item.product_name : item.label;\n    lines.push(`  \\u2022 ${Number(item.quantity).toFixed(0)}\\u00d7 ${item.unit} ${product}${price}`);\n  }\n  if (s.items.length > 5) {\n    lines.push(`  ... +${s.items.length - 5} weitere`);\n  }\n  lines.push('');\n}\n\n// Items without supplier\nif (noSupplierItems.length > 0) {\n  lines.push(`\\u26a0\\ufe0f <b>${noSupplierItems.length} Materialien ohne Lieferant:</b>`);\n  for (const item of noSupplierItems.slice(0, 8)) {\n    lines.push(`  \\u2022 ${Number(item.quantity).toFixed(0)}\\u00d7 ${item.unit} ${item.label}`);\n  }\n  if (noSupplierItems.length > 8) {\n    lines.push(`  ... +${noSupplierItems.length - 8} weitere`);\n  }\n  lines.push('');\n}\n\nlines.push(`<b>Gesamt: ${materials.length} Materialien \\u00b7 ${suppliers.length} Lieferanten \\u00b7 ~\\u20ac${totalValue.toFixed(0)}</b>`);\n\nconst text = lines.join('\\n');\nconst approveUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m4-07-order-approve?project_id=${projectId}&action=approve`;\nconst rejectUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m4-07-order-approve?project_id=${projectId}&action=reject`;\n\nreturn [{ json: { text, projectId, approveUrl, rejectUrl, hasMaterials: true, materialCount: materials.length, totalValue: totalValue.toFixed(0) } }];"
       },
       "id": "format-message",
       "name": "Format Telegram Message",
@@ -95,16 +95,16 @@
           "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
           "conditions": [
             {
-              "id": "has-suggestions",
-              "leftValue": "={{ $json.hasSuggestions }}",
+              "id": "has-materials",
+              "leftValue": "={{ $json.hasMaterials }}",
               "rightValue": true,
               "operator": { "type": "boolean", "operation": "equals" }
             }
           ]
         }
       },
-      "id": "if-has-suggestions",
-      "name": "IF Has Suggestions",
+      "id": "if-has-materials",
+      "name": "IF Has Materials",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [1320, 200]
@@ -118,8 +118,8 @@
           "reply_markup": {
             "inline_keyboard": [
               [
-                { "text": "✅ Bestellen", "url": "={{ $json.approveUrl }}" },
-                { "text": "❌ Ablehnen", "url": "={{ $json.rejectUrl }}" }
+                { "text": "\u2705 Bestellen", "url": "={{ $json.approveUrl }}" },
+                { "text": "\u274c Ablehnen", "url": "={{ $json.rejectUrl }}" }
               ]
             ]
           }
@@ -139,8 +139,8 @@
           "parse_mode": "HTML"
         }
       },
-      "id": "send-telegram-no-suggestions",
-      "name": "Send Telegram (No Orders)",
+      "id": "send-telegram-no-materials",
+      "name": "Send Telegram (No Materials)",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [1540, 300]
@@ -165,7 +165,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT complete_workflow_step('m4_03:' || '{{ $('Parse Event Data').first().json.event_id }}');"
+        "query": "SELECT complete_workflow_step('m4_06:' || '{{ $('Parse Event Data').first().json.event_id }}');"
       },
       "id": "complete-step",
       "name": "Complete Workflow Step",
@@ -192,7 +192,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ status: 'ok', workflow: 'M4_03_Order_Suggester' }) }}"
+        "responseBody": "={{ JSON.stringify({ status: 'ok', workflow: 'M4_06_Order_Agent' }) }}"
       },
       "id": "response-ok",
       "name": "Response OK",
@@ -213,26 +213,26 @@
     },
     "IF Claimed": {
       "main": [
-        [{ "node": "Suggest Purchase Orders", "type": "main", "index": 0 }],
+        [{ "node": "Load Project + Materials", "type": "main", "index": 0 }],
         [{ "node": "Skip (Already Claimed)", "type": "main", "index": 0 }]
       ]
     },
-    "Suggest Purchase Orders": {
+    "Load Project + Materials": {
       "main": [[{ "node": "Format Telegram Message", "type": "main", "index": 0 }]]
     },
     "Format Telegram Message": {
-      "main": [[{ "node": "IF Has Suggestions", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "IF Has Materials", "type": "main", "index": 0 }]]
     },
-    "IF Has Suggestions": {
+    "IF Has Materials": {
       "main": [
         [{ "node": "Send Telegram", "type": "main", "index": 0 }],
-        [{ "node": "Send Telegram (No Orders)", "type": "main", "index": 0 }]
+        [{ "node": "Send Telegram (No Materials)", "type": "main", "index": 0 }]
       ]
     },
     "Send Telegram": {
       "main": [[{ "node": "Mark Event Processed", "type": "main", "index": 0 }]]
     },
-    "Send Telegram (No Orders)": {
+    "Send Telegram (No Materials)": {
       "main": [[{ "node": "Mark Event Processed", "type": "main", "index": 0 }]]
     },
     "Mark Event Processed": {

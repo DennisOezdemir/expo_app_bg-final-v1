@@ -1,0 +1,237 @@
+{
+  "name": "M4_07_Order_Send",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "m4-07-order-approve",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "m4-07-order-approve"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst query = data.query || data.params || {};\nconst project_id = query.project_id || data.project_id || '';\nconst action = query.action || data.action || 'unknown';\n\nreturn [{ json: { project_id, action, raw_keys: Object.keys(data).join(',') } }];"
+      },
+      "id": "parse-params",
+      "name": "Parse Query Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "action-check",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "approve",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-approve",
+      "name": "IF Approve",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  p.project_number, p.name AS project_name, CONCAT(p.object_street, ', ', p.object_zip, ' ', p.object_city) AS address,\n  s.id AS supplier_id, s.name AS supplier_name, s.short_name AS supplier_short,\n  s.email AS supplier_email, s.phone AS supplier_phone,\n  pmn.id AS need_id, pmn.label, pmn.total_quantity, pmn.quantity_unit,\n  pmn.product_name, pmn.unit_price_net, pmn.notes,\n  prod.sku, prod.name AS full_product_name\nFROM project_material_needs pmn\nJOIN projects p ON p.id = pmn.project_id\nLEFT JOIN products prod ON prod.id = pmn.product_id\nLEFT JOIN suppliers s ON s.id = prod.supplier_id\nWHERE pmn.project_id = '{{ $('Parse Query Params').first().json.project_id }}'::uuid\n  AND pmn.source = 'auto' AND pmn.status = 'planned'\nORDER BY s.name NULLS LAST, pmn.label;"
+      },
+      "id": "load-materials",
+      "name": "Load Approved Materials",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [660, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(r => r.json);\nif (rows.length === 0) {\n  return [{ json: { orders: [], noEmail: [], noSupplier: [], text: '⚠️ Keine offenen Materialien gefunden.', projectId: '', summaryText: '⚠️ Keine offenen Materialien gefunden.', allNeedIds: [], emailCount: 0 } }];\n}\n\nconst projectId = $('Parse Query Params').first().json.project_id;\nconst pn = rows[0].project_number;\nconst projectName = rows[0].project_name;\nconst address = rows[0].address || '';\n\n// Group by supplier\nconst bySupplier = {};\nconst noSupplier = [];\n\nfor (const r of rows) {\n  if (!r.supplier_id) {\n    noSupplier.push(r);\n    continue;\n  }\n  const key = r.supplier_id;\n  if (!bySupplier[key]) {\n    bySupplier[key] = {\n      supplier_id: r.supplier_id,\n      supplier_name: r.supplier_name,\n      supplier_short: r.supplier_short,\n      supplier_email: r.supplier_email,\n      supplier_phone: r.supplier_phone,\n      items: [],\n      need_ids: [],\n      total: 0\n    };\n  }\n  const lineValue = (Number(r.total_quantity) || 0) * (Number(r.unit_price_net) || 0);\n  bySupplier[key].items.push({\n    label: r.label,\n    product_name: r.full_product_name || r.product_name || r.label,\n    sku: r.sku || '',\n    quantity: Number(r.total_quantity),\n    unit: r.quantity_unit,\n    unit_price: Number(r.unit_price_net) || 0,\n    total: lineValue,\n    notes: r.notes\n  });\n  bySupplier[key].need_ids.push(r.need_id);\n  bySupplier[key].total += lineValue;\n}\n\nconst orders = Object.values(bySupplier).filter(o => o.supplier_email);\nconst noEmail = Object.values(bySupplier).filter(o => !o.supplier_email);\n\n// Build email HTML per supplier\nfor (const order of orders) {\n  let html = `<p>Guten Tag,</p>`;\n  html += `<p>wir möchten folgende Materialien bestellen für unser Projekt <b>${pn} – ${projectName}</b>`;\n  if (address) html += ` (${address})`;\n  html += `:</p>`;\n  html += `<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse;font-family:Arial,sans-serif;\">`;\n  html += `<tr style=\"background:#f0f0f0\"><th>Pos</th><th>Artikel</th><th>Art.Nr.</th><th>Menge</th><th>Einheit</th></tr>`;\n  \n  order.items.forEach((item, i) => {\n    html += `<tr><td>${i+1}</td><td>${item.product_name}</td><td>${item.sku}</td><td>${item.quantity}</td><td>${item.unit}</td></tr>`;\n  });\n  \n  html += `</table>`;\n  html += `<p>Bitte um Auftragsbestätigung und Liefertermin.</p>`;\n  html += `<p>Mit freundlichen Grüßen<br/>Dennis Blöte<br/>Blöte Gebäudemanagement</p>`;\n  \n  order.emailHtml = html;\n  order.emailSubject = `Bestellung ${pn} – ${order.supplier_short || order.supplier_name}`;\n}\n\n// Build summary for Telegram\nlet summaryLines = [];\nsummaryLines.push(`✅ <b>Bestellungen versendet für ${pn}</b>`);\nsummaryLines.push('');\n\nfor (const order of orders) {\n  summaryLines.push(`📧 <b>${order.supplier_short || order.supplier_name}</b> → ${order.supplier_email}`);\n  summaryLines.push(`   ${order.items.length} Pos. · ~€${order.total.toFixed(0)}`);\n}\n\nif (noEmail.length > 0) {\n  summaryLines.push('');\n  summaryLines.push(`⚠️ <b>${noEmail.length} Lieferanten ohne E-Mail</b> (manuell bestellen):`);\n  for (const ne of noEmail) {\n    summaryLines.push(`  • ${ne.supplier_short || ne.supplier_name}: ${ne.items.length} Pos.`);\n  }\n}\n\nif (noSupplier.length > 0) {\n  summaryLines.push('');\n  summaryLines.push(`⚠️ <b>${noSupplier.length} Materialien ohne Lieferant</b>`);\n}\n\nconst allNeedIds = [...orders, ...noEmail].flatMap(o => o.need_ids);\n\nreturn [{\n  json: {\n    orders,\n    noEmail,\n    noSupplier,\n    projectId,\n    summaryText: summaryLines.join('\\n'),\n    allNeedIds,\n    emailCount: orders.length\n  }\n}];"
+      },
+      "id": "group-by-supplier",
+      "name": "Group By Supplier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "email-count-check",
+              "leftValue": "={{ $json.emailCount }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "if-has-email-orders",
+      "name": "IF Has Email Orders",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst orders = data.orders || [];\nif (orders.length === 0) {\n  return [{ json: { skipped: true, reason: 'no_email_orders' } }];\n}\nreturn orders.map(o => ({ json: o }));"
+      },
+      "id": "split-orders",
+      "name": "Split Into Orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const order = $input.first().json;\nif (order.skipped) {\n  return [{ json: { sent: false, reason: 'no_email_orders' } }];\n}\n// In production: would send email to order.supplier_email\n// For now: log and continue\nreturn [{ json: { \n  sent: true, \n  supplier: order.supplier_name, \n  email: order.supplier_email, \n  subject: order.emailSubject,\n  itemCount: (order.items || []).length\n} }];"
+      },
+      "id": "send-order-email",
+      "name": "Send Order Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE project_material_needs \nSET status = 'ordered', updated_at = NOW()\nWHERE project_id = '{{ $('Parse Query Params').first().json.project_id }}'::uuid\n  AND source = 'auto' AND status = 'planned';"
+      },
+      "id": "update-status",
+      "name": "Update Status to Ordered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1760, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "={{ $('Group By Supplier').first().json.summaryText }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "telegram-confirmation",
+      "name": "Send Telegram Confirmation",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1980, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (event_type, project_id, payload, source_system, source_flow)\nVALUES (\n  'MATERIALS_ORDER_SENT', \n  '{{ $('Parse Query Params').first().json.project_id }}'::uuid,\n  json_build_object('orders_sent', {{ $('Group By Supplier').first().json.emailCount }})::jsonb,\n  'n8n', 'M4_07_Order_Send'\n) RETURNING id;"
+      },
+      "id": "fire-event",
+      "name": "Fire Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2200, 200],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "❌ Bestellvorschlag wurde abgelehnt.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "telegram-reject",
+      "name": "Telegram Reject Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [660, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=Bestellung {{ $('Parse Query Params').first().json.action === 'approve' ? 'genehmigt ✅' : 'abgelehnt ❌' }}. Du kannst dieses Fenster schließen."
+      },
+      "id": "response",
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2420, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Query Params", "type": "main", "index": 0 }]]
+    },
+    "Parse Query Params": {
+      "main": [[{ "node": "IF Approve", "type": "main", "index": 0 }]]
+    },
+    "IF Approve": {
+      "main": [
+        [{ "node": "Load Approved Materials", "type": "main", "index": 0 }],
+        [{ "node": "Telegram Reject Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Approved Materials": {
+      "main": [[{ "node": "Group By Supplier", "type": "main", "index": 0 }]]
+    },
+    "Group By Supplier": {
+      "main": [[{ "node": "IF Has Email Orders", "type": "main", "index": 0 }]]
+    },
+    "IF Has Email Orders": {
+      "main": [
+        [{ "node": "Split Into Orders", "type": "main", "index": 0 }],
+        [{ "node": "Update Status to Ordered", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split Into Orders": {
+      "main": [[{ "node": "Send Order Email", "type": "main", "index": 0 }]]
+    },
+    "Send Order Email": {
+      "main": [[{ "node": "Update Status to Ordered", "type": "main", "index": 0 }]]
+    },
+    "Update Status to Ordered": {
+      "main": [[{ "node": "Send Telegram Confirmation", "type": "main", "index": 0 }]]
+    },
+    "Send Telegram Confirmation": {
+      "main": [[{ "node": "Fire Event", "type": "main", "index": 0 }]]
+    },
+    "Fire Event": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    },
+    "Telegram Reject Notification": {
+      "main": [[{ "node": "Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  }
+}

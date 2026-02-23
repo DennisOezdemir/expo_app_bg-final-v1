@@ -5,9 +5,8 @@
       "parameters": {
         "httpMethod": "GET",
         "path": "m4-03-order-approve",
-        "options": {
-          "responseMode": "lastNode"
-        }
+        "responseMode": "responseNode",
+        "options": {}
       },
       "id": "webhook-trigger",
       "name": "Webhook Trigger",
@@ -75,16 +74,16 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"parse_mode\": \"HTML\"\n}"
+        "chatId": "6088921678",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
       },
       "id": "telegram-approve",
       "name": "Telegram Approve Notification",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [1100, 200]
     },
     {
@@ -106,16 +105,16 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.telegram.org/bot7730792025:AAFyL7sCn2OQ0GJxpGasjjDbLqLOT0wyw-Y/sendMessage",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": \"6088921678\",\n  \"text\": \"❌ Bestellvorschlag wurde abgelehnt.\\n\\nMaterialien bleiben offen.\",\n  \"parse_mode\": \"HTML\"\n}"
+        "chatId": "6088921678",
+        "text": "❌ Bestellvorschlag wurde abgelehnt.\n\nMaterialien bleiben offen.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
       },
       "id": "telegram-reject",
       "name": "Telegram Reject Notification",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [660, 420]
     },
     {

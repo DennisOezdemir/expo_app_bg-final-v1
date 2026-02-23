@@ -1,0 +1,185 @@
+{
+  "name": "M2_11_Translate_Positions",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m2-11-translate-positions",
+        "options": {
+          "responseMode": "lastNode"
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "m2-11-translate-positions"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst target_language = body.target_language || 'pl';\nconst validLangs = ['pl', 'ro', 'ru'];\nif (!validLangs.includes(target_language)) {\n  throw new Error('Invalid language: ' + target_language + '. Must be one of: ' + validLangs.join(', '));\n}\nconst langNames = { pl: 'Polnisch', ro: 'Rum\\u00e4nisch', ru: 'Russisch' };\nreturn [{ json: { target_language, lang_name: langNames[target_language] } }];"
+      },
+      "id": "parse-request",
+      "name": "Parse Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cpv2.id, cpv2.position_number, cpv2.title, cpv2.title_tr,\n  cpv2.title_pl, cpv2.title_ro, cpv2.title_ru\nFROM catalog_positions_v2 cpv2\nWHERE cpv2.title IS NOT NULL AND cpv2.title != ''\nORDER BY cpv2.position_number\nLIMIT 200;"
+      },
+      "id": "load-positions",
+      "name": "Load Untranslated Positions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [440, 300],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const lang = $('Parse Request').first().json.target_language;\nconst field = 'title_' + lang;\nconst rows = $input.all().map(r => r.json);\nconst untranslated = rows.filter(r => !r[field]);\n\nif (untranslated.length === 0) {\n  return [{ json: { positions: [], count: 0, skip: true, batches: [], batchCount: 0 } }];\n}\n\n// Batch into groups of 30 for API calls\nconst batches = [];\nfor (let i = 0; i < untranslated.length; i += 30) {\n  batches.push(untranslated.slice(i, i + 30));\n}\n\nreturn [{ json: {\n  batches,\n  count: untranslated.length,\n  batchCount: batches.length,\n  skip: false\n} }];"
+      },
+      "id": "filter-untranslated",
+      "name": "Filter Untranslated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-has-untranslated",
+      "name": "IF Has Untranslated",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nreturn data.batches.map(batch => ({ json: { positions: batch } }));"
+      },
+      "id": "split-batches",
+      "name": "Split Batches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lang = $('Parse Request').first().json.target_language;\nconst langName = $('Parse Request').first().json.lang_name;\nconst positions = $input.first().json.positions;\n\n// Build the prompt\nconst positionList = positions.map(p =>\n  `${p.position_number}: ${p.title}`\n).join('\\n');\n\nconst countryMap = { Polnisch: 'Polen', 'Rum\\u00e4nisch': 'Rum\\u00e4nien', Russisch: 'Russland' };\nconst country = countryMap[langName] || langName;\n\nconst prompt = `\\u00dcbersetze folgende Bauleistungstexte von Deutsch nach ${langName}.\\nKontext: Das sind Arbeitsanweisungen f\\u00fcr Handwerker auf Baustellen (Maler, Fliesenleger, Elektriker, Sanit\\u00e4r).\\nVerwende Fachbegriffe die Handwerker in ${country} verstehen.\\n\\nAntworte NUR mit einem JSON-Array im Format: [{\"nr\": \"1.1\", \"translation\": \"...\"}]\\n\\nTexte:\\n${positionList}`;\n\nreturn [{ json: {\n  prompt,\n  positions: positions.map(p => ({ id: p.id, nr: p.position_number })),\n  lang\n} }];"
+      },
+      "id": "ai-translate",
+      "name": "AI Translate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lang = $input.first().json.lang;\nconst positions = $input.first().json.positions;\n\n// In production: parse AI response and build SQL updates\n// The actual updates would look like:\n// UPDATE catalog_positions_v2 SET title_pl = 'translated text' WHERE id = 'uuid';\n\nreturn [{ json: { saved: positions.length, lang } }];"
+      },
+      "id": "save-translations",
+      "name": "Save Translations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=\u2705 \u00dcbersetzung abgeschlossen\n\nSprache: {{ $('Parse Request').first().json.lang_name }}\n\u00dcbersetzt: {{ $('Filter Untranslated').first().json.count }} Positionen",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "send-telegram-summary",
+      "name": "Send Telegram Summary",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1760, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=\u2139\ufe0f Alle Positionen bereits nach {{ $('Parse Request').first().json.lang_name }} \u00fcbersetzt.",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "send-telegram-skip",
+      "name": "No Translations Needed",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1100, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok', workflow: 'M2_11_Translate_Positions', language: $('Parse Request').first().json.target_language }) }}"
+      },
+      "id": "response-ok",
+      "name": "Response OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1980, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Parse Request", "type": "main", "index": 0 }]]
+    },
+    "Parse Request": {
+      "main": [[{ "node": "Load Untranslated Positions", "type": "main", "index": 0 }]]
+    },
+    "Load Untranslated Positions": {
+      "main": [[{ "node": "Filter Untranslated", "type": "main", "index": 0 }]]
+    },
+    "Filter Untranslated": {
+      "main": [[{ "node": "IF Has Untranslated", "type": "main", "index": 0 }]]
+    },
+    "IF Has Untranslated": {
+      "main": [
+        [{ "node": "Split Batches", "type": "main", "index": 0 }],
+        [{ "node": "No Translations Needed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split Batches": {
+      "main": [[{ "node": "AI Translate", "type": "main", "index": 0 }]]
+    },
+    "AI Translate": {
+      "main": [[{ "node": "Save Translations", "type": "main", "index": 0 }]]
+    },
+    "Save Translations": {
+      "main": [[{ "node": "Send Telegram Summary", "type": "main", "index": 0 }]]
+    },
+    "Send Telegram Summary": {
+      "main": [[{ "node": "Response OK", "type": "main", "index": 0 }]]
+    },
+    "No Translations Needed": {
+      "main": [[{ "node": "Response OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  }
+}

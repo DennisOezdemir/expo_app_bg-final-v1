@@ -1,0 +1,110 @@
+{
+  "name": "M4_08_Schedule_Order_Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 7 * * *" }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  p.id AS project_id,\n  p.project_number,\n  p.name AS project_name,\n  sp.trade,\n  sp.start_date,\n  sp.start_date - CURRENT_DATE AS days_until,\n  (SELECT COUNT(*) FROM project_material_needs pmn \n   WHERE pmn.project_id = p.id AND pmn.source = 'auto' AND pmn.status = 'planned'\n   AND pmn.trade = sp.trade\n  ) AS unordered_count,\n  (SELECT COALESCE(SUM(pmn.total_quantity * COALESCE(pmn.unit_price_net, 0)), 0)\n   FROM project_material_needs pmn \n   WHERE pmn.project_id = p.id AND pmn.source = 'auto' AND pmn.status = 'planned'\n   AND pmn.trade = sp.trade\n  ) AS unordered_value\nFROM schedule_phases sp\nJOIN projects p ON p.id = sp.project_id\nWHERE sp.status NOT IN ('cancelled', 'completed')\n  AND sp.start_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '5 days'\n  AND EXISTS (\n    SELECT 1 FROM project_material_needs pmn \n    WHERE pmn.project_id = p.id AND pmn.source = 'auto' AND pmn.status = 'planned'\n    AND pmn.trade = sp.trade\n  )\n  AND p.status NOT IN ('COMPLETED', 'CANCELLED', 'ARCHIVED')\nORDER BY sp.start_date, p.project_number;"
+      },
+      "id": "find-upcoming-unordered",
+      "name": "Find Upcoming Unordered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [220, 300],
+      "credentials": {
+        "postgres": {
+          "id": "c5UWBYGO9RpRGOip",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-results-check",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ]
+        }
+      },
+      "id": "if-has-results",
+      "name": "IF Has Results",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(r => r.json);\n\n// Group by project\nconst byProject = {};\nfor (const r of rows) {\n  if (!byProject[r.project_id]) {\n    byProject[r.project_id] = {\n      project_id: r.project_id,\n      project_number: r.project_number,\n      project_name: r.project_name,\n      phases: []\n    };\n  }\n  byProject[r.project_id].phases.push({\n    trade: r.trade,\n    days_until: Number(r.days_until),\n    start_date: r.start_date,\n    unordered_count: Number(r.unordered_count),\n    unordered_value: Number(r.unordered_value)\n  });\n}\n\nconst projects = Object.values(byProject);\nlet lines = [];\nlines.push('\u23f0 <b>Material-Erinnerung</b>');\nlines.push('');\n\nfor (const proj of projects) {\n  lines.push(`<b>${proj.project_number}</b> \u2013 ${proj.project_name}`);\n  for (const phase of proj.phases) {\n    const urgency = phase.days_until <= 2 ? '\ud83d\udd34' : phase.days_until <= 3 ? '\ud83d\udfe1' : '\ud83d\udfe2';\n    const dateStr = new Date(phase.start_date).toLocaleDateString('de-DE');\n    lines.push(`${urgency} <b>${phase.trade}</b> startet in ${phase.days_until} Tagen (${dateStr})`);\n    lines.push(`   ${phase.unordered_count} Materialien nicht bestellt (~\u20ac${phase.unordered_value.toFixed(0)})`);\n  }\n  \n  const orderUrl = `https://n8n.srv1045913.hstgr.cloud/webhook/m4-07-order-approve?project_id=${proj.project_id}&action=approve`;\n  lines.push(`   \u2192 <a href=\"${orderUrl}\">Jetzt bestellen</a>`);\n  lines.push('');\n}\n\nreturn [{ json: { text: lines.join('\\n'), projectCount: projects.length } }];"
+      },
+      "id": "format-reminder",
+      "name": "Format Reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "send-telegram-reminder",
+      "name": "Send Telegram Reminder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "no-action",
+      "name": "No Action",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [660, 420]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Find Upcoming Unordered", "type": "main", "index": 0 }]]
+    },
+    "Find Upcoming Unordered": {
+      "main": [[{ "node": "IF Has Results", "type": "main", "index": 0 }]]
+    },
+    "IF Has Results": {
+      "main": [
+        [{ "node": "Format Reminder", "type": "main", "index": 0 }],
+        [{ "node": "No Action", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Reminder": {
+      "main": [[{ "node": "Send Telegram Reminder", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "apmJoMCbOchwfqTp",
+    "timezone": "Europe/Berlin"
+  }
+}
