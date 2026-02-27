@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\nconst purchaseInvoiceId = payload.purchase_invoice_id || payload.invoice_id || payload.entity_id || input.body?.entity_id || input.body?.reference_id;\nconst stepKey = 'lexware_push_prepare:' + purchaseInvoiceId;\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId || null,\n    purchase_invoice_id: purchaseInvoiceId,\n    step_key: stepKey\n  }\n};"
+        "jsCode": "const input = $input.first().json;\nconst eventId = input.body?.event_id || input.event_id;\nconst projectId = input.body?.project_id || input.project_id;\nconst payload = input.body?.payload || input.payload || {};\nconst purchaseInvoiceId = payload.purchase_invoice_id || payload.invoice_id || payload.entity_id || input.body?.entity_id || input.body?.reference_id;\n\n// Guard: Stop flow if no valid UUID\nconst uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!purchaseInvoiceId || !uuidRegex.test(purchaseInvoiceId)) {\n  throw new Error('M6_02a: Missing or invalid purchaseInvoiceId: ' + purchaseInvoiceId);\n}\n\nconst stepKey = 'lexware_push_prepare:' + purchaseInvoiceId;\n\nreturn {\n  json: {\n    event_id: eventId,\n    project_id: projectId || null,\n    purchase_invoice_id: purchaseInvoiceId,\n    step_key: stepKey\n  }\n};"
       },
       "id": "e602a001-0002-4000-8000-000000000002",
       "name": "Parse Event Data",
