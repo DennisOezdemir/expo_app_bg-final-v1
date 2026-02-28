@@ -13,17 +13,11 @@ export default function AuthRouter() {
     if (hasNavigated.current) return;
     hasNavigated.current = true;
     try {
-      if (isAuthenticated) {
-        router.replace("/(tabs)" as any);
-      } else if (!splashSeen) {
-        router.replace("/splash" as any);
-      } else {
-        router.replace("/login" as any);
-      }
+      router.replace("/(tabs)" as any);
     } catch {
       hasNavigated.current = false;
     }
-  }, [isAuthenticated, splashSeen, router]);
+  }, [router]);
 
   useEffect(() => {
     if (isLoading || hasNavigated.current) return;
