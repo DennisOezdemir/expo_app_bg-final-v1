@@ -262,6 +262,7 @@ export default function ProfilScreen() {
           {([
             { icon: "business", label: "Firma", sub: "Deine Baul\u00F6wen GmbH", route: "/einstellungen/firma" },
             { icon: "people", label: "Team", sub: "4 Mitarbeiter", route: "/einstellungen/team" },
+            { icon: "people-outline", label: "Kunden", sub: "Stammdaten Auftraggeber", route: "/einstellungen/kunden" },
             { icon: "cube", label: "Lieferanten", sub: "21 Lieferanten", route: "/einstellungen/lieferanten" },
             { icon: "list", label: "Katalog", sub: "WABS \u2022 620 Positionen", route: "/einstellungen/katalog" },
             { icon: "document-text", label: "Briefpapier", sub: "Angebote, Rechnungen, Protokolle", route: "/einstellungen/briefpapier" },

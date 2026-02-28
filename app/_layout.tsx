@@ -44,6 +44,7 @@ function RootLayoutNav() {
       <Stack.Screen name="freigabe/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="bestellung/index" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="einstellungen/firma" options={{ headerShown: false, animation: "slide_from_right" }} />
+      <Stack.Screen name="einstellungen/kunden" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="einstellungen/lieferanten" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="einstellungen/katalog" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="einstellungen/team" options={{ headerShown: false, animation: "slide_from_right" }} />

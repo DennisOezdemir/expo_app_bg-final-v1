@@ -5,10 +5,16 @@ export function getApiUrl(): string {
   let host = process.env.EXPO_PUBLIC_DOMAIN;
 
   if (!host) {
-    throw new Error("EXPO_PUBLIC_DOMAIN is not set");
+    // Lokale Entwicklung: Backend läuft typisch auf Port 5000
+    if (typeof window !== "undefined") {
+      host = `${window.location.hostname}:5000`;
+    } else {
+      throw new Error("EXPO_PUBLIC_DOMAIN is not set");
+    }
   }
 
-  let url = new URL(`https://${host}`);
+  const protocol = host.startsWith("localhost") ? "http" : "https";
+  let url = new URL(`${protocol}://${host}`);
 
   return url.href;
 }
