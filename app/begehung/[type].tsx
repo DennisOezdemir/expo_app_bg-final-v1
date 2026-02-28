@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { supabase } from "@/lib/supabase";
+import { captureAndUploadPhoto } from "@/lib/photo-capture";
 
 type PosCheckStatus = "none" | "confirmed" | "rejected";
 type ZBWorkStatus = "nicht_gestartet" | "geplant" | "in_arbeit";
@@ -306,14 +307,24 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
     });
   }, [finalized]);
 
-  const addPhoto = useCallback((posId: string) => {
+  const addPhoto = useCallback(async (posId: string, roomId: string, roomName: string, posTitle: string) => {
     if (finalized) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setPosStates((prev) => {
-      const current = prev[posId] || { status: "none", photoCount: 0, note: "" };
-      return { ...prev, [posId]: { ...current, photoCount: current.photoCount + 1 } };
+    const result = await captureAndUploadPhoto({
+      projectId,
+      inspectionType: (type as "erstbegehung" | "zwischenbegehung" | "abnahme") || "erstbegehung",
+      sectionId: roomId,
+      positionId: posId,
+      roomName,
+      positionTitle: posTitle,
     });
-  }, [finalized]);
+    if (result) {
+      setPosStates((prev) => {
+        const current = prev[posId] || { status: "none", photoCount: 0, note: "" };
+        return { ...prev, [posId]: { ...current, photoCount: current.photoCount + 1 } };
+      });
+    }
+  }, [finalized, projectId, type]);
 
   const openCatalogModal = useCallback((roomId: string) => {
     if (finalized) return;
@@ -483,7 +494,7 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
                             <View style={s.posTradeBadge}><Text style={s.posTradeText}>{pos.trade}</Text></View>
                           </View>
                         </View>
-                        <Pressable onPress={() => addPhoto(pos.id)} style={({ pressed }) => [s.posPhotoBtn, { opacity: pressed ? 0.7 : 1 }]} testID={`photo-${pos.id}`}>
+                        <Pressable onPress={() => addPhoto(pos.id, room.id, room.name, pos.title)} style={({ pressed }) => [s.posPhotoBtn, { opacity: pressed ? 0.7 : 1 }]} testID={`photo-${pos.id}`}>
                           <Ionicons name="camera" size={18} color={Colors.raw.zinc500} />
                           {ps.photoCount > 0 && <View style={s.photoBadge}><Text style={s.photoBadgeText}>{ps.photoCount}</Text></View>}
                         </Pressable>
@@ -659,14 +670,24 @@ function ZwischenbegehungView({ projectId }: { projectId: string }) {
     });
   }, [finalized]);
 
-  const addPhoto = useCallback((posId: string) => {
+  const addPhoto = useCallback(async (posId: string, roomId: string, roomName: string, posTitle: string) => {
     if (finalized) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setZbStates((prev) => {
-      const current = prev[posId] || { workStatus: "nicht_gestartet", progress: 0, photoCount: 0 };
-      return { ...prev, [posId]: { ...current, photoCount: current.photoCount + 1 } };
+    const result = await captureAndUploadPhoto({
+      projectId,
+      inspectionType: "zwischenbegehung",
+      sectionId: roomId,
+      positionId: posId,
+      roomName,
+      positionTitle: posTitle,
     });
-  }, [finalized]);
+    if (result) {
+      setZbStates((prev) => {
+        const current = prev[posId] || { workStatus: "nicht_gestartet", progress: 0, photoCount: 0 };
+        return { ...prev, [posId]: { ...current, photoCount: current.photoCount + 1 } };
+      });
+    }
+  }, [finalized, projectId]);
 
   const overallProgress = useMemo(() => {
     let totalPositions = 0;
@@ -781,7 +802,7 @@ function ZwischenbegehungView({ projectId }: { projectId: string }) {
                               <View style={s.posTradeBadge}><Text style={s.posTradeText}>{pos.trade}</Text></View>
                             </View>
                           </View>
-                          <Pressable onPress={() => addPhoto(pos.id)} style={({ pressed }) => [s.posPhotoBtn, { opacity: pressed ? 0.7 : 1 }]} testID={`zb-photo-${pos.id}`}>
+                          <Pressable onPress={() => addPhoto(pos.id, room.id, room.name, pos.title)} style={({ pressed }) => [s.posPhotoBtn, { opacity: pressed ? 0.7 : 1 }]} testID={`zb-photo-${pos.id}`}>
                             <Ionicons name="camera" size={18} color={Colors.raw.zinc500} />
                             {zs.photoCount > 0 && <View style={s.photoBadge}><Text style={s.photoBadgeText}>{zs.photoCount}</Text></View>}
                           </Pressable>
@@ -942,11 +963,17 @@ function AbnahmeView({ projectId }: { projectId: string }) {
     });
   }, [finalized]);
 
-  const addPhoto = useCallback(() => {
+  const addPhoto = useCallback(async () => {
     if (finalized) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setPhotos((p) => p + 1);
-  }, [finalized]);
+    const result = await captureAndUploadPhoto({
+      projectId,
+      inspectionType: "abnahme",
+    });
+    if (result) {
+      setPhotos((p) => p + 1);
+    }
+  }, [finalized, projectId]);
 
   const clearSignature = useCallback(() => {
     setSignatureLines([]);

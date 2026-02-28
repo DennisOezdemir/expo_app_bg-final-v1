@@ -7,6 +7,9 @@ import {
   Pressable,
   ActivityIndicator,
   Modal,
+  Image,
+  Dimensions,
+  FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -16,7 +19,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
@@ -453,16 +456,18 @@ export default function ProjectDetailScreen() {
   const [inspections, setInspections] = useState<InspectionData[]>([]);
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [totalCosts, setTotalCosts] = useState<number>(0);
+  const [photoCount, setPhotoCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showBegehungPicker, setShowBegehungPicker] = useState(false);
+  const [showPhotoGallery, setShowPhotoGallery] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setError(null);
 
-    const [projectRes, offersRes, messagesRes, costsRes, inspectionsRes] = await Promise.all([
+    const [projectRes, offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes] = await Promise.all([
       supabase
         .from("projects")
         .select("id, project_number, name, display_name, object_street, object_zip, object_city, object_floor, status, budget_net, progress_percent, planned_start, planned_end, client_id")
@@ -487,6 +492,10 @@ export default function ProjectDetailScreen() {
         .select("id, protocol_type, status, inspection_date, finalized_at, created_at, pdf_storage_path")
         .eq("project_id", id)
         .order("created_at", { ascending: true }),
+      supabase
+        .from("inspection_photos")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", id),
     ]);
 
     if (projectRes.error) {
@@ -499,6 +508,7 @@ export default function ProjectDetailScreen() {
     setOffers(offersRes.data ?? []);
     setMessages(messagesRes.data ?? []);
     setInspections(inspectionsRes.data ?? []);
+    setPhotoCount(photosCountRes.count ?? 0);
 
     const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
     setTotalCosts(costs);
@@ -794,7 +804,7 @@ export default function ProjectDetailScreen() {
         <SectionCard>
           <SectionHeader
             title="Dokumente"
-            badge={offers.length + inspections.length > 0 ? String(offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length) : undefined}
+            badge={(() => { const c = offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length + (photoCount > 0 ? 1 : 0); return c > 0 ? String(c) : undefined; })()}
           />
           {offers.map((offer) => (
             <DocumentRow
@@ -816,7 +826,23 @@ export default function ProjectDetailScreen() {
                 icon="clipboard"
               />
             ))}
-          {offers.length === 0 && inspections.length === 0 && (
+          {photoCount > 0 && (
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowPhotoGallery(true);
+              }}
+              style={({ pressed }) => [docStyles.row, { opacity: pressed ? 0.8 : 1 }]}
+            >
+              <Ionicons name="images" size={20} color={Colors.raw.amber500} />
+              <View style={docStyles.textCol}>
+                <Text style={docStyles.name}>Fotos ({photoCount})</Text>
+                <Text style={docStyles.subtitle}>Begehungsfotos</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.raw.zinc600} />
+            </Pressable>
+          )}
+          {offers.length === 0 && inspections.length === 0 && photoCount === 0 && (
             <Text style={styles.emptySection}>Keine Dokumente</Text>
           )}
         </SectionCard>
@@ -866,9 +892,267 @@ export default function ProjectDetailScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      {showPhotoGallery && (
+        <PhotoGalleryModal
+          projectId={id!}
+          visible={showPhotoGallery}
+          onClose={() => setShowPhotoGallery(false)}
+        />
+      )}
     </View>
   );
 }
+
+// --- Photo Gallery Modal ---
+
+interface InspectionPhoto {
+  id: string;
+  storage_path: string;
+  room_name: string | null;
+  position_title: string | null;
+  inspection_type: string;
+  created_at: string;
+}
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
+const THUMB_SIZE = (SCREEN_WIDTH - 60) / 2;
+
+function PhotoGalleryModal({
+  projectId,
+  visible,
+  onClose,
+}: {
+  projectId: string;
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === "web" ? 67 : insets.top;
+  const [photos, setPhotos] = useState<InspectionPhoto[]>([]);
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [fullscreenUri, setFullscreenUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("inspection_photos")
+        .select("id, storage_path, room_name, position_title, inspection_type, created_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false });
+      if (cancelled || error) { setLoading(false); return; }
+      setPhotos(data || []);
+
+      // Generate signed URLs in batch
+      const paths = (data || []).map((p) => p.storage_path);
+      if (paths.length > 0) {
+        const { data: urlData } = await supabase.storage
+          .from("project-files")
+          .createSignedUrls(paths, 3600);
+        if (!cancelled && urlData) {
+          const urlMap: Record<string, string> = {};
+          urlData.forEach((u, i) => {
+            if (u.signedUrl) urlMap[paths[i]] = u.signedUrl;
+          });
+          setSignedUrls(urlMap);
+        }
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [visible, projectId]);
+
+  const groupedPhotos = useMemo(() => {
+    const groups: Record<string, InspectionPhoto[]> = {};
+    photos.forEach((p) => {
+      const key = p.room_name || "Allgemein";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
+    });
+    return Object.entries(groups);
+  }, [photos]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={pgStyles.container}>
+        <View style={[pgStyles.header, { paddingTop: topInset + 8 }]}>
+          <Text style={pgStyles.title}>Fotos ({photos.length})</Text>
+          <Pressable
+            onPress={onClose}
+            style={({ pressed }) => [pgStyles.closeBtn, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Ionicons name="close" size={24} color={Colors.raw.white} />
+          </Pressable>
+        </View>
+
+        {loading ? (
+          <View style={pgStyles.loadingWrap}>
+            <ActivityIndicator size="small" color={Colors.raw.amber500} />
+          </View>
+        ) : photos.length === 0 ? (
+          <View style={pgStyles.loadingWrap}>
+            <Ionicons name="images-outline" size={48} color={Colors.raw.zinc700} />
+            <Text style={pgStyles.emptyText}>Keine Fotos vorhanden</Text>
+          </View>
+        ) : (
+          <ScrollView style={pgStyles.scroll} contentContainerStyle={pgStyles.scrollContent}>
+            {groupedPhotos.map(([roomName, roomPhotos]) => (
+              <View key={roomName} style={pgStyles.group}>
+                <Text style={pgStyles.groupTitle}>{roomName}</Text>
+                <View style={pgStyles.grid}>
+                  {roomPhotos.map((photo) => {
+                    const uri = signedUrls[photo.storage_path];
+                    return (
+                      <Pressable
+                        key={photo.id}
+                        onPress={() => {
+                          if (uri) {
+                            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setFullscreenUri(uri);
+                          }
+                        }}
+                        style={({ pressed }) => [pgStyles.thumbWrap, { opacity: pressed ? 0.8 : 1 }]}
+                      >
+                        {uri ? (
+                          <Image source={{ uri }} style={pgStyles.thumb} />
+                        ) : (
+                          <View style={[pgStyles.thumb, pgStyles.thumbPlaceholder]}>
+                            <Ionicons name="image-outline" size={24} color={Colors.raw.zinc600} />
+                          </View>
+                        )}
+                        <Text style={pgStyles.thumbLabel} numberOfLines={1}>
+                          {photo.position_title || photo.inspection_type}
+                        </Text>
+                        <Text style={pgStyles.thumbDate}>
+                          {new Date(photo.created_at).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Fullscreen overlay */}
+        {fullscreenUri && (
+          <Modal visible transparent animationType="fade" onRequestClose={() => setFullscreenUri(null)}>
+            <View style={pgStyles.fullscreenBg}>
+              <Pressable style={[pgStyles.fullscreenClose, { top: topInset + 12 }]} onPress={() => setFullscreenUri(null)}>
+                <Ionicons name="close-circle" size={36} color={Colors.raw.white} />
+              </Pressable>
+              <Image source={{ uri: fullscreenUri }} style={pgStyles.fullscreenImg} resizeMode="contain" />
+            </View>
+          </Modal>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+const pgStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.raw.zinc950,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  title: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.raw.white,
+  },
+  closeBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  emptyText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.zinc600,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  group: {
+    marginBottom: 24,
+  },
+  groupTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.raw.zinc300,
+    marginBottom: 12,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  thumbWrap: {
+    width: THUMB_SIZE,
+  },
+  thumb: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.zinc800,
+  },
+  thumbPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  thumbLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.raw.zinc300,
+    marginTop: 6,
+  },
+  thumbDate: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.raw.zinc600,
+    marginTop: 2,
+  },
+  fullscreenBg: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fullscreenClose: {
+    position: "absolute",
+    right: 16,
+    zIndex: 10,
+  },
+  fullscreenImg: {
+    width: "100%",
+    height: "80%",
+  },
+});
 
 const styles = StyleSheet.create({
   container: {

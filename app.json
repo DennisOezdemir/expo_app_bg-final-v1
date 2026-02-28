@@ -37,7 +37,14 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Erlaubt BauGenius Zugriff auf Fotos für die Baudokumentation.",
+          "cameraPermission": "Erlaubt BauGenius die Kamera für Begehungsfotos zu nutzen."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
