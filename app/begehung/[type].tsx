@@ -218,7 +218,7 @@ export default function BegehungScreen() {
       <View style={{ flex: 1, backgroundColor: Colors.raw.zinc950, alignItems: "center", justifyContent: "center", padding: 32 }}>
         <Ionicons name="alert-circle-outline" size={48} color={Colors.raw.zinc600} />
         <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.raw.zinc400, textAlign: "center", marginTop: 16 }}>Bitte von der Projektseite starten</Text>
-        <Pressable onPress={() => router.back()} style={{ marginTop: 20, backgroundColor: Colors.raw.amber500, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 }}>
+        <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={{ marginTop: 20, backgroundColor: Colors.raw.amber500, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 }}>
           <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc950 }}>Zurück</Text>
         </Pressable>
       </View>
@@ -394,7 +394,7 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
     return (
       <View style={s.container}>
         <View style={[s.header, { paddingTop: topInset + 8 }]}>
-          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
           <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>{label}</Text></View>
         </View>
         <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Positionen laden...</Text></View>
@@ -406,7 +406,7 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
     return (
       <View style={s.container}>
         <View style={[s.header, { paddingTop: topInset + 8 }]}>
-          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
           <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>{label}</Text></View>
         </View>
         <View style={s.loadingWrap}>
@@ -420,7 +420,7 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
   return (
     <View style={s.container}>
       <View style={[s.header, { paddingTop: topInset + 8 }]}>
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]} testID="back-button">
+        <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]} testID="back-button">
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={s.headerCenter}>
@@ -705,7 +705,7 @@ function ZwischenbegehungView({ projectId }: { projectId: string }) {
     return (
       <View style={s.container}>
         <View style={[s.header, { paddingTop: topInset + 8 }]}>
-          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
           <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>Zwischenbegehung</Text></View>
         </View>
         <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Positionen laden...</Text></View>
@@ -716,7 +716,7 @@ function ZwischenbegehungView({ projectId }: { projectId: string }) {
   return (
     <View style={s.container}>
       <View style={[s.header, { paddingTop: topInset + 8 }]}>
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]} testID="back-button">
+        <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]} testID="back-button">
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={s.headerCenter}>
@@ -1052,7 +1052,7 @@ function AbnahmeView({ projectId }: { projectId: string }) {
     return (
       <View style={s.container}>
         <View style={[s.header, { paddingTop: topInset + 8 }]}>
-          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
           <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>Abnahme</Text><Text style={s.headerAddress}>{projectInfo?.address || ""}</Text></View>
         </View>
         <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Leistungen laden...</Text></View>
@@ -1064,7 +1064,7 @@ function AbnahmeView({ projectId }: { projectId: string }) {
     return (
       <View style={s.container}>
         <View style={[s.header, { paddingTop: topInset + 8 }]}>
-          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
           <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>Abnahme</Text><Text style={s.headerAddress}>{projectInfo?.address || ""}</Text></View>
         </View>
         <View style={s.loadingWrap}>
@@ -1079,7 +1079,7 @@ function AbnahmeView({ projectId }: { projectId: string }) {
   return (
     <View style={s.container}>
       <View style={[s.header, { paddingTop: topInset + 8 }]}>
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]} testID="back-button">
+        <Pressable onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]} testID="back-button">
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={s.headerCenter}>
