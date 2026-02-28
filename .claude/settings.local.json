@@ -5,7 +5,9 @@
       "Bash(xargs:*)",
       "Bash(wc:*)",
       "Bash(supabase:*)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(npm install:*)",
+      "mcp__claude_ai_Supabase__list_tables"
     ]
   }
 }

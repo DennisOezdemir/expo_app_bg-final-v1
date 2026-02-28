@@ -20,6 +20,7 @@ import { useState, useEffect, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { getApiUrl } from "@/lib/query-client";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -49,9 +50,10 @@ interface OfferData {
 
 interface InspectionData {
   id: string;
-  protocol_type: string;
-  inspection_date: string;
-  status: string | null;
+  type: string;
+  finalized: boolean;
+  finalized_at: string | null;
+  created_at: string;
 }
 
 interface MessageData {
@@ -213,19 +215,15 @@ const BEGEHUNG_CONFIG: Record<BegehungStatus, { dot: string; label: string }> = 
   offen: { dot: Colors.raw.zinc600, label: "nicht geplant" },
 };
 
-function mapInspectionStatus(dbStatus: string | null): BegehungStatus {
-  if (!dbStatus) return "offen";
-  const s = dbStatus.toLowerCase();
-  if (s === "completed" || s === "finalized") return "erledigt";
-  if (s === "scheduled" || s === "in_progress" || s === "draft") return "geplant";
-  return "offen";
+function mapInspectionFinalized(finalized: boolean): BegehungStatus {
+  return finalized ? "erledigt" : "geplant";
 }
 
-function mapProtocolType(type: string): string {
+function mapBegehungType(type: string): string {
   const map: Record<string, string> = {
-    initial: "Erstbegehung",
-    interim: "Zwischenbegehung",
-    final: "Abnahme",
+    erstbegehung: "Erstbegehung",
+    zwischenbegehung: "Zwischenbegehung",
+    abnahme: "Abnahme",
   };
   return map[type.toLowerCase()] || type;
 }
@@ -384,7 +382,7 @@ export default function ProjectDetailScreen() {
     setLoading(true);
     setError(null);
 
-    const [projectRes, offersRes, inspectionsRes, messagesRes, costsRes] = await Promise.all([
+    const [projectRes, offersRes, messagesRes, costsRes] = await Promise.all([
       supabase
         .from("projects")
         .select("id, project_number, name, display_name, object_street, object_zip, object_city, object_floor, status, budget_net, progress_percent, planned_start, planned_end, client_id")
@@ -394,11 +392,6 @@ export default function ProjectDetailScreen() {
         .from("offers")
         .select("total_net, status")
         .eq("project_id", id),
-      supabase
-        .from("inspection_protocols")
-        .select("id, protocol_type, inspection_date, status")
-        .eq("project_id", id)
-        .order("inspection_date", { ascending: true }),
       supabase
         .from("project_messages")
         .select("id, message_type, text, sender_id, created_at")
@@ -419,8 +412,17 @@ export default function ProjectDetailScreen() {
 
     setProject(projectRes.data);
     setOffers(offersRes.data ?? []);
-    setInspections(inspectionsRes.data ?? []);
     setMessages(messagesRes.data ?? []);
+
+    const projectNumber = projectRes.data.project_number || id;
+    try {
+      const bgUrl = new URL(`/api/begehungen/${projectNumber}`, getApiUrl());
+      const bgResp = await fetch(bgUrl.toString());
+      const bgData = bgResp.ok ? await bgResp.json() : [];
+      setInspections(Array.isArray(bgData) ? bgData : []);
+    } catch {
+      setInspections([]);
+    }
 
     const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
     setTotalCosts(costs);
@@ -579,14 +581,23 @@ export default function ProjectDetailScreen() {
 
         {/* Begehungen */}
         <SectionCard>
-          <SectionHeader title="Begehungen" rightIcon="add-circle-outline" onRightPress={() => setShowBegehungPicker(true)} />
+          <View style={shStyles.row}>
+            <Text style={shStyles.title}>Begehungen</Text>
+            <Pressable
+              onPress={() => setShowBegehungPicker(true)}
+              style={({ pressed }) => [styles.begehungAddBtn, { opacity: pressed ? 0.7 : 1 }]}
+              testID="begehung-add-btn"
+            >
+              <Ionicons name="add" size={18} color={Colors.raw.zinc950} />
+            </Pressable>
+          </View>
           {inspections.length > 0 ? (
             inspections.map((ins) => (
               <BegehungRow
                 key={ins.id}
-                name={mapProtocolType(ins.protocol_type)}
-                status={mapInspectionStatus(ins.status)}
-                date={formatDate(ins.inspection_date)}
+                name={mapBegehungType(ins.type)}
+                status={mapInspectionFinalized(ins.finalized)}
+                date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.created_at)}
               />
             ))
           ) : (
@@ -649,7 +660,7 @@ export default function ProjectDetailScreen() {
         <SectionCard>
           <SectionHeader title="Dokumente" />
           {offers.length > 0 && <DocumentRow name="Angebot" />}
-          {inspections.some((i) => i.status === "completed" || i.status === "finalized") && (
+          {inspections.some((i) => i.finalized) && (
             <DocumentRow name="Protokoll Begehung" />
           )}
           {(offers.length === 0 && inspections.length === 0) && (
@@ -821,6 +832,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.raw.zinc600,
     paddingVertical: 12,
+  },
+  begehungAddBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: Colors.raw.amber500,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
   },
   msgRow: {
     flexDirection: "row",
