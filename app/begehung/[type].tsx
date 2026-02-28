@@ -171,16 +171,16 @@ async function fetchRoomsForProject(projectId: string): Promise<BegehungRoom[]> 
   // 2. Load sections (rooms)
   const { data: sections, error: secError } = await supabase
     .from("offer_sections")
-    .select("id, title, sort_order")
+    .select("id, title, section_number")
     .eq("offer_id", offerData.id)
-    .order("sort_order", { ascending: true });
+    .order("section_number", { ascending: true });
   if (secError || !sections || sections.length === 0) return [];
 
   // 3. Load positions
   const sectionIds = sections.map((s) => s.id);
   const { data: positions, error: posError } = await supabase
     .from("offer_positions")
-    .select("id, section_id, pos_nr, title, description, quantity, unit, unit_price, trade_type, sort_order")
+    .select("id, section_id, position_number, title, description, quantity, unit, unit_price, trade, sort_order")
     .in("section_id", sectionIds)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
@@ -199,13 +199,13 @@ async function fetchRoomsForProject(projectId: string): Promise<BegehungRoom[]> 
     name: sec.title,
     positions: (posBySection[sec.id] || []).map((pos) => ({
       id: pos.id,
-      nr: pos.pos_nr || "",
+      nr: String(pos.position_number ?? ""),
       title: pos.title || "",
       desc: pos.description || "",
       qty: Number(pos.quantity) || 0,
       unit: pos.unit || "Stk",
       price: Number(pos.unit_price) || 0,
-      trade: pos.trade_type || "Sonstiges",
+      trade: pos.trade || "Sonstiges",
     })),
   }));
 }
