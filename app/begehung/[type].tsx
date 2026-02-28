@@ -9,6 +9,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -16,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useState, useCallback, useMemo } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { apiRequest } from "@/lib/query-client";
 
 type PosCheckStatus = "none" | "confirmed" | "rejected";
 
@@ -184,6 +186,10 @@ export default function BegehungScreen() {
   const [freePrice, setFreePrice] = useState("");
   const [freeTrade, setFreeTrade] = useState("");
 
+  const [finalized, setFinalized] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+
   const toggleRoom = useCallback((roomId: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setExpandedRooms((prev) => {
@@ -199,6 +205,7 @@ export default function BegehungScreen() {
   }, [posStates]);
 
   const togglePosStatus = useCallback((posId: string, newStatus: PosCheckStatus) => {
+    if (finalized) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPosStates((prev) => {
       const current = prev[posId] || { status: "none", photoCount: 0, note: "" };
@@ -210,9 +217,10 @@ export default function BegehungScreen() {
         },
       };
     });
-  }, []);
+  }, [finalized]);
 
   const addPhoto = useCallback((posId: string) => {
+    if (finalized) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPosStates((prev) => {
       const current = prev[posId] || { status: "none", photoCount: 0, note: "" };
@@ -227,6 +235,7 @@ export default function BegehungScreen() {
   }, []);
 
   const openCatalogModal = useCallback((roomId: string) => {
+    if (finalized) return;
     setCatalogModalRoom(roomId);
     setCatalogStep("pick");
     setCatalogSearch("");
@@ -283,11 +292,75 @@ export default function BegehungScreen() {
   }, [catalogModalRoom, freeTitle, freeDesc, freeQty, freeUnit, freePrice, freeTrade, closeCatalogModal]);
 
   const removeMehrleistung = useCallback((roomId: string, itemId: string) => {
+    if (finalized) return;
     setMehrleistungen((prev) => ({
       ...prev,
       [roomId]: (prev[roomId] || []).filter((m) => m.id !== itemId),
     }));
-  }, []);
+  }, [finalized]);
+
+  const handleFinalize = useCallback(async () => {
+    setFinalizing(true);
+    try {
+      const positions: any[] = [];
+      INITIAL_ROOMS.forEach((room) => {
+        room.positions.forEach((pos) => {
+          const ps = posStates[pos.id] || { status: "none", photoCount: 0, note: "" };
+          positions.push({
+            room_id: room.id,
+            room_name: room.name,
+            position_id: pos.id,
+            position_nr: pos.nr,
+            title: pos.title,
+            description: pos.desc,
+            qty: pos.qty,
+            unit: pos.unit,
+            price: pos.price,
+            trade: pos.trade,
+            status: ps.status,
+            photo_count: ps.photoCount,
+            note: ps.note,
+            is_mehrleistung: false,
+            from_catalog: false,
+          });
+        });
+        const roomMehr = mehrleistungen[room.id] || [];
+        roomMehr.forEach((ml) => {
+          positions.push({
+            room_id: room.id,
+            room_name: room.name,
+            position_id: ml.id,
+            position_nr: "ML",
+            title: ml.title,
+            description: ml.desc,
+            qty: ml.qty,
+            unit: ml.unit,
+            price: ml.price,
+            trade: ml.trade,
+            status: "confirmed",
+            photo_count: 0,
+            note: "",
+            is_mehrleistung: true,
+            from_catalog: ml.fromCatalog,
+          });
+        });
+      });
+
+      await apiRequest("POST", "/api/begehungen", {
+        project_id: "BL-2026-023",
+        type: type || "erstbegehung",
+        positions,
+      });
+
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setFinalized(true);
+      setShowFinalizeConfirm(false);
+    } catch (err: any) {
+      Alert.alert("Fehler", "Festschreiben fehlgeschlagen: " + (err.message || "Unbekannter Fehler"));
+    } finally {
+      setFinalizing(false);
+    }
+  }, [posStates, mehrleistungen, type]);
 
   const filteredCatalogEntries = useMemo(() => {
     const catalog = CATALOGS[selectedCatalog];
@@ -499,19 +572,42 @@ export default function BegehungScreen() {
                     </View>
                   )}
 
-                  <Pressable
-                    style={({ pressed }) => [s.addMehrBtn, { opacity: pressed ? 0.7 : 1 }]}
-                    onPress={() => openCatalogModal(room.id)}
-                    testID={`add-mehr-${room.id}`}
-                  >
-                    <Ionicons name="add" size={18} color={Colors.raw.amber500} />
-                    <Text style={s.addMehrText}>Mehrleistung hinzuf{"\u00FC"}gen</Text>
-                  </Pressable>
+                  {!finalized && (
+                    <Pressable
+                      style={({ pressed }) => [s.addMehrBtn, { opacity: pressed ? 0.7 : 1 }]}
+                      onPress={() => openCatalogModal(room.id)}
+                      testID={`add-mehr-${room.id}`}
+                    >
+                      <Ionicons name="add" size={18} color={Colors.raw.amber500} />
+                      <Text style={s.addMehrText}>Mehrleistung hinzuf{"\u00FC"}gen</Text>
+                    </Pressable>
+                  )}
                 </View>
               )}
             </View>
           );
         })}
+
+        {finalized ? (
+          <View style={s.finalizedBanner}>
+            <Ionicons name="lock-closed" size={20} color={Colors.raw.emerald500} />
+            <View style={s.finalizedBannerText}>
+              <Text style={s.finalizedTitle}>Festgeschrieben</Text>
+              <Text style={s.finalizedDesc}>
+                Die Leistungen wurden erfasst und k{"\u00F6"}nnen nicht mehr ge{"\u00E4"}ndert werden.
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [s.finalizeBtn, { opacity: pressed ? 0.85 : 1 }]}
+            onPress={() => setShowFinalizeConfirm(true)}
+            testID="finalize-button"
+          >
+            <Ionicons name="lock-closed" size={18} color={Colors.raw.zinc950} />
+            <Text style={s.finalizeBtnText}>Leistungen festschreiben</Text>
+          </Pressable>
+        )}
       </ScrollView>
 
       <Modal
@@ -720,6 +816,47 @@ export default function BegehungScreen() {
             )}
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={showFinalizeConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFinalizeConfirm(false)}
+      >
+        <Pressable style={s.confirmOverlay} onPress={() => setShowFinalizeConfirm(false)}>
+          <View style={s.confirmCard}>
+            <View style={s.confirmIconWrap}>
+              <Ionicons name="lock-closed" size={28} color={Colors.raw.amber500} />
+            </View>
+            <Text style={s.confirmTitle}>Leistungen festschreiben?</Text>
+            <Text style={s.confirmDesc}>
+              Nach dem Festschreiben k{"\u00F6"}nnen die erfassten Leistungen nicht mehr ge{"\u00E4"}ndert werden.
+              {"\n\n"}
+              {summary.confirmed} best{"\u00E4"}tigt {"\u00B7"} {summary.rejected} abgelehnt {"\u00B7"} {summary.unchecked} offen
+            </Text>
+            <View style={s.confirmBtns}>
+              <Pressable
+                style={({ pressed }) => [s.confirmCancelBtn, { opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => setShowFinalizeConfirm(false)}
+              >
+                <Text style={s.confirmCancelText}>Abbrechen</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [s.confirmSubmitBtn, { opacity: pressed ? 0.85 : 1 }]}
+                onPress={handleFinalize}
+                disabled={finalizing}
+                testID="confirm-finalize"
+              >
+                {finalizing ? (
+                  <ActivityIndicator size="small" color={Colors.raw.zinc950} />
+                ) : (
+                  <Text style={s.confirmSubmitText}>Festschreiben</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -1216,6 +1353,116 @@ const s = StyleSheet.create({
     opacity: 0.4,
   },
   freeSubmitText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.raw.zinc950,
+  },
+  finalizeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 14,
+    paddingVertical: 16,
+    marginTop: 20,
+    marginHorizontal: 4,
+  },
+  finalizeBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.raw.zinc950,
+  },
+  finalizedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: Colors.raw.emerald500 + "14",
+    borderWidth: 1,
+    borderColor: Colors.raw.emerald500 + "30",
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 20,
+    marginHorizontal: 4,
+  },
+  finalizedBannerText: {
+    flex: 1,
+  },
+  finalizedTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.raw.emerald500,
+  },
+  finalizedDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc400,
+    marginTop: 3,
+  },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  confirmCard: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+  },
+  confirmIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: Colors.raw.amber500 + "14",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  confirmTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.raw.white,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  confirmDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.raw.zinc400,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  confirmBtns: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  confirmCancelBtn: {
+    flex: 1,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  confirmCancelText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.zinc400,
+  },
+  confirmSubmitBtn: {
+    flex: 1,
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  confirmSubmitText: {
     fontFamily: "Inter_700Bold",
     fontSize: 15,
     color: Colors.raw.zinc950,
