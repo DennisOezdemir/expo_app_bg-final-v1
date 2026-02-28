@@ -360,17 +360,59 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
   const handleFinalize = useCallback(async () => {
     setFinalizing(true);
     try {
-      const positions: any[] = [];
+      // 1. Create inspection_protocol
+      const totalItems = rooms.reduce((sum, r) => sum + r.positions.length, 0);
+      const completedItems = rooms.reduce((sum, r) => sum + r.positions.filter((p) => (posStates[p.id]?.status || "none") !== "none").length, 0);
+      const itemsWithIssues = rooms.reduce((sum, r) => sum + r.positions.filter((p) => posStates[p.id]?.status === "rejected").length, 0);
+
+      const { data: protocol, error: protoErr } = await supabase
+        .from("inspection_protocols")
+        .insert({
+          project_id: projectId,
+          protocol_type: type || "erstbegehung",
+          inspection_date: new Date().toISOString().split("T")[0],
+          status: "completed",
+          finalized_at: new Date().toISOString(),
+          total_items: totalItems,
+          completed_items: completedItems,
+          items_with_issues: itemsWithIssues,
+        })
+        .select("id")
+        .single();
+      if (protoErr) throw protoErr;
+
+      // 2. Create inspection_protocol_items
+      let sortOrder = 0;
+      const items: any[] = [];
       rooms.forEach((room) => {
         room.positions.forEach((pos) => {
           const ps = posStates[pos.id] || { status: "none", photoCount: 0, note: "" };
-          positions.push({ room_id: room.id, room_name: room.name, position_id: pos.id, position_nr: pos.nr, title: pos.title, description: pos.desc, qty: pos.qty, unit: pos.unit, price: pos.price, trade: pos.trade, status: ps.status, photo_count: ps.photoCount, note: ps.note, is_mehrleistung: false, from_catalog: false });
+          items.push({
+            protocol_id: protocol.id,
+            offer_position_id: pos.id,
+            sort_order: sortOrder++,
+            status: ps.status === "confirmed" ? "confirmed" : ps.status === "rejected" ? "rejected" : "pending",
+            notes: ps.note || null,
+            has_defect: ps.status === "rejected",
+            is_additional: false,
+          });
         });
         (mehrleistungen[room.id] || []).forEach((ml) => {
-          positions.push({ room_id: room.id, room_name: room.name, position_id: ml.id, position_nr: "ML", title: ml.title, description: ml.desc, qty: ml.qty, unit: ml.unit, price: ml.price, trade: ml.trade, status: "confirmed", photo_count: 0, note: "", is_mehrleistung: true, from_catalog: ml.fromCatalog });
+          items.push({
+            protocol_id: protocol.id,
+            sort_order: sortOrder++,
+            status: "confirmed",
+            is_additional: true,
+            catalog_position_nr: ml.fromCatalog ? "ML" : null,
+            notes: `${ml.title}: ${ml.desc} (${ml.qty} ${ml.unit} × ${ml.price})`,
+          });
         });
       });
-      await apiRequest("POST", "/api/begehungen", { project_id: projectInfo?.projectNumber || projectId, type, positions });
+      if (items.length > 0) {
+        const { error: itemsErr } = await supabase.from("inspection_protocol_items").insert(items);
+        if (itemsErr) throw itemsErr;
+      }
+
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
       setShowFinalizeConfirm(false);
@@ -379,7 +421,7 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
     } finally {
       setFinalizing(false);
     }
-  }, [rooms, posStates, mehrleistungen, type, projectInfo, projectId]);
+  }, [rooms, posStates, mehrleistungen, type, projectId]);
 
   const filteredCatalogEntries = useMemo(() => {
     const catalog = CATALOGS[selectedCatalog];
@@ -704,14 +746,45 @@ function ZwischenbegehungView({ projectId }: { projectId: string }) {
   const handleFinalize = useCallback(async () => {
     setFinalizing(true);
     try {
-      const positions: any[] = [];
+      const totalItems = rooms.reduce((sum, r) => sum + r.positions.length, 0);
+      const completedItems = rooms.reduce((sum, r) => sum + r.positions.filter((p) => (zbStates[p.id]?.progress || 0) > 0).length, 0);
+
+      const { data: protocol, error: protoErr } = await supabase
+        .from("inspection_protocols")
+        .insert({
+          project_id: projectId,
+          protocol_type: "zwischenbegehung",
+          inspection_date: new Date().toISOString().split("T")[0],
+          status: "completed",
+          finalized_at: new Date().toISOString(),
+          total_items: totalItems,
+          completed_items: completedItems,
+        })
+        .select("id")
+        .single();
+      if (protoErr) throw protoErr;
+
+      let sortOrder = 0;
+      const items: any[] = [];
       rooms.forEach((room) => {
         room.positions.forEach((pos) => {
           const zs = zbStates[pos.id] || { workStatus: "nicht_gestartet", progress: 0, photoCount: 0 };
-          positions.push({ room_id: room.id, room_name: room.name, position_id: pos.id, position_nr: pos.nr, title: pos.title, description: pos.desc, qty: pos.qty, unit: pos.unit, price: pos.price, trade: pos.trade, status: `${zs.workStatus}:${zs.progress}`, photo_count: zs.photoCount, note: "", is_mehrleistung: false, from_catalog: false });
+          items.push({
+            protocol_id: protocol.id,
+            offer_position_id: pos.id,
+            sort_order: sortOrder++,
+            status: `${zs.workStatus}:${zs.progress}`,
+            progress_percent: zs.progress,
+            notes: null,
+            is_additional: false,
+          });
         });
       });
-      await apiRequest("POST", "/api/begehungen", { project_id: projectInfo?.projectNumber || projectId, type: "zwischenbegehung", positions });
+      if (items.length > 0) {
+        const { error: itemsErr } = await supabase.from("inspection_protocol_items").insert(items);
+        if (itemsErr) throw itemsErr;
+      }
+
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
       setShowFinalizeConfirm(false);
@@ -720,7 +793,7 @@ function ZwischenbegehungView({ projectId }: { projectId: string }) {
     } finally {
       setFinalizing(false);
     }
-  }, [rooms, zbStates, projectInfo, projectId]);
+  }, [rooms, zbStates, projectId]);
 
   if (loadingRooms) {
     return (
@@ -996,24 +1069,37 @@ function AbnahmeView({ projectId }: { projectId: string }) {
   const handleFinalize = useCallback(async () => {
     setFinalizing(true);
     try {
-      const posData = positions.map((pos) => ({
-        room_id: pos.id.startsWith("p") ? "r1" : "r1",
-        room_name: pos.roomName,
-        position_id: pos.id,
-        position_nr: pos.nr,
-        title: pos.title,
-        description: pos.desc,
-        qty: pos.qty,
-        unit: pos.unit,
-        price: pos.price,
-        trade: pos.trade,
+      const totalItems = positions.length;
+      const completedItems = checked.size;
+
+      const { data: protocol, error: protoErr } = await supabase
+        .from("inspection_protocols")
+        .insert({
+          project_id: projectId,
+          protocol_type: "abnahme",
+          inspection_date: new Date().toISOString().split("T")[0],
+          status: "completed",
+          finalized_at: new Date().toISOString(),
+          total_items: totalItems,
+          completed_items: completedItems,
+        })
+        .select("id")
+        .single();
+      if (protoErr) throw protoErr;
+
+      const items = positions.map((pos, i) => ({
+        protocol_id: protocol.id,
+        offer_position_id: pos.id,
+        sort_order: i,
         status: checked.has(pos.id) ? "abgenommen" : "offen",
-        photo_count: 0,
-        note: "",
-        is_mehrleistung: false,
-        from_catalog: false,
+        progress_percent: checked.has(pos.id) ? 100 : 0,
+        is_additional: false,
       }));
-      await apiRequest("POST", "/api/begehungen", { project_id: projectInfo?.projectNumber || projectId, type: "abnahme", positions: posData });
+      if (items.length > 0) {
+        const { error: itemsErr } = await supabase.from("inspection_protocol_items").insert(items);
+        if (itemsErr) throw itemsErr;
+      }
+
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
       setShowFinalizeConfirm(false);
@@ -1022,7 +1108,7 @@ function AbnahmeView({ projectId }: { projectId: string }) {
     } finally {
       setFinalizing(false);
     }
-  }, [positions, checked]);
+  }, [positions, checked, projectId]);
 
   const onSignatureTouch = useCallback((evt: any) => {
     if (finalized) return;
