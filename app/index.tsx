@@ -2,11 +2,9 @@ import { useEffect, useRef, useCallback } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import Colors from "@/constants/colors";
-import { useAuth } from "@/contexts/AuthContext";
 
 export default function AuthRouter() {
   const router = useRouter();
-  const { isAuthenticated, splashSeen, isLoading } = useAuth();
   const hasNavigated = useRef(false);
 
   const navigate = useCallback(() => {
@@ -20,11 +18,10 @@ export default function AuthRouter() {
   }, [router]);
 
   useEffect(() => {
-    if (isLoading || hasNavigated.current) return;
-
-    const timer = setTimeout(navigate, 200);
+    if (hasNavigated.current) return;
+    const timer = setTimeout(navigate, 100);
     return () => clearTimeout(timer);
-  }, [isLoading, navigate]);
+  }, [navigate]);
 
   return (
     <View style={styles.container}>
