@@ -7,6 +7,8 @@ import {
   Pressable,
   Dimensions,
   ActivityIndicator,
+  Alert,
+  Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -31,12 +33,13 @@ interface Trade {
   id: string;
   name: string;
   person: string;
+  personId: string | null;
   startDay: number;
   endDay: number;
   doneDay: number;
   positionen: { done: number; total: number };
   color: string;
-  status: "fertig" | "aktiv" | "geplant" | "verzug";
+  status: "fertig" | "aktiv" | "geplant" | "verzug" | "vorschlag";
   startDate: string;
   endDate: string;
 }
@@ -92,7 +95,8 @@ function getWeekLabel(start: Date, end: Date): string {
   return `${startDay}–${endDay}`;
 }
 
-function phaseStatus(phase: any, projectStart: Date, today: Date): "fertig" | "aktiv" | "geplant" | "verzug" {
+function phaseStatus(phase: any, projectStart: Date, today: Date): "fertig" | "aktiv" | "geplant" | "verzug" | "vorschlag" {
+  if (phase.status === "proposed") return "vorschlag";
   if (phase.status === "completed" || phase.progress >= 100) return "fertig";
   const phaseEnd = new Date(phase.end_date + "T00:00:00");
   const phaseStart = new Date(phase.start_date + "T00:00:00");
@@ -106,6 +110,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   aktiv: { label: "Aktiv", color: Colors.raw.amber500 },
   geplant: { label: "Geplant", color: Colors.raw.zinc500 },
   verzug: { label: "Verzug", color: Colors.raw.rose500 },
+  vorschlag: { label: "Vorschlag", color: Colors.raw.amber500 },
 };
 
 // ── GanttBar ────────────────────────────────────────────────────────
@@ -117,6 +122,7 @@ function GanttBar({
   onPress,
   expanded,
   hasConflict,
+  onChangeMonteur,
 }: {
   trade: Trade;
   totalDays: number;
@@ -124,6 +130,7 @@ function GanttBar({
   onPress: () => void;
   expanded: boolean;
   hasConflict: boolean;
+  onChangeMonteur?: (trade: Trade) => void;
 }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({
@@ -148,9 +155,12 @@ function GanttBar({
 
   const statusCfg = STATUS_LABELS[trade.status];
 
+  const isProposed = trade.status === "vorschlag";
+
   const getBarColor = () => {
     if (trade.status === "fertig") return Colors.raw.emerald500;
     if (trade.status === "verzug") return Colors.raw.rose500;
+    if (isProposed) return Colors.raw.amber500 + "40";
     return Colors.raw.zinc700;
   };
 
@@ -180,8 +190,9 @@ function GanttBar({
                 left: `${barLeft}%`,
                 width: `${barWidth}%`,
                 backgroundColor: getBarColor(),
-                borderWidth: hasConflict ? 2 : 0,
-                borderColor: hasConflict ? Colors.raw.rose500 : "transparent",
+                borderWidth: hasConflict ? 2 : isProposed ? 1.5 : 0,
+                borderColor: hasConflict ? Colors.raw.rose500 : isProposed ? Colors.raw.amber500 + "80" : "transparent",
+                borderStyle: isProposed ? "dashed" : "solid",
               },
             ]}
           >
@@ -217,7 +228,14 @@ function GanttBar({
           <View style={ganttStyles.expandedRow}>
             <View>
               <Text style={ganttStyles.expandedTitle}>{trade.name}</Text>
-              <Text style={ganttStyles.expandedPerson}>{trade.person}</Text>
+              <Pressable
+                onPress={isProposed ? () => onChangeMonteur?.(trade) : undefined}
+                disabled={!isProposed}
+              >
+                <Text style={[ganttStyles.expandedPerson, isProposed && { color: Colors.raw.amber500, textDecorationLine: "underline" }]}>
+                  {trade.person}{isProposed ? " \u270E" : ""}
+                </Text>
+              </Pressable>
             </View>
             <View style={[ganttStyles.statusPill, { backgroundColor: statusCfg.color + "18" }]}>
               <View style={[ganttStyles.statusDot, { backgroundColor: statusCfg.color }]} />
@@ -379,6 +397,8 @@ export default function PlanungDetailScreen() {
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [meilensteine, setMeilensteine] = useState<Meilenstein[]>([]);
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
+  const [monteurPickerTrade, setMonteurPickerTrade] = useState<Trade | null>(null);
+  const [availableMonteure, setAvailableMonteure] = useState<{ id: string; name: string; gewerk: string | null }[]>([]);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -431,11 +451,12 @@ export default function PlanungDetailScreen() {
           id: phase.id,
           name: phase.trade || phase.name,
           person: tm?.name || (phase.is_external ? phase.external_name || "Extern" : "Offen"),
+          personId: phase.assigned_team_member_id || null,
           startDay,
           endDay,
           doneDay,
           positionen: { done: Math.round((phase.progress || 0) / 100 * 1), total: 1 },
-          color: status === "fertig" ? Colors.raw.emerald500 : Colors.raw.zinc700,
+          color: status === "fertig" ? Colors.raw.emerald500 : status === "vorschlag" ? Colors.raw.amber500 : Colors.raw.zinc700,
           status,
           startDate: phase.start_date,
           endDate: phase.end_date,
@@ -603,6 +624,67 @@ export default function PlanungDetailScreen() {
     const idx = weeks.findIndex((w) => currentDay >= w.startDay && currentDay <= w.endDay);
     if (idx >= 0) setSelectedWeek(idx);
   }, [weeks, currentDay]);
+
+  const hasProposed = useMemo(() => trades.some((t) => t.status === "vorschlag"), [trades]);
+
+  const handleConfirmAll = useCallback(async () => {
+    if (!project) return;
+    const { data, error } = await supabase.rpc("confirm_proposed_phases", {
+      p_project_id: project.id,
+    });
+    if (error) {
+      Alert.alert("Fehler", error.message);
+      return;
+    }
+    const result = data as any;
+    if (!result?.success) {
+      Alert.alert("Fehler", result?.error || "Unbekannter Fehler");
+      return;
+    }
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    fetchData();
+  }, [project, fetchData]);
+
+  const handleDiscardAll = useCallback(() => {
+    if (!project) return;
+    Alert.alert("Vorschläge verwerfen", "Alle Vorschläge für dieses Projekt löschen?", [
+      { text: "Abbrechen", style: "cancel" },
+      {
+        text: "Verwerfen",
+        style: "destructive",
+        onPress: async () => {
+          await supabase.rpc("discard_proposed_phases", { p_project_id: project.id });
+          fetchData();
+        },
+      },
+    ]);
+  }, [project, fetchData]);
+
+  const openMonteurPicker = useCallback(async (trade: Trade) => {
+    const { data } = await supabase
+      .from("team_members")
+      .select("id, name, gewerk")
+      .eq("active", true)
+      .eq("role", "Monteur")
+      .order("name");
+    setAvailableMonteure(data || []);
+    setMonteurPickerTrade(trade);
+  }, []);
+
+  const handleAssignMonteur = useCallback(async (phaseId: string, memberId: string) => {
+    const { error } = await supabase
+      .from("schedule_phases")
+      .update({ assigned_team_member_id: memberId, updated_at: new Date().toISOString() })
+      .eq("id", phaseId);
+    if (error) {
+      Alert.alert("Fehler", error.message);
+      return;
+    }
+    setMonteurPickerTrade(null);
+    fetchData();
+  }, [fetchData]);
 
   const DAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr"];
 
@@ -778,6 +860,7 @@ export default function PlanungDetailScreen() {
                   }
                   expanded={expandedTrade === trade.id}
                   hasConflict={conflictTradeIds.has(trade.id)}
+                  onChangeMonteur={openMonteurPicker}
                 />
               ))}
             </View>
@@ -799,6 +882,10 @@ export default function PlanungDetailScreen() {
                 <View style={[styles.legendDot, { backgroundColor: Colors.raw.rose500 }]} />
                 <Text style={styles.legendText}>Verzug</Text>
               </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: Colors.raw.amber500 + "40", borderWidth: 1.5, borderColor: Colors.raw.amber500 + "80" }]} />
+                <Text style={styles.legendText}>Vorschlag</Text>
+              </View>
             </View>
           </View>
         ) : (
@@ -810,6 +897,26 @@ export default function PlanungDetailScreen() {
             <Text style={{ color: Colors.raw.zinc600, fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 4 }}>
               Erstbegehung abschliessen um Zeitplan zu generieren
             </Text>
+          </View>
+        )}
+
+        {/* Proposed action buttons */}
+        {hasProposed && (
+          <View style={styles.proposedActions}>
+            <Pressable
+              onPress={handleDiscardAll}
+              style={({ pressed }) => [styles.proposedBtn, styles.proposedBtnDiscard, { opacity: pressed ? 0.8 : 1 }]}
+            >
+              <Ionicons name="close" size={16} color={Colors.raw.zinc300} />
+              <Text style={styles.proposedBtnDiscardText}>Verwerfen</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleConfirmAll}
+              style={({ pressed }) => [styles.proposedBtn, styles.proposedBtnConfirm, { opacity: pressed ? 0.9 : 1 }]}
+            >
+              <Ionicons name="checkmark" size={16} color="#000" />
+              <Text style={styles.proposedBtnConfirmText}>Alle Freigeben</Text>
+            </Pressable>
           </View>
         )}
 
@@ -910,6 +1017,59 @@ export default function PlanungDetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Monteur-Picker Modal */}
+      <Modal
+        visible={monteurPickerTrade !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMonteurPickerTrade(null)}
+      >
+        <Pressable style={styles.pickerOverlay} onPress={() => setMonteurPickerTrade(null)}>
+          <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.pickerHandle} />
+            <Text style={styles.pickerTitle}>
+              Monteur für {monteurPickerTrade?.name || ""}
+            </Text>
+            <ScrollView style={{ maxHeight: 300 }}>
+              {availableMonteure.map((m) => {
+                const isMatch = m.gewerk === monteurPickerTrade?.name;
+                const isCurrent = m.id === monteurPickerTrade?.personId;
+                return (
+                  <Pressable
+                    key={m.id}
+                    onPress={() => {
+                      if (monteurPickerTrade) {
+                        handleAssignMonteur(monteurPickerTrade.id, m.id);
+                      }
+                    }}
+                    style={({ pressed }) => [
+                      styles.pickerRow,
+                      isCurrent && styles.pickerRowCurrent,
+                      { opacity: pressed ? 0.7 : 1 },
+                    ]}
+                  >
+                    <View style={styles.pickerRowLeft}>
+                      <Text style={styles.pickerName}>{m.name}</Text>
+                      {m.gewerk && (
+                        <Text style={[styles.pickerGewerk, isMatch && { color: Colors.raw.emerald500 }]}>
+                          {m.gewerk}
+                        </Text>
+                      )}
+                    </View>
+                    {isCurrent && <Ionicons name="checkmark" size={20} color={Colors.raw.amber500} />}
+                    {!isCurrent && isMatch && (
+                      <View style={styles.pickerMatchBadge}>
+                        <Text style={styles.pickerMatchText}>Match</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1250,5 +1410,101 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.raw.zinc500,
+  },
+  proposedActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 16,
+  },
+  proposedBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 14,
+    paddingVertical: 14,
+    minHeight: 48,
+  },
+  proposedBtnDiscard: {
+    backgroundColor: Colors.raw.zinc800,
+  },
+  proposedBtnDiscardText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.zinc300,
+  },
+  proposedBtnConfirm: {
+    backgroundColor: Colors.raw.emerald500,
+  },
+  proposedBtnConfirmText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#000",
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  pickerSheet: {
+    backgroundColor: Colors.raw.zinc900,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    padding: 20,
+    paddingBottom: 36,
+  },
+  pickerHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.raw.zinc700,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  pickerTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.raw.white,
+    marginBottom: 16,
+  },
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  pickerRowCurrent: {
+    backgroundColor: Colors.raw.amber500 + "18",
+  },
+  pickerRowLeft: {
+    flex: 1,
+  },
+  pickerName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.white,
+  },
+  pickerGewerk: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc400,
+    marginTop: 2,
+  },
+  pickerMatchBadge: {
+    backgroundColor: Colors.raw.emerald500 + "20",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  pickerMatchText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.raw.emerald500,
   },
 });

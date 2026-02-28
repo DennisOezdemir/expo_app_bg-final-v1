@@ -8,6 +8,7 @@ import {
   Dimensions,
   Modal,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -47,6 +48,7 @@ interface Assignment {
   addressDetail: string;
   color: string;
   confirmed: boolean;
+  isProposed: boolean;
   positionen: string[];
 }
 
@@ -59,6 +61,7 @@ interface ConflictInfo {
 
 interface UnassignedProject {
   id: string;
+  projectId: string;
   name: string;
   note: string;
 }
@@ -167,6 +170,8 @@ function phaseToAssignments(
   const street = proj.object_street || proj.name || "";
   const shortName = street.length > 14 ? street.slice(0, 12) + ".." : street;
 
+  const isProposed = phase.status === "proposed";
+
   return {
     id: phase.id,
     person: tm?.name || (phase.is_external ? phase.external_name || "Extern" : "Offen"),
@@ -178,7 +183,8 @@ function phaseToAssignments(
     address: street,
     addressDetail: phase.trade || "",
     color: TRADE_COLORS[phase.trade] || Colors.raw.zinc500,
-    confirmed: phase.status !== "planned",
+    confirmed: phase.status !== "planned" && !isProposed,
+    isProposed,
     positionen: [`${phase.trade}: ${phase.estimated_qty || "?"} Einheiten`],
   };
 }
@@ -198,6 +204,7 @@ function AssignmentBar({
 
   const isStart = dayIndex === 0 || !assignment.days[dayIndex - 1];
   const isEnd = dayIndex === 4 || !assignment.days[dayIndex + 1];
+  const isProposed = assignment.isProposed;
 
   return (
     <Pressable
@@ -205,18 +212,22 @@ function AssignmentBar({
       style={({ pressed }) => [
         barStyles.bar,
         {
-          backgroundColor: assignment.color + (assignment.confirmed ? "CC" : "50"),
+          backgroundColor: isProposed
+            ? Colors.raw.amber500 + "30"
+            : assignment.color + (assignment.confirmed ? "CC" : "50"),
           borderTopLeftRadius: isStart ? 6 : 0,
           borderBottomLeftRadius: isStart ? 6 : 0,
           borderTopRightRadius: isEnd ? 6 : 0,
           borderBottomRightRadius: isEnd ? 6 : 0,
           opacity: pressed ? 0.75 : 1,
+          borderWidth: isProposed ? 1.5 : 0,
+          borderColor: isProposed ? Colors.raw.amber500 + "80" : "transparent",
         },
       ]}
     >
       {isStart && (
-        <Text style={barStyles.barLabel} numberOfLines={1}>
-          {assignment.projectShort}
+        <Text style={[barStyles.barLabel, isProposed && { color: Colors.raw.amber500 }]} numberOfLines={1}>
+          {isProposed ? "\u26A1 " : ""}{assignment.projectShort}
         </Text>
       )}
     </Pressable>
@@ -242,11 +253,15 @@ function DetailSheet({
   assignment,
   weekDays,
   onClose,
+  onConfirm,
+  onDiscard,
 }: {
   visible: boolean;
   assignment: Assignment | null;
   weekDays: WeekDay[];
   onClose: () => void;
+  onConfirm?: (projectId: string) => void;
+  onDiscard?: (projectId: string) => void;
 }) {
   if (!assignment) return null;
 
@@ -298,25 +313,50 @@ function DetailSheet({
             </View>
           )}
 
-          <View style={dsStyles.actions}>
-            <Pressable
-              onPress={onClose}
-              style={({ pressed }) => [dsStyles.actionBtn, dsStyles.actionSecondary, { opacity: pressed ? 0.8 : 1 }]}
-            >
-              <Feather name="move" size={16} color={Colors.raw.zinc300} />
-              <Text style={dsStyles.actionSecondaryText}>Umplanen</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                onClose();
-                router.push(`/planung/${assignment.projectId}` as any);
-              }}
-              style={({ pressed }) => [dsStyles.actionBtn, dsStyles.actionPrimary, { opacity: pressed ? 0.9 : 1 }]}
-            >
-              <Text style={dsStyles.actionPrimaryText}>Details</Text>
-              <Ionicons name="arrow-forward" size={16} color="#000" />
-            </Pressable>
-          </View>
+          {assignment.isProposed ? (
+            <View style={dsStyles.actions}>
+              <Pressable
+                onPress={() => {
+                  onDiscard?.(assignment.projectId);
+                  onClose();
+                }}
+                style={({ pressed }) => [dsStyles.actionBtn, { backgroundColor: Colors.raw.zinc800, opacity: pressed ? 0.8 : 1 }]}
+              >
+                <Ionicons name="close" size={16} color={Colors.raw.zinc300} />
+                <Text style={dsStyles.actionSecondaryText}>Verwerfen</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  onConfirm?.(assignment.projectId);
+                  onClose();
+                }}
+                style={({ pressed }) => [dsStyles.actionBtn, { backgroundColor: Colors.raw.emerald500, opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Ionicons name="checkmark" size={16} color="#000" />
+                <Text style={[dsStyles.actionPrimaryText, { color: "#000" }]}>Freigeben</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={dsStyles.actions}>
+              <Pressable
+                onPress={onClose}
+                style={({ pressed }) => [dsStyles.actionBtn, dsStyles.actionSecondary, { opacity: pressed ? 0.8 : 1 }]}
+              >
+                <Feather name="move" size={16} color={Colors.raw.zinc300} />
+                <Text style={dsStyles.actionSecondaryText}>Umplanen</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  onClose();
+                  router.push(`/planung/${assignment.projectId}` as any);
+                }}
+                style={({ pressed }) => [dsStyles.actionBtn, dsStyles.actionPrimary, { opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Text style={dsStyles.actionPrimaryText}>Details</Text>
+                <Ionicons name="arrow-forward" size={16} color="#000" />
+              </Pressable>
+            </View>
+          )}
         </Pressable>
       </Pressable>
     </Modal>
@@ -799,6 +839,94 @@ const wgStyles = StyleSheet.create({
   },
 });
 
+function ProposedBanner({
+  count,
+  onConfirmAll,
+  onDiscardAll,
+}: {
+  count: number;
+  onConfirmAll: () => void;
+  onDiscardAll: () => void;
+}) {
+  if (count === 0) return null;
+  return (
+    <View style={pbStyles.banner}>
+      <View style={pbStyles.left}>
+        <Ionicons name="flash" size={16} color={Colors.raw.amber500} />
+        <Text style={pbStyles.text}>
+          {count} Vorschläge warten auf Freigabe
+        </Text>
+      </View>
+      <View style={pbStyles.actions}>
+        <Pressable
+          onPress={onDiscardAll}
+          style={({ pressed }) => [pbStyles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Text style={pbStyles.discardText}>Verwerfen</Text>
+        </Pressable>
+        <Pressable
+          onPress={onConfirmAll}
+          style={({ pressed }) => [pbStyles.confirmBtn, { opacity: pressed ? 0.8 : 1 }]}
+        >
+          <Text style={pbStyles.confirmText}>Alle Freigeben</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const pbStyles = StyleSheet.create({
+  banner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: Colors.raw.amber500 + "14",
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.raw.amber500,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginHorizontal: 20,
+    marginBottom: 12,
+  },
+  left: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  text: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.amber500,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  discardText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.raw.zinc400,
+  },
+  confirmBtn: {
+    backgroundColor: Colors.raw.emerald500,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  confirmText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+    color: "#000",
+  },
+});
+
 function LegendRow() {
   const items = [
     { color: Colors.raw.emerald500, label: "Maler" },
@@ -857,6 +985,7 @@ export default function PlanungScreen() {
   const [showDetail, setShowDetail] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [autoPlanning, setAutoPlanning] = useState<string | null>(null);
   const [phases, setPhases] = useState<any[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedProject[]>([]);
 
@@ -919,6 +1048,7 @@ export default function PlanungScreen() {
           .filter((p: any) => !projectsWithPhases.has(p.id) && !phasedIds.has(p.id))
           .map((p: any) => ({
             id: p.project_number || p.id,
+            projectId: p.id,
             name: p.object_street || p.name || "",
             note: p.planned_start
               ? `ab ${new Date(p.planned_start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`
@@ -984,6 +1114,111 @@ export default function PlanungScreen() {
     }
     setWeekOffset((o) => o + 1);
   }, []);
+
+  const handleAutoPlan = useCallback(async (projectId: string) => {
+    setAutoPlanning(projectId);
+    try {
+      const { data, error } = await supabase.rpc("auto_plan_project", {
+        p_project_id: projectId,
+      });
+      if (error) {
+        Alert.alert("Fehler", error.message);
+        return;
+      }
+      const result = data as any;
+      if (!result?.success) {
+        Alert.alert("Fehler", result?.error || "Unbekannter Fehler");
+        return;
+      }
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      const unassignedTrades = result.unassigned_trades || [];
+      Alert.alert(
+        "Vorschlag erstellt",
+        `${result.phases_created} Phasen erstellt, ${result.assigned_count} Monteure zugewiesen.${
+          unassignedTrades.length > 0 ? `\n\nOhne Monteur: ${unassignedTrades.join(", ")}` : ""
+        }\n\nBitte Vorschläge prüfen und freigeben.`
+      );
+      fetchData();
+    } catch (e: any) {
+      Alert.alert("Fehler", e.message || "Auto-Planung fehlgeschlagen");
+    } finally {
+      setAutoPlanning(null);
+    }
+  }, [fetchData]);
+
+  const handleConfirmProposed = useCallback(async (projectId: string) => {
+    const { data, error } = await supabase.rpc("confirm_proposed_phases", {
+      p_project_id: projectId,
+    });
+    if (error) {
+      Alert.alert("Fehler", error.message);
+      return;
+    }
+    const result = data as any;
+    if (!result?.success) {
+      Alert.alert("Fehler", result?.error || "Unbekannter Fehler");
+      return;
+    }
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    fetchData();
+  }, [fetchData]);
+
+  const handleDiscardProposed = useCallback(async (projectId: string) => {
+    Alert.alert("Vorschläge verwerfen", "Alle Vorschläge für dieses Projekt löschen?", [
+      { text: "Abbrechen", style: "cancel" },
+      {
+        text: "Verwerfen",
+        style: "destructive",
+        onPress: async () => {
+          const { error } = await supabase.rpc("discard_proposed_phases", {
+            p_project_id: projectId,
+          });
+          if (error) {
+            Alert.alert("Fehler", error.message);
+            return;
+          }
+          fetchData();
+        },
+      },
+    ]);
+  }, [fetchData]);
+
+  const proposedCount = useMemo(() => {
+    return assignments.filter((a) => a.isProposed).length;
+  }, [assignments]);
+
+  const proposedProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    assignments.filter((a) => a.isProposed).forEach((a) => ids.add(a.projectId));
+    return ids;
+  }, [assignments]);
+
+  const handleConfirmAll = useCallback(() => {
+    proposedProjectIds.forEach((pid) => {
+      handleConfirmProposed(pid);
+    });
+  }, [proposedProjectIds, handleConfirmProposed]);
+
+  const handleDiscardAll = useCallback(() => {
+    const count = proposedProjectIds.size;
+    Alert.alert("Alle Vorschläge verwerfen", `${count} Projekt-Vorschläge verwerfen?`, [
+      { text: "Abbrechen", style: "cancel" },
+      {
+        text: "Alle Verwerfen",
+        style: "destructive",
+        onPress: () => {
+          proposedProjectIds.forEach(async (pid) => {
+            await supabase.rpc("discard_proposed_phases", { p_project_id: pid });
+          });
+          fetchData();
+        },
+      },
+    ]);
+  }, [proposedProjectIds, fetchData]);
 
   const startDateStr = `${String(weekDays[0]?.dayNum).padStart(2, "0")}.${String(monday.getMonth() + 1).padStart(2, "0")}.`;
   const endDateStr = `${String(weekDays[4]?.dayNum).padStart(2, "0")}.${String(friday.getMonth() + 1).padStart(2, "0")}.${friday.getFullYear()}`;
@@ -1091,6 +1326,12 @@ export default function PlanungScreen() {
           </View>
         ) : viewMode === "week" ? (
           <>
+            <ProposedBanner
+              count={proposedCount}
+              onConfirmAll={handleConfirmAll}
+              onDiscardAll={handleDiscardAll}
+            />
+
             {conflicts.length > 0 &&
               conflicts.map((c, i) => (
                 <ConflictBanner
@@ -1117,6 +1358,43 @@ export default function PlanungScreen() {
               />
             )}
             <LegendRow />
+
+            {unassigned.length > 0 && (
+              <View style={s.unassignedSection}>
+                <View style={s.unassignedHeader}>
+                  <Ionicons name="flash" size={18} color={Colors.raw.amber500} />
+                  <Text style={s.unassignedTitle}>Nicht eingeplant:</Text>
+                </View>
+                {unassigned.map((p) => (
+                  <View key={p.id} style={s.unassignedRow}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={s.unassignedId}>{p.id}</Text>
+                        <Text style={s.unassignedName}>{p.name}</Text>
+                      </View>
+                      <Text style={s.unassignedNote}>{p.note}</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => handleAutoPlan(p.projectId)}
+                      disabled={autoPlanning === p.projectId}
+                      style={({ pressed }) => [
+                        s.autoPlanBtn,
+                        { opacity: pressed || autoPlanning === p.projectId ? 0.6 : 1 },
+                      ]}
+                    >
+                      {autoPlanning === p.projectId ? (
+                        <ActivityIndicator size="small" color="#000" />
+                      ) : (
+                        <>
+                          <Ionicons name="flash" size={14} color="#000" />
+                          <Text style={s.autoPlanBtnText}>Planen</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
           </>
         ) : (
           <>
@@ -1130,14 +1408,35 @@ export default function PlanungScreen() {
             {unassigned.length > 0 && (
               <View style={s.unassignedSection}>
                 <View style={s.unassignedHeader}>
-                  <Ionicons name="warning" size={18} color={Colors.raw.amber500} />
+                  <Ionicons name="flash" size={18} color={Colors.raw.amber500} />
                   <Text style={s.unassignedTitle}>Nicht eingeplant:</Text>
                 </View>
                 {unassigned.map((p) => (
                   <View key={p.id} style={s.unassignedRow}>
-                    <Text style={s.unassignedId}>{p.id}</Text>
-                    <Text style={s.unassignedName}>{p.name}</Text>
-                    <Text style={s.unassignedNote}>{p.note}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={s.unassignedId}>{p.id}</Text>
+                        <Text style={s.unassignedName}>{p.name}</Text>
+                      </View>
+                      <Text style={s.unassignedNote}>{p.note}</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => handleAutoPlan(p.projectId)}
+                      disabled={autoPlanning === p.projectId}
+                      style={({ pressed }) => [
+                        s.autoPlanBtn,
+                        { opacity: pressed || autoPlanning === p.projectId ? 0.6 : 1 },
+                      ]}
+                    >
+                      {autoPlanning === p.projectId ? (
+                        <ActivityIndicator size="small" color="#000" />
+                      ) : (
+                        <>
+                          <Ionicons name="flash" size={14} color="#000" />
+                          <Text style={s.autoPlanBtnText}>Planen</Text>
+                        </>
+                      )}
+                    </Pressable>
                   </View>
                 ))}
               </View>
@@ -1160,6 +1459,8 @@ export default function PlanungScreen() {
         assignment={selectedAssignment}
         weekDays={weekDays}
         onClose={() => setShowDetail(false)}
+        onConfirm={handleConfirmProposed}
+        onDiscard={handleDiscardProposed}
       />
     </View>
   );
@@ -1329,6 +1630,23 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.raw.zinc800,
   },
+  autoPlanBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 44,
+    minWidth: 44,
+    justifyContent: "center",
+  },
+  autoPlanBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    color: "#000",
+  },
   unassignedId: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 12,
@@ -1338,12 +1656,12 @@ const s = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
     color: Colors.raw.zinc300,
-    flex: 1,
   },
   unassignedNote: {
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.raw.zinc600,
+    marginTop: 2,
   },
   statsBar: {
     position: "absolute",

@@ -34,7 +34,7 @@ const ROLES = [
   { key: "Monteur", label: "Monteur", icon: "construct" as const },
 ];
 
-const GEWERKE = ["Maler", "Fliesen", "Sanitär", "Elektro", "Boden"];
+const GEWERKE = ["Sanitär", "Maler", "Elektro", "Fliesen", "Trockenbau", "Sonstiges"];
 
 function getRoleIcon(role: string): string {
   if (role === "GF") return "briefcase";
