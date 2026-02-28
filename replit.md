@@ -8,6 +8,49 @@ BAUGENIUS is a construction management mobile application built with Expo (React
 
 Preferred communication style: Simple, everyday language.
 
+## BAUGENIUS Design Rules (aus docs/)
+
+### NORDSTAR (docs/NORDSTAR.md)
+- Vision: "Mail rein, 30 Sekunden, alles ready, Freigeben"
+- Feature-Creep-Filter: "Macht es den 30-Sekunden-Flash besser?" Ja = einbauen, Nein = später oder nie
+- 7 UX-Gebote: (1) Eine Sache pro Moment (2) Kontext kommt mit (3) Proaktiv - BG wartet nicht (4) Max 2 Klicks bis Action (5) Zahlen die sprechen - Vergleich/Trend/Bewertung (6) Ampel überall - grün/gelb/rot (7) Stille ist Gold - Still = läuft, Piep = handeln
+- Goldener Satz: "Jeder Schritt braucht: Status, Owner, Rollback-Option"
+
+### PERSONA AYSE (docs/PERSONA_AYSE.md)
+- Ayse, 46, Projektmanagerin, Samsung, draußen (Sonne/Regen), Handschuhe, Unterbrechungen alle 5 Min
+- Braucht: Große Buttons (min 44px), Ampelfarben, Deutsche Begriffe, sofort sichtbar ohne scrollen
+- Hasst: Kleine Schrift, versteckte Menüs, englische Fachbegriffe
+- 3-Sekunden-Regel: "Wenn sie nach 3 Sekunden nicht weiß wo sie tippen soll, ist das Design falsch"
+- Checkliste: Daumen-bedienbar, Buttons >= 44px, Ampelfarben, Labels auf Deutsch, Hauptaktion sofort sichtbar, outdoor-lesbar, max 1 Tap zur Hauptaktion
+
+### AUTOMATION MANIFEST (docs/AUTOMATION_MANIFEST.md)
+- User = Entscheider, System = Arbeiter
+- Unter 80% Automation ist nicht akzeptabel
+- Goldene Regel: Kein Feature das regelmäßige manuelle Eingabe braucht
+- Eingabe nur bei: Einmalig (Projekt anlegen), Entscheidung (Freigabe ja/nein), Ausnahme (Korrektur)
+- Automation-Pyramide: Sammeln -> Analysieren -> Vorschlagen -> Entscheiden (User)
+
+### ARBEITSWEISE (docs/ARBEITSWEISE.md)
+- UI-First Hybrid: Skizze -> DB-Anforderung -> Parallel Build (DB + UI) -> Flow wenn nötig -> Test
+- Anti-Pattern: DB ohne sichtbaren Output, Features ohne UI, alles durchplanen vor dem Bauen
+- Jedes Feature = sichtbare Änderung
+
+### USP VISION (docs/USP_BAUGENIUS_VISION.md)
+- "Das System lernt dich" - Observe -> Pattern -> Suggest -> Confirm -> Learn
+- Nach 3x gleiche Zuordnung wird Default
+- Unternehmens-DNA digitalisiert: Planung, Vorsteps, Material, Zeit, Einkauf, Kommunikation, Fehler
+
+### ARCHITEKTUR (docs/ARCHITEKTUR.md)
+- Event-System: events Tabelle mit idempotency_key, processed_at, source_flow
+- Flow-Template: Webhook Trigger -> Claim Step -> Business Logic -> Mark Processed -> Fire Next Event
+- MX_00 Event Router dispatcht basierend auf event_routing Tabelle
+
+### Weitere docs/
+- docs/PATTERNS.md - n8n Flow Copy-Paste-Referenz, SQL Patterns, Webhook URLs
+- docs/DATABASE_SCHEMA.md - Vollständiges DB-Schema
+- docs/FLOW_REGISTER.md - Alle Flows mit Status
+- docs/handover/ - Übergabe-Protokolle für einzelne Module
+
 ## System Architecture
 
 ### Frontend (Expo / React Native)
