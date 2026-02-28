@@ -3,7 +3,9 @@
     "allow": [
       "Bash(git:*)",
       "Bash(xargs:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(supabase:*)",
+      "Bash(gh auth:*)"
     ]
   }
 }

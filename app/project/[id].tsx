@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -376,6 +377,7 @@ export default function ProjectDetailScreen() {
   const [totalCosts, setTotalCosts] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showBegehungPicker, setShowBegehungPicker] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -577,7 +579,7 @@ export default function ProjectDetailScreen() {
 
         {/* Begehungen */}
         <SectionCard>
-          <SectionHeader title="Begehungen" rightIcon="add-circle-outline" />
+          <SectionHeader title="Begehungen" rightIcon="add-circle-outline" onRightPress={() => setShowBegehungPicker(true)} />
           {inspections.length > 0 ? (
             inspections.map((ins) => (
               <BegehungRow
@@ -655,6 +657,50 @@ export default function ProjectDetailScreen() {
           )}
         </SectionCard>
       </ScrollView>
+
+      <Modal
+        visible={showBegehungPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBegehungPicker(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowBegehungPicker(false)}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Begehung erstellen</Text>
+            <Text style={styles.modalSubtitle}>Art der Begehung w{"\u00E4"}hlen</Text>
+            {[
+              { key: "erstbegehung", label: "Erstbegehung", icon: "eye", desc: "Erstmalige Begutachtung vor Ort" },
+              { key: "zwischenbegehung", label: "Zwischenbegehung", icon: "sync", desc: "Kontrolle w\u00E4hrend der Bauphase" },
+              { key: "abnahme", label: "Abnahme", icon: "checkmark-circle", desc: "Finale Abnahme nach Fertigstellung" },
+            ].map((item) => (
+              <Pressable
+                key={item.key}
+                style={({ pressed }) => [styles.modalOption, { opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowBegehungPicker(false);
+                }}
+                testID={`begehung-option-${item.key}`}
+              >
+                <View style={styles.modalOptionIcon}>
+                  <Ionicons name={item.icon as any} size={20} color={Colors.raw.amber500} />
+                </View>
+                <View style={styles.modalOptionText}>
+                  <Text style={styles.modalOptionLabel}>{item.label}</Text>
+                  <Text style={styles.modalOptionDesc}>{item.desc}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+              </Pressable>
+            ))}
+            <Pressable
+              style={({ pressed }) => [styles.modalCancel, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={() => setShowBegehungPicker(false)}
+            >
+              <Text style={styles.modalCancelText}>Abbrechen</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -825,5 +871,70 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
     color: Colors.raw.amber500,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: Colors.raw.zinc900,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 24,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === "web" ? 34 : 40,
+  },
+  modalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.raw.white,
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
+    marginBottom: 20,
+  },
+  modalOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+    gap: 14,
+  },
+  modalOptionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.amber500 + "14",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalOptionText: {
+    flex: 1,
+  },
+  modalOptionLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.white,
+  },
+  modalOptionDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc500,
+    marginTop: 2,
+  },
+  modalCancel: {
+    alignItems: "center",
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  modalCancelText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.zinc500,
   },
 });
