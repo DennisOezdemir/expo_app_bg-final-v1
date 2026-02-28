@@ -10,7 +10,11 @@
       "mcp__claude_ai_Supabase__list_tables",
       "Bash(grep:*)",
       "Bash(python3:*)",
-      "mcp__claude_ai_Supabase__execute_sql"
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(npx tsc:*)",
+      "Bash(curl:*)",
+      "Bash(~/bin/gh auth:*)",
+      "Bash(~/.bashrc:*)"
     ]
   }
 }
