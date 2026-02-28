@@ -753,6 +753,49 @@ export default function ProjectDetailScreen() {
           )}
         </SectionCard>
 
+        {/* Fotos */}
+        <SectionCard>
+          <SectionHeader
+            title="Fotos"
+            badge={photoCount > 0 ? String(photoCount) : undefined}
+          />
+          {photoCount > 0 ? (
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowPhotoGallery(true);
+              }}
+              style={({ pressed }) => [styles.photoRow, { opacity: pressed ? 0.8 : 1 }]}
+            >
+              <View style={styles.photoPreviewRow}>
+                <Ionicons name="images" size={32} color={Colors.raw.amber500} />
+                <View style={styles.photoTextCol}>
+                  <Text style={styles.photoTitle}>{photoCount} {photoCount === 1 ? "Foto" : "Fotos"} vorhanden</Text>
+                  <Text style={styles.photoSubtitle}>Tippen zum Anzeigen</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc600} />
+              </View>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({ pathname: "/foto", params: { projectId: id || "1" } });
+              }}
+              style={({ pressed }) => [styles.photoRow, { opacity: pressed ? 0.8 : 1 }]}
+            >
+              <View style={styles.photoPreviewRow}>
+                <Ionicons name="camera-outline" size={32} color={Colors.raw.zinc600} />
+                <View style={styles.photoTextCol}>
+                  <Text style={styles.photoSubtitle}>Noch keine Fotos</Text>
+                  <Text style={styles.photoSubtitle}>Tippen um Foto aufzunehmen</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc600} />
+              </View>
+            </Pressable>
+          )}
+        </SectionCard>
+
         {/* Nachrichten */}
         <SectionCard>
           <SectionHeader
@@ -808,7 +851,7 @@ export default function ProjectDetailScreen() {
         <SectionCard>
           <SectionHeader
             title="Dokumente"
-            badge={(() => { const c = offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length + (photoCount > 0 ? 1 : 0); return c > 0 ? String(c) : undefined; })()}
+            badge={(() => { const c = offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length; return c > 0 ? String(c) : undefined; })()}
           />
           {offers.map((offer) => (
             <DocumentRow
@@ -830,23 +873,7 @@ export default function ProjectDetailScreen() {
                 icon="clipboard"
               />
             ))}
-          {photoCount > 0 && (
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowPhotoGallery(true);
-              }}
-              style={({ pressed }) => [docStyles.row, { opacity: pressed ? 0.8 : 1 }]}
-            >
-              <Ionicons name="images" size={20} color={Colors.raw.amber500} />
-              <View style={docStyles.textCol}>
-                <Text style={docStyles.name}>Fotos ({photoCount})</Text>
-                <Text style={docStyles.subtitle}>Begehungsfotos</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={Colors.raw.zinc600} />
-            </Pressable>
-          )}
-          {offers.length === 0 && inspections.length === 0 && photoCount === 0 && (
+          {offers.length === 0 && inspections.filter((i) => i.finalized_at || i.status === "completed").length === 0 && (
             <Text style={styles.emptySection}>Keine Dokumente</Text>
           )}
         </SectionCard>
@@ -1337,6 +1364,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.raw.zinc600,
     paddingVertical: 12,
+  },
+  photoRow: {
+    paddingVertical: 12,
+  },
+  photoPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  photoTextCol: {
+    flex: 1,
+  },
+  photoTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.white,
+  },
+  photoSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
+    marginTop: 2,
   },
   begehungAddBtn: {
     width: 32,

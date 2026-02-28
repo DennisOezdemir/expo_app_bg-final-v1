@@ -1,5 +1,6 @@
 import * as ImagePicker from "expo-image-picker";
 import { Platform, Alert } from "react-native";
+import { decode } from "base64-arraybuffer";
 import { supabase } from "./supabase";
 
 export interface CapturePhotoOptions {
@@ -32,6 +33,7 @@ export async function captureAndUploadPhoto(
   }
 
   // 2. Launch camera (or image library on web)
+  // Request base64 on native to avoid the fetch+blob issue
   let result: ImagePicker.ImagePickerResult;
   if (Platform.OS === "web") {
     result = await ImagePicker.launchImageLibraryAsync({
@@ -43,6 +45,7 @@ export async function captureAndUploadPhoto(
     result = await ImagePicker.launchCameraAsync({
       quality: 0.7,
       allowsEditing: false,
+      base64: true,
     });
   }
 
@@ -58,19 +61,49 @@ export async function captureAndUploadPhoto(
   const positionPart = options.positionId || "none";
   const storagePath = `photos/${options.projectId}/${options.inspectionType}/${sectionPart}/${positionPart}/${timestamp}.jpg`;
 
-  const response = await fetch(asset.uri);
-  const blob = await response.blob();
-  const fileSize = blob.size;
+  let fileSize = 0;
 
-  const { error: uploadError } = await supabase.storage
-    .from("project-files")
-    .upload(storagePath, blob, {
-      contentType: "image/jpeg",
-      upsert: false,
-    });
+  try {
+    if (Platform.OS === "web") {
+      // Web: fetch + blob works fine
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      fileSize = blob.size;
 
-  if (uploadError) {
-    Alert.alert("Upload fehlgeschlagen", uploadError.message);
+      const { error: uploadError } = await supabase.storage
+        .from("project-files")
+        .upload(storagePath, blob, {
+          contentType: "image/jpeg",
+          upsert: false,
+        });
+
+      if (uploadError) {
+        Alert.alert("Upload fehlgeschlagen", uploadError.message);
+        return null;
+      }
+    } else {
+      // Native: use base64 from ImagePicker directly, decode to ArrayBuffer
+      const base64 = asset.base64;
+      if (!base64) {
+        Alert.alert("Fehler", "Kein Bilddaten erhalten");
+        return null;
+      }
+      fileSize = Math.round(base64.length * 0.75);
+
+      const { error: uploadError } = await supabase.storage
+        .from("project-files")
+        .upload(storagePath, decode(base64), {
+          contentType: "image/jpeg",
+          upsert: false,
+        });
+
+      if (uploadError) {
+        Alert.alert("Upload fehlgeschlagen", uploadError.message);
+        return null;
+      }
+    }
+  } catch (err: any) {
+    Alert.alert("Upload fehlgeschlagen", err.message || "Unbekannter Fehler");
     return null;
   }
 
