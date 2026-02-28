@@ -596,7 +596,7 @@ function ZwischenbegehungView() {
 
       {loadingPrevious ? (
         <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Letzte Begehung laden...</Text></View>
-      ) : (
+      ) : (<>
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: bottomInset + 40 }} showsVerticalScrollIndicator={false}>
         {INITIAL_ROOMS.map((room) => {
           const isExpanded = expandedRooms.has(room.id);
@@ -694,7 +694,6 @@ function ZwischenbegehungView() {
           </Pressable>
         )}
       </ScrollView>
-      )}
 
       <Modal visible={showFinalizeConfirm} transparent animationType="fade" onRequestClose={() => setShowFinalizeConfirm(false)}>
         <Pressable style={s.confirmOverlay} onPress={() => setShowFinalizeConfirm(false)}>
@@ -711,6 +710,7 @@ function ZwischenbegehungView() {
           </View>
         </Pressable>
       </Modal>
+      </>)}
     </View>
   );
 }
