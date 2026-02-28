@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
-import { useRouter, useRootNavigationState } from "expo-router";
+import { useRouter } from "expo-router";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -8,7 +8,6 @@ export default function AuthRouter() {
   const router = useRouter();
   const { isAuthenticated, splashSeen, isLoading } = useAuth();
   const hasNavigated = useRef(false);
-  const navigationState = useRootNavigationState();
 
   const navigate = useCallback(() => {
     if (hasNavigated.current) return;
@@ -29,12 +28,9 @@ export default function AuthRouter() {
   useEffect(() => {
     if (isLoading || hasNavigated.current) return;
 
-    const isReady = navigationState?.key;
-    if (!isReady) return;
-
-    const timer = setTimeout(navigate, 150);
+    const timer = setTimeout(navigate, 200);
     return () => clearTimeout(timer);
-  }, [isLoading, navigationState?.key, navigate]);
+  }, [isLoading, navigate]);
 
   return (
     <View style={styles.container}>
