@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
+import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
@@ -91,7 +92,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const socialLogin = async (provider: "google" | "apple"): Promise<{ success: boolean; error?: string }> => {
-    const { error } = await supabase.auth.signInWithOAuth({ provider });
+    const redirectUrl = Platform.OS === "web"
+      ? window.location.origin
+      : undefined;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: redirectUrl ? { redirectTo: redirectUrl } : undefined,
+    });
     if (error) {
       return { success: false, error: error.message };
     }
