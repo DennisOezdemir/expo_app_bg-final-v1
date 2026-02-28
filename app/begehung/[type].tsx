@@ -173,9 +173,9 @@ function genId(): string {
 
 export default function BegehungScreen() {
   const { type } = useLocalSearchParams<{ type: string }>();
-  const isZB = type === "zwischenbegehung";
 
-  if (isZB) return <ZwischenbegehungView />;
+  if (type === "zwischenbegehung") return <ZwischenbegehungView />;
+  if (type === "abnahme") return <AbnahmeView />;
   return <ErstbegehungView type={type || "erstbegehung"} />;
 }
 
@@ -715,6 +715,361 @@ function ZwischenbegehungView() {
   );
 }
 
+interface AbnahmePosition {
+  id: string;
+  nr: string;
+  title: string;
+  desc: string;
+  qty: number;
+  unit: string;
+  price: number;
+  trade: string;
+  roomName: string;
+}
+
+function AbnahmeView() {
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === "web" ? 67 : insets.top;
+  const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const [loading, setLoading] = useState(true);
+  const [positions, setPositions] = useState<AbnahmePosition[]>([]);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [photos, setPhotos] = useState<number>(0);
+  const [signatureLines, setSignatureLines] = useState<{ x: number; y: number }[][]>([]);
+  const [currentLine, setCurrentLine] = useState<{ x: number; y: number }[]>([]);
+  const [isSigning, setIsSigning] = useState(false);
+  const [finalized, setFinalized] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = new URL("/api/begehungen/BL-2026-023/latest/zwischenbegehung", getApiUrl());
+        const resp = await fetch(url.toString());
+        if (!resp.ok) throw new Error("fetch failed");
+        const data = await resp.json();
+        if (cancelled) return;
+        if (!data || !data.positions) { setLoading(false); return; }
+        const completed: AbnahmePosition[] = [];
+        for (const pos of data.positions) {
+          const parts = (pos.status || "").split(":");
+          const prog = Number(parts[1]) || 0;
+          if (prog === 100) {
+            completed.push({
+              id: pos.position_id,
+              nr: pos.position_nr,
+              title: pos.title,
+              desc: pos.description || pos.desc || "",
+              qty: Number(pos.qty) || 0,
+              unit: pos.unit,
+              price: Number(pos.price) || 0,
+              trade: pos.trade,
+              roomName: pos.room_name,
+            });
+          }
+        }
+        if (!cancelled) setPositions(completed);
+      } catch (_e) {}
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggleCheck = useCallback((posId: string) => {
+    if (finalized) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(posId)) next.delete(posId); else next.add(posId);
+      return next;
+    });
+  }, [finalized]);
+
+  const addPhoto = useCallback(() => {
+    if (finalized) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPhotos((p) => p + 1);
+  }, [finalized]);
+
+  const clearSignature = useCallback(() => {
+    setSignatureLines([]);
+    setCurrentLine([]);
+  }, []);
+
+  const hasSignature = signatureLines.length > 0;
+  const allChecked = positions.length > 0 && checked.size === positions.length;
+  const canFinalize = allChecked && hasSignature;
+
+  const groupedPositions = useMemo(() => {
+    const groups: Record<string, AbnahmePosition[]> = {};
+    positions.forEach((p) => {
+      if (!groups[p.roomName]) groups[p.roomName] = [];
+      groups[p.roomName].push(p);
+    });
+    return groups;
+  }, [positions]);
+
+  const handleFinalize = useCallback(async () => {
+    setFinalizing(true);
+    try {
+      const posData = positions.map((pos) => ({
+        room_id: pos.id.startsWith("p") ? "r1" : "r1",
+        room_name: pos.roomName,
+        position_id: pos.id,
+        position_nr: pos.nr,
+        title: pos.title,
+        description: pos.desc,
+        qty: pos.qty,
+        unit: pos.unit,
+        price: pos.price,
+        trade: pos.trade,
+        status: checked.has(pos.id) ? "abgenommen" : "offen",
+        photo_count: 0,
+        note: "",
+        is_mehrleistung: false,
+        from_catalog: false,
+      }));
+      await apiRequest("POST", "/api/begehungen", { project_id: "BL-2026-023", type: "abnahme", positions: posData });
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setFinalized(true);
+      setShowFinalizeConfirm(false);
+    } catch (err: any) {
+      Alert.alert("Fehler", "Festschreiben fehlgeschlagen: " + (err.message || "Unbekannter Fehler"));
+    } finally {
+      setFinalizing(false);
+    }
+  }, [positions, checked]);
+
+  const onSignatureTouch = useCallback((evt: any) => {
+    if (finalized) return;
+    const { locationX, locationY } = evt.nativeEvent;
+    setCurrentLine((prev) => [...prev, { x: locationX, y: locationY }]);
+    setIsSigning(true);
+  }, [finalized]);
+
+  const onSignatureRelease = useCallback(() => {
+    if (currentLine.length > 0) {
+      setSignatureLines((prev) => [...prev, currentLine]);
+      setCurrentLine([]);
+    }
+    setIsSigning(false);
+  }, [currentLine]);
+
+  const renderSignatureSVG = useMemo(() => {
+    const allLines = [...signatureLines, ...(currentLine.length > 0 ? [currentLine] : [])];
+    if (allLines.length === 0) return null;
+    return allLines.map((line, i) => {
+      if (line.length < 2) return null;
+      const d = line.map((p, j) => `${j === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+      return (
+        <View key={i} style={StyleSheet.absoluteFill} pointerEvents="none">
+          {line.map((point, j) => {
+            if (j === 0) return null;
+            const prev = line[j - 1];
+            const dx = point.x - prev.x;
+            const dy = point.y - prev.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            return (
+              <View
+                key={j}
+                style={{
+                  position: "absolute",
+                  left: prev.x,
+                  top: prev.y - 1,
+                  width: len,
+                  height: 2,
+                  backgroundColor: Colors.raw.white,
+                  transform: [{ rotate: `${angle}deg` }],
+                  transformOrigin: "0 50%",
+                }}
+              />
+            );
+          })}
+        </View>
+      );
+    });
+  }, [signatureLines, currentLine]);
+
+  if (loading) {
+    return (
+      <View style={s.container}>
+        <View style={[s.header, { paddingTop: topInset + 8 }]}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <View style={s.headerCenter}><Text style={s.headerCode}>BL-2026-023</Text><Text style={s.headerTitle}>Abnahme</Text><Text style={s.headerAddress}>Schillerstra{"\u00DF"}e 12, 80336 M{"\u00FC"}nchen</Text></View>
+        </View>
+        <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Leistungen laden...</Text></View>
+      </View>
+    );
+  }
+
+  if (positions.length === 0) {
+    return (
+      <View style={s.container}>
+        <View style={[s.header, { paddingTop: topInset + 8 }]}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <View style={s.headerCenter}><Text style={s.headerCode}>BL-2026-023</Text><Text style={s.headerTitle}>Abnahme</Text><Text style={s.headerAddress}>Schillerstra{"\u00DF"}e 12, 80336 M{"\u00FC"}nchen</Text></View>
+        </View>
+        <View style={s.loadingWrap}>
+          <Ionicons name="alert-circle-outline" size={48} color={Colors.raw.zinc600} />
+          <Text style={s.loadingText}>Keine Positionen mit 100% Fortschritt</Text>
+          <Text style={[s.loadingText, { fontSize: 12, marginTop: 4 }]}>Alle Leistungen m{"\u00FC"}ssen in der Zwischenbegehung auf 100% stehen.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={s.container}>
+      <View style={[s.header, { paddingTop: topInset + 8 }]}>
+        <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]} testID="back-button">
+          <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
+        </Pressable>
+        <View style={s.headerCenter}>
+          <Text style={s.headerCode}>BL-2026-023</Text>
+          <Text style={s.headerTitle}>Abnahme</Text>
+          <Text style={s.headerAddress}>Schillerstra{"\u00DF"}e 12, 80336 M{"\u00FC"}nchen</Text>
+        </View>
+      </View>
+
+      <View style={s.abnahmeSummary}>
+        <Text style={s.abnahmeSummaryText}>{checked.size}/{positions.length} abgenommen</Text>
+        <View style={s.progressBarBg}>
+          <View style={[s.progressBarFill, { width: `${positions.length > 0 ? Math.round((checked.size / positions.length) * 100) : 0}%` }, allChecked && { backgroundColor: Colors.raw.emerald500 }]} />
+        </View>
+      </View>
+
+      <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: bottomInset + 40 }} showsVerticalScrollIndicator={false}>
+        {Object.entries(groupedPositions).map(([roomName, roomPositions]) => (
+          <View key={roomName} style={s.abnahmeRoomSection}>
+            <Text style={s.abnahmeRoomTitle}>{roomName}</Text>
+            {roomPositions.map((pos) => {
+              const isChecked = checked.has(pos.id);
+              return (
+                <Pressable
+                  key={pos.id}
+                  onPress={() => toggleCheck(pos.id)}
+                  style={({ pressed }) => [s.abnahmePosRow, { opacity: pressed ? 0.8 : 1 }]}
+                  testID={`abnahme-pos-${pos.id}`}
+                >
+                  <View style={[s.abnahmeCheckbox, isChecked && s.abnahmeCheckboxChecked]}>
+                    {isChecked && <Ionicons name="checkmark" size={16} color={Colors.raw.zinc950} />}
+                  </View>
+                  <View style={s.posBody}>
+                    <View style={s.posTitleRow}>
+                      <Text style={s.posNr}>{pos.nr}</Text>
+                      <Text style={[s.posTitle, isChecked && { color: Colors.raw.zinc500 }]} numberOfLines={1}>{pos.title}</Text>
+                    </View>
+                    <View style={s.posMetaRow}>
+                      <Text style={s.posMeta}>{pos.qty} {pos.unit}</Text>
+                      <View style={s.posDot} />
+                      <Text style={s.posMeta}>{formatEuro(pos.price)}/{pos.unit}</Text>
+                      <View style={s.posDot} />
+                      <View style={s.posTradeBadge}><Text style={s.posTradeText}>{pos.trade}</Text></View>
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+
+        <View style={s.abnahmeSection}>
+          <Text style={s.abnahmeSectionTitle}>Fotos der fertigen Wohnung</Text>
+          <Text style={s.abnahmeSectionDesc}>Dokumentieren Sie den Zustand bei Abnahme</Text>
+          <View style={s.abnahmePhotoRow}>
+            {!finalized && (
+              <Pressable onPress={addPhoto} style={({ pressed }) => [s.abnahmePhotoAddBtn, { opacity: pressed ? 0.7 : 1 }]} testID="abnahme-add-photo">
+                <Ionicons name="camera" size={24} color={Colors.raw.amber500} />
+                <Text style={s.abnahmePhotoAddText}>Foto aufnehmen</Text>
+              </Pressable>
+            )}
+            {photos > 0 && (
+              <View style={s.abnahmePhotoCount}>
+                <Ionicons name="images" size={18} color={Colors.raw.zinc400} />
+                <Text style={s.abnahmePhotoCountText}>{photos} Foto{photos > 1 ? "s" : ""} aufgenommen</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={s.abnahmeSection}>
+          <Text style={s.abnahmeSectionTitle}>Unterschrift</Text>
+          <Text style={s.abnahmeSectionDesc}>Bitte im Feld unten unterschreiben</Text>
+          <View style={s.signaturePad}>
+            <View
+              style={s.signatureCanvas}
+              onStartShouldSetResponder={() => !finalized}
+              onMoveShouldSetResponder={() => !finalized}
+              onResponderGrant={onSignatureTouch}
+              onResponderMove={onSignatureTouch}
+              onResponderRelease={onSignatureRelease}
+              testID="signature-pad"
+            >
+              {!hasSignature && !isSigning && (
+                <Text style={s.signaturePlaceholder}>Hier unterschreiben</Text>
+              )}
+              {renderSignatureSVG}
+            </View>
+            {hasSignature && !finalized && (
+              <Pressable onPress={clearSignature} style={({ pressed }) => [s.signatureClearBtn, { opacity: pressed ? 0.7 : 1 }]} testID="clear-signature">
+                <Ionicons name="trash-outline" size={16} color={Colors.raw.zinc500} />
+                <Text style={s.signatureClearText}>L{"\u00F6"}schen</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        {finalized ? (
+          <View style={s.finalizedBanner}>
+            <Ionicons name="lock-closed" size={20} color={Colors.raw.emerald500} />
+            <View style={s.finalizedBannerText}>
+              <Text style={s.finalizedTitle}>Abnahme abgeschlossen</Text>
+              <Text style={s.finalizedDesc}>Der Abrechnungsprozess wurde angesto{"\u00DF"}en. Die Freigabe finden Sie im Freigabe-Center.</Text>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [s.finalizeBtn, !canFinalize && s.finalizeBtnDisabled, { opacity: pressed && canFinalize ? 0.85 : 1 }]}
+            onPress={() => canFinalize && setShowFinalizeConfirm(true)}
+            disabled={!canFinalize}
+            testID="abnahme-finalize-button"
+          >
+            <Ionicons name="checkmark-done" size={18} color={canFinalize ? Colors.raw.zinc950 : Colors.raw.zinc600} />
+            <Text style={[s.finalizeBtnText, !canFinalize && { color: Colors.raw.zinc600 }]}>Abnahme abschlie{"\u00DF"}en</Text>
+          </Pressable>
+        )}
+
+        {!finalized && !canFinalize && (
+          <View style={s.abnahmeHintRow}>
+            {!allChecked && <Text style={s.abnahmeHintText}><Ionicons name="information-circle" size={14} color={Colors.raw.zinc600} /> Alle Positionen abhaken</Text>}
+            {!hasSignature && <Text style={s.abnahmeHintText}><Ionicons name="information-circle" size={14} color={Colors.raw.zinc600} /> Unterschrift erforderlich</Text>}
+          </View>
+        )}
+      </ScrollView>
+
+      <Modal visible={showFinalizeConfirm} transparent animationType="fade" onRequestClose={() => setShowFinalizeConfirm(false)}>
+        <Pressable style={s.confirmOverlay} onPress={() => setShowFinalizeConfirm(false)}>
+          <View style={s.confirmCard}>
+            <View style={s.confirmIconWrap}><Ionicons name="checkmark-done" size={28} color={Colors.raw.emerald500} /></View>
+            <Text style={s.confirmTitle}>Abnahme abschlie{"\u00DF"}en?</Text>
+            <Text style={s.confirmDesc}>{positions.length} Leistungen werden als abgenommen dokumentiert.{"\n\n"}Der Abrechnungsprozess wird automatisch angesto{"\u00DF"}en.</Text>
+            <View style={s.confirmBtns}>
+              <Pressable style={({ pressed }) => [s.confirmCancelBtn, { opacity: pressed ? 0.7 : 1 }]} onPress={() => setShowFinalizeConfirm(false)}><Text style={s.confirmCancelText}>Abbrechen</Text></Pressable>
+              <Pressable style={({ pressed }) => [s.confirmSubmitBtn, { backgroundColor: Colors.raw.emerald500 }, { opacity: pressed ? 0.85 : 1 }]} onPress={handleFinalize} disabled={finalizing} testID="abnahme-confirm-finalize">
+                {finalizing ? <ActivityIndicator size="small" color={Colors.raw.white} /> : <Text style={[s.confirmSubmitText, { color: Colors.raw.white }]}>Abnahme abschlie{"\u00DF"}en</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
 function CatalogModal({
   visible, step, selectedCatalog, catalogSearch, filteredEntries,
   freeTitle, freeDesc, freeQty, freeUnit, freePrice, freeTrade,
@@ -947,4 +1302,27 @@ const s = StyleSheet.create({
   freeSubmitBtn: { backgroundColor: Colors.raw.amber500, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 20, marginBottom: 12 },
   freeSubmitDisabled: { opacity: 0.4 },
   freeSubmitText: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.zinc950 },
+  finalizeBtnDisabled: { backgroundColor: Colors.raw.zinc800, borderWidth: 1, borderColor: Colors.raw.zinc700 },
+  abnahmeSummary: { paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.raw.zinc800 + "80", gap: 8 },
+  abnahmeSummaryText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc400 },
+  abnahmeRoomSection: { marginTop: 16 },
+  abnahmeRoomTitle: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.amber500, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginLeft: 4 },
+  abnahmePosRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: Colors.raw.zinc900, borderRadius: 12, padding: 14, marginBottom: 6, borderWidth: 1, borderColor: Colors.raw.zinc800 },
+  abnahmeCheckbox: { width: 28, height: 28, borderRadius: 8, borderWidth: 2, borderColor: Colors.raw.zinc600, alignItems: "center", justifyContent: "center" },
+  abnahmeCheckboxChecked: { backgroundColor: Colors.raw.emerald500, borderColor: Colors.raw.emerald500 },
+  abnahmeSection: { marginTop: 24, backgroundColor: Colors.raw.zinc900, borderRadius: 14, borderWidth: 1, borderColor: Colors.raw.zinc800, padding: 16 },
+  abnahmeSectionTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white, marginBottom: 4 },
+  abnahmeSectionDesc: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, marginBottom: 14 },
+  abnahmePhotoRow: { gap: 10 },
+  abnahmePhotoAddBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: Colors.raw.zinc800, borderRadius: 12, paddingVertical: 16, borderWidth: 1, borderColor: Colors.raw.zinc700, borderStyle: "dashed" as any },
+  abnahmePhotoAddText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.amber500 },
+  abnahmePhotoCount: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8 },
+  abnahmePhotoCountText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc400 },
+  signaturePad: { gap: 8 },
+  signatureCanvas: { height: 150, borderRadius: 12, backgroundColor: Colors.raw.zinc800, borderWidth: 1, borderColor: Colors.raw.zinc700, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  signaturePlaceholder: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.raw.zinc600 },
+  signatureClearBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-end" },
+  signatureClearText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.raw.zinc500 },
+  abnahmeHintRow: { gap: 6, marginTop: 12, marginHorizontal: 4 },
+  abnahmeHintText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc600 },
 });
