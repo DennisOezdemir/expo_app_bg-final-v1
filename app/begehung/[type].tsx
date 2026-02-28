@@ -18,6 +18,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { supabase } from "@/lib/supabase";
 
 type PosCheckStatus = "none" | "confirmed" | "rejected";
 type ZBWorkStatus = "nicht_gestartet" | "geplant" | "in_arbeit";
@@ -103,52 +104,6 @@ const CATALOGS: Record<string, { label: string; entries: CatalogEntry[] }> = {
   },
 };
 
-const INITIAL_ROOMS: BegehungRoom[] = [
-  {
-    id: "r1", icon: "water", name: "Bad",
-    positions: [
-      { id: "p1", nr: "01", title: "Wandfliesen Bad", desc: "Wandfliesen im D\u00FCnnbett verlegen inkl. Grundierung, Kleber und Verfugung.", qty: 28, unit: "m\u00B2", price: 54.4, trade: "Fliesen" },
-      { id: "p2", nr: "02", title: "Bodenfliesen Bad", desc: "Bodenfliesen im D\u00FCnnbett verlegen inkl. Grundierung, Kleber und Verfugung.", qty: 6, unit: "m\u00B2", price: 70, trade: "Fliesen" },
-      { id: "p3", nr: "03", title: "Waschtisch montieren", desc: "Waschtisch inkl. Einhandmischer und Siphon montieren.", qty: 1, unit: "Stk", price: 180, trade: "Sanit\u00E4r" },
-      { id: "p4", nr: "04", title: "WC montieren", desc: "Wand-WC inkl. Bet\u00E4tigungsplatte und Anschluss montieren.", qty: 1, unit: "Stk", price: 220, trade: "Sanit\u00E4r" },
-      { id: "p5", nr: "05", title: "Silikonfugen", desc: "Silikonfugen erneuern, Altsilikon entfernen.", qty: 15, unit: "lfm", price: 8.5, trade: "Fliesen" },
-      { id: "p6", nr: "06", title: "Decke streichen", desc: "Deckenfl. mit Dispersionsfarbe streichen.", qty: 6, unit: "m\u00B2", price: 5.2, trade: "Maler" },
-    ],
-  },
-  {
-    id: "r2", icon: "restaurant", name: "K\u00FCche",
-    positions: [
-      { id: "p7", nr: "01", title: "W\u00E4nde tapezieren (Vlies)", desc: "Malervlies glatt auf vorbereiteten Untergrund tapezieren.", qty: 32, unit: "m\u00B2", price: 9.6, trade: "Maler" },
-      { id: "p8", nr: "02", title: "W\u00E4nde streichen", desc: "Wandfl\u00E4chen streichen mit Dispersionsfarbe, deckend.", qty: 32, unit: "m\u00B2", price: 4.8, trade: "Maler" },
-      { id: "p9", nr: "03", title: "Decke streichen", desc: "Deckenfl\u00E4chen mit Dispersionsfarbe streichen.", qty: 12, unit: "m\u00B2", price: 5.2, trade: "Maler" },
-      { id: "p10", nr: "04", title: "Boden schleifen", desc: "Parkettboden maschinell schleifen.", qty: 12, unit: "m\u00B2", price: 38, trade: "Boden" },
-      { id: "p11", nr: "05", title: "Boden versiegeln", desc: "Parkettboden 2x versiegeln mit Parkettlack.", qty: 12, unit: "m\u00B2", price: 38, trade: "Boden" },
-    ],
-  },
-  {
-    id: "r3", icon: "home", name: "Wohnzimmer",
-    positions: [
-      { id: "p12", nr: "01", title: "Altbelag entfernen", desc: "Vorhandenen Bodenbelag entfernen und entsorgen.", qty: 25, unit: "m\u00B2", price: 6.5, trade: "Boden" },
-      { id: "p13", nr: "02", title: "Untergrund spachteln", desc: "Untergrund ausgleichen mit Nivelliermasse.", qty: 25, unit: "m\u00B2", price: 8, trade: "Boden" },
-      { id: "p14", nr: "03", title: "W\u00E4nde spachteln Q3", desc: "Spachtelarbeiten Q3 auf Gipskartonplatten.", qty: 45, unit: "m\u00B2", price: 6.8, trade: "Maler" },
-      { id: "p15", nr: "04", title: "W\u00E4nde streichen 2x", desc: "Dispersionsfarbe deckend in zwei Anstrichen.", qty: 45, unit: "m\u00B2", price: 4.8, trade: "Maler" },
-      { id: "p16", nr: "05", title: "Decke streichen", desc: "Deckenfl\u00E4chen streichen.", qty: 25, unit: "m\u00B2", price: 5.2, trade: "Maler" },
-      { id: "p17", nr: "06", title: "Laminat verlegen", desc: "Laminat NK32 schwimmend verlegen inkl. Trittschalld\u00E4mmung.", qty: 25, unit: "m\u00B2", price: 24.5, trade: "Boden" },
-      { id: "p18", nr: "07", title: "Sockelleisten montieren", desc: "Sockelleisten aus MDF montieren.", qty: 20, unit: "lfm", price: 12.5, trade: "Boden" },
-      { id: "p19", nr: "08", title: "Endreinigung", desc: "Endreinigung nach Abschluss aller Arbeiten.", qty: 1, unit: "Pauschal", price: 180, trade: "Allg." },
-    ],
-  },
-  {
-    id: "r4", icon: "bed", name: "Schlafzimmer",
-    positions: [
-      { id: "p20", nr: "01", title: "Raufaser tapezieren", desc: "Raufasertapete auf vorbereiteten Untergrund.", qty: 38, unit: "m\u00B2", price: 8.4, trade: "Maler" },
-      { id: "p21", nr: "02", title: "W\u00E4nde streichen", desc: "Dispersionsfarbe deckend.", qty: 38, unit: "m\u00B2", price: 4.8, trade: "Maler" },
-      { id: "p22", nr: "03", title: "Decke streichen", desc: "Deckenfl\u00E4chen streichen.", qty: 14, unit: "m\u00B2", price: 5.2, trade: "Maler" },
-      { id: "p23", nr: "04", title: "Laminat verlegen", desc: "Laminat NK32 schwimmend verlegen.", qty: 14, unit: "m\u00B2", price: 24.5, trade: "Boden" },
-    ],
-  },
-];
-
 const TYPE_LABELS: Record<string, string> = {
   erstbegehung: "Erstbegehung",
   zwischenbegehung: "Zwischenbegehung",
@@ -171,21 +126,122 @@ function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 9);
 }
 
-export default function BegehungScreen() {
-  const { type } = useLocalSearchParams<{ type: string }>();
-
-  if (type === "zwischenbegehung") return <ZwischenbegehungView />;
-  if (type === "abnahme") return <AbnahmeView />;
-  return <ErstbegehungView type={type || "erstbegehung"} />;
+interface ProjectInfo {
+  projectNumber: string;
+  address: string;
 }
 
-function ErstbegehungView({ type }: { type: string }) {
+function getSectionIcon(title: string): string {
+  const lower = title.toLowerCase();
+  if (lower.includes("bad") || lower.includes("wc") || lower.includes("dusch") || lower.includes("sanitär")) return "water";
+  if (lower.includes("küch")) return "restaurant";
+  if (lower.includes("schlaf")) return "bed";
+  if (lower.includes("kind")) return "happy";
+  if (lower.includes("flur") || lower.includes("diele") || lower.includes("eingang")) return "walk";
+  if (lower.includes("balkon") || lower.includes("terrass") || lower.includes("loggia")) return "sunny";
+  if (lower.includes("keller") || lower.includes("abst")) return "cube";
+  if (lower.includes("wohn")) return "tv";
+  return "home";
+}
+
+async function fetchProjectInfo(projectId: string): Promise<ProjectInfo | null> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("project_number, object_street, object_zip, object_city")
+    .eq("id", projectId)
+    .single();
+  if (error || !data) return null;
+  return {
+    projectNumber: data.project_number,
+    address: [data.object_street, [data.object_zip, data.object_city].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+  };
+}
+
+async function fetchRoomsForProject(projectId: string): Promise<BegehungRoom[]> {
+  // 1. Find the first offer for this project
+  const { data: offerData, error: offerError } = await supabase
+    .from("offers")
+    .select("id")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .single();
+  if (offerError || !offerData) return [];
+
+  // 2. Load sections (rooms)
+  const { data: sections, error: secError } = await supabase
+    .from("offer_sections")
+    .select("id, title, sort_order")
+    .eq("offer_id", offerData.id)
+    .order("sort_order", { ascending: true });
+  if (secError || !sections || sections.length === 0) return [];
+
+  // 3. Load positions
+  const sectionIds = sections.map((s) => s.id);
+  const { data: positions, error: posError } = await supabase
+    .from("offer_positions")
+    .select("id, section_id, pos_nr, title, description, quantity, unit, unit_price, trade_type, sort_order")
+    .in("section_id", sectionIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (posError || !positions) return [];
+
+  // 4. Group positions by section
+  const posBySection: Record<string, typeof positions> = {};
+  for (const pos of positions) {
+    if (!posBySection[pos.section_id]) posBySection[pos.section_id] = [];
+    posBySection[pos.section_id].push(pos);
+  }
+
+  return sections.map((sec) => ({
+    id: sec.id,
+    icon: getSectionIcon(sec.title),
+    name: sec.title,
+    positions: (posBySection[sec.id] || []).map((pos) => ({
+      id: pos.id,
+      nr: pos.pos_nr || "",
+      title: pos.title || "",
+      desc: pos.description || "",
+      qty: Number(pos.quantity) || 0,
+      unit: pos.unit || "Stk",
+      price: Number(pos.unit_price) || 0,
+      trade: pos.trade_type || "Sonstiges",
+    })),
+  }));
+}
+
+export default function BegehungScreen() {
+  const { type, projectId } = useLocalSearchParams<{ type: string; projectId: string }>();
+
+  if (!projectId) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.raw.zinc950, alignItems: "center", justifyContent: "center", padding: 32 }}>
+        <Ionicons name="alert-circle-outline" size={48} color={Colors.raw.zinc600} />
+        <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.raw.zinc400, textAlign: "center", marginTop: 16 }}>Bitte von der Projektseite starten</Text>
+        <Pressable onPress={() => router.back()} style={{ marginTop: 20, backgroundColor: Colors.raw.amber500, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 }}>
+          <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc950 }}>Zurück</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (type === "zwischenbegehung") return <ZwischenbegehungView projectId={projectId} />;
+  if (type === "abnahme") return <AbnahmeView projectId={projectId} />;
+  return <ErstbegehungView type={type || "erstbegehung"} projectId={projectId} />;
+}
+
+function ErstbegehungView({ type, projectId }: { type: string; projectId: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const label = TYPE_LABELS[type] || "Begehung";
 
-  const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set(["r1"]));
+  const [rooms, setRooms] = useState<BegehungRoom[]>([]);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [loadingData, setLoadingData] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
   const [posStates, setPosStates] = useState<Record<string, PosState>>({});
   const [mehrleistungen, setMehrleistungen] = useState<Record<string, MehrleistungItem[]>>({});
   const [catalogModalRoom, setCatalogModalRoom] = useState<string | null>(null);
@@ -201,6 +257,32 @@ function ErstbegehungView({ type }: { type: string }) {
   const [finalized, setFinalized] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [fetchedRooms, info] = await Promise.all([
+          fetchRoomsForProject(projectId),
+          fetchProjectInfo(projectId),
+        ]);
+        if (cancelled) return;
+        setRooms(fetchedRooms);
+        setProjectInfo(info);
+        if (fetchedRooms.length > 0) {
+          setExpandedRooms(new Set([fetchedRooms[0].id]));
+        }
+        if (fetchedRooms.length === 0) {
+          setLoadError("Kein Angebot mit Positionen gefunden");
+        }
+      } catch (err: any) {
+        if (!cancelled) setLoadError(err.message || "Laden fehlgeschlagen");
+      } finally {
+        if (!cancelled) setLoadingData(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   const toggleRoom = useCallback((roomId: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -268,7 +350,7 @@ function ErstbegehungView({ type }: { type: string }) {
     setFinalizing(true);
     try {
       const positions: any[] = [];
-      INITIAL_ROOMS.forEach((room) => {
+      rooms.forEach((room) => {
         room.positions.forEach((pos) => {
           const ps = posStates[pos.id] || { status: "none", photoCount: 0, note: "" };
           positions.push({ room_id: room.id, room_name: room.name, position_id: pos.id, position_nr: pos.nr, title: pos.title, description: pos.desc, qty: pos.qty, unit: pos.unit, price: pos.price, trade: pos.trade, status: ps.status, photo_count: ps.photoCount, note: ps.note, is_mehrleistung: false, from_catalog: false });
@@ -277,7 +359,7 @@ function ErstbegehungView({ type }: { type: string }) {
           positions.push({ room_id: room.id, room_name: room.name, position_id: ml.id, position_nr: "ML", title: ml.title, description: ml.desc, qty: ml.qty, unit: ml.unit, price: ml.price, trade: ml.trade, status: "confirmed", photo_count: 0, note: "", is_mehrleistung: true, from_catalog: ml.fromCatalog });
         });
       });
-      await apiRequest("POST", "/api/begehungen", { project_id: "BL-2026-023", type, positions });
+      await apiRequest("POST", "/api/begehungen", { project_id: projectInfo?.projectNumber || projectId, type, positions });
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
       setShowFinalizeConfirm(false);
@@ -286,7 +368,7 @@ function ErstbegehungView({ type }: { type: string }) {
     } finally {
       setFinalizing(false);
     }
-  }, [posStates, mehrleistungen, type]);
+  }, [rooms, posStates, mehrleistungen, type, projectInfo, projectId]);
 
   const filteredCatalogEntries = useMemo(() => {
     const catalog = CATALOGS[selectedCatalog];
@@ -298,7 +380,7 @@ function ErstbegehungView({ type }: { type: string }) {
 
   const summary = useMemo(() => {
     let total = 0, confirmed = 0, rejected = 0, unchecked = 0;
-    INITIAL_ROOMS.forEach((room) => {
+    rooms.forEach((room) => {
       room.positions.forEach((pos) => {
         total++;
         const st = posStates[pos.id]?.status || "none";
@@ -306,7 +388,34 @@ function ErstbegehungView({ type }: { type: string }) {
       });
     });
     return { total, confirmed, rejected, unchecked };
-  }, [posStates]);
+  }, [rooms, posStates]);
+
+  if (loadingData) {
+    return (
+      <View style={s.container}>
+        <View style={[s.header, { paddingTop: topInset + 8 }]}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>{label}</Text></View>
+        </View>
+        <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Positionen laden...</Text></View>
+      </View>
+    );
+  }
+
+  if (loadError || rooms.length === 0) {
+    return (
+      <View style={s.container}>
+        <View style={[s.header, { paddingTop: topInset + 8 }]}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>{label}</Text></View>
+        </View>
+        <View style={s.loadingWrap}>
+          <Ionicons name="alert-circle-outline" size={48} color={Colors.raw.zinc600} />
+          <Text style={s.loadingText}>{loadError || "Kein Angebot mit Positionen gefunden"}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={s.container}>
@@ -315,9 +424,9 @@ function ErstbegehungView({ type }: { type: string }) {
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={s.headerCenter}>
-          <Text style={s.headerCode}>BL-2026-023</Text>
+          <Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text>
           <Text style={s.headerTitle}>{label}</Text>
-          <Text style={s.headerAddress}>Schillerstra{"\u00DF"}e 12, 80336 M{"\u00FC"}nchen</Text>
+          <Text style={s.headerAddress}>{projectInfo?.address || ""}</Text>
         </View>
       </View>
 
@@ -330,7 +439,7 @@ function ErstbegehungView({ type }: { type: string }) {
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: bottomInset + 40 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {INITIAL_ROOMS.map((room) => {
+        {rooms.map((room) => {
           const isExpanded = expandedRooms.has(room.id);
           const roomMehr = mehrleistungen[room.id] || [];
           const roomConfirmed = room.positions.filter((p) => (posStates[p.id]?.status || "none") === "confirmed").length;
@@ -449,12 +558,16 @@ function ErstbegehungView({ type }: { type: string }) {
   );
 }
 
-function ZwischenbegehungView() {
+function ZwischenbegehungView({ projectId }: { projectId: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set(["r1"]));
+  const [rooms, setRooms] = useState<BegehungRoom[]>([]);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [loadingRooms, setLoadingRooms] = useState(true);
+
+  const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
   const [zbStates, setZbStates] = useState<Record<string, ZBPosState>>({});
   const [finalized, setFinalized] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
@@ -462,11 +575,34 @@ function ZwischenbegehungView() {
   const [loadingPrevious, setLoadingPrevious] = useState(true);
   const [previousBegehungDate, setPreviousBegehungDate] = useState<string | null>(null);
 
+  // Load rooms + project info
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const url = new URL("/api/begehungen/BL-2026-023/latest/zwischenbegehung", getApiUrl());
+        const [fetchedRooms, info] = await Promise.all([
+          fetchRoomsForProject(projectId),
+          fetchProjectInfo(projectId),
+        ]);
+        if (cancelled) return;
+        setRooms(fetchedRooms);
+        setProjectInfo(info);
+        if (fetchedRooms.length > 0) {
+          setExpandedRooms(new Set([fetchedRooms[0].id]));
+        }
+      } catch (_e) {}
+      if (!cancelled) setLoadingRooms(false);
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Load previous begehung (depends on projectInfo)
+  useEffect(() => {
+    if (loadingRooms || !projectInfo) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = new URL(`/api/begehungen/${projectInfo.projectNumber}/latest/zwischenbegehung`, getApiUrl());
         const resp = await fetch(url.toString());
         if (!resp.ok) throw new Error("fetch failed");
         const data = await resp.json();
@@ -489,7 +625,7 @@ function ZwischenbegehungView() {
       if (!cancelled) setLoadingPrevious(false);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [loadingRooms, projectInfo]);
 
   const toggleRoom = useCallback((roomId: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -535,26 +671,26 @@ function ZwischenbegehungView() {
   const overallProgress = useMemo(() => {
     let totalPositions = 0;
     let sumProgress = 0;
-    INITIAL_ROOMS.forEach((room) => {
+    rooms.forEach((room) => {
       room.positions.forEach((pos) => {
         totalPositions++;
         sumProgress += (zbStates[pos.id]?.progress || 0);
       });
     });
     return totalPositions > 0 ? Math.round(sumProgress / totalPositions) : 0;
-  }, [zbStates]);
+  }, [rooms, zbStates]);
 
   const handleFinalize = useCallback(async () => {
     setFinalizing(true);
     try {
       const positions: any[] = [];
-      INITIAL_ROOMS.forEach((room) => {
+      rooms.forEach((room) => {
         room.positions.forEach((pos) => {
           const zs = zbStates[pos.id] || { workStatus: "nicht_gestartet", progress: 0, photoCount: 0 };
           positions.push({ room_id: room.id, room_name: room.name, position_id: pos.id, position_nr: pos.nr, title: pos.title, description: pos.desc, qty: pos.qty, unit: pos.unit, price: pos.price, trade: pos.trade, status: `${zs.workStatus}:${zs.progress}`, photo_count: zs.photoCount, note: "", is_mehrleistung: false, from_catalog: false });
         });
       });
-      await apiRequest("POST", "/api/begehungen", { project_id: "BL-2026-023", type: "zwischenbegehung", positions });
+      await apiRequest("POST", "/api/begehungen", { project_id: projectInfo?.projectNumber || projectId, type: "zwischenbegehung", positions });
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
       setShowFinalizeConfirm(false);
@@ -563,7 +699,19 @@ function ZwischenbegehungView() {
     } finally {
       setFinalizing(false);
     }
-  }, [zbStates]);
+  }, [rooms, zbStates, projectInfo, projectId]);
+
+  if (loadingRooms) {
+    return (
+      <View style={s.container}>
+        <View style={[s.header, { paddingTop: topInset + 8 }]}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
+          <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>Zwischenbegehung</Text></View>
+        </View>
+        <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Positionen laden...</Text></View>
+      </View>
+    );
+  }
 
   return (
     <View style={s.container}>
@@ -572,9 +720,9 @@ function ZwischenbegehungView() {
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={s.headerCenter}>
-          <Text style={s.headerCode}>BL-2026-023</Text>
+          <Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text>
           <Text style={s.headerTitle}>Zwischenbegehung</Text>
-          <Text style={s.headerAddress}>Schillerstra{"\u00DF"}e 12, 80336 M{"\u00FC"}nchen</Text>
+          <Text style={s.headerAddress}>{projectInfo?.address || ""}</Text>
         </View>
       </View>
 
@@ -598,7 +746,7 @@ function ZwischenbegehungView() {
         <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Letzte Begehung laden...</Text></View>
       ) : (<>
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: bottomInset + 40 }} showsVerticalScrollIndicator={false}>
-        {INITIAL_ROOMS.map((room) => {
+        {rooms.map((room) => {
           const isExpanded = expandedRooms.has(room.id);
           const roomPosCount = room.positions.length;
           const roomAvgProg = roomPosCount > 0 ? Math.round(room.positions.reduce((sum, p) => sum + (zbStates[p.id]?.progress || 0), 0) / roomPosCount) : 0;
@@ -727,11 +875,12 @@ interface AbnahmePosition {
   roomName: string;
 }
 
-function AbnahmeView() {
+function AbnahmeView({ projectId }: { projectId: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [positions, setPositions] = useState<AbnahmePosition[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -747,7 +896,12 @@ function AbnahmeView() {
     let cancelled = false;
     (async () => {
       try {
-        const url = new URL("/api/begehungen/BL-2026-023/latest/zwischenbegehung", getApiUrl());
+        const info = await fetchProjectInfo(projectId);
+        if (cancelled) return;
+        setProjectInfo(info);
+        if (!info) { setLoading(false); return; }
+
+        const url = new URL(`/api/begehungen/${info.projectNumber}/latest/zwischenbegehung`, getApiUrl());
         const resp = await fetch(url.toString());
         if (!resp.ok) throw new Error("fetch failed");
         const data = await resp.json();
@@ -776,7 +930,7 @@ function AbnahmeView() {
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [projectId]);
 
   const toggleCheck = useCallback((posId: string) => {
     if (finalized) return;
@@ -832,7 +986,7 @@ function AbnahmeView() {
         is_mehrleistung: false,
         from_catalog: false,
       }));
-      await apiRequest("POST", "/api/begehungen", { project_id: "BL-2026-023", type: "abnahme", positions: posData });
+      await apiRequest("POST", "/api/begehungen", { project_id: projectInfo?.projectNumber || projectId, type: "abnahme", positions: posData });
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
       setShowFinalizeConfirm(false);
@@ -899,7 +1053,7 @@ function AbnahmeView() {
       <View style={s.container}>
         <View style={[s.header, { paddingTop: topInset + 8 }]}>
           <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
-          <View style={s.headerCenter}><Text style={s.headerCode}>BL-2026-023</Text><Text style={s.headerTitle}>Abnahme</Text><Text style={s.headerAddress}>Schillerstra{"\u00DF"}e 12, 80336 M{"\u00FC"}nchen</Text></View>
+          <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>Abnahme</Text><Text style={s.headerAddress}>{projectInfo?.address || ""}</Text></View>
         </View>
         <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Leistungen laden...</Text></View>
       </View>
@@ -911,7 +1065,7 @@ function AbnahmeView() {
       <View style={s.container}>
         <View style={[s.header, { paddingTop: topInset + 8 }]}>
           <Pressable onPress={() => router.back()} style={({ pressed }) => [s.backBtn, { opacity: pressed ? 0.7 : 1 }]}><Ionicons name="arrow-back" size={24} color={Colors.raw.white} /></Pressable>
-          <View style={s.headerCenter}><Text style={s.headerCode}>BL-2026-023</Text><Text style={s.headerTitle}>Abnahme</Text><Text style={s.headerAddress}>Schillerstra{"\u00DF"}e 12, 80336 M{"\u00FC"}nchen</Text></View>
+          <View style={s.headerCenter}><Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text><Text style={s.headerTitle}>Abnahme</Text><Text style={s.headerAddress}>{projectInfo?.address || ""}</Text></View>
         </View>
         <View style={s.loadingWrap}>
           <Ionicons name="alert-circle-outline" size={48} color={Colors.raw.zinc600} />
@@ -929,9 +1083,9 @@ function AbnahmeView() {
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={s.headerCenter}>
-          <Text style={s.headerCode}>BL-2026-023</Text>
+          <Text style={s.headerCode}>{projectInfo?.projectNumber || "..."}</Text>
           <Text style={s.headerTitle}>Abnahme</Text>
-          <Text style={s.headerAddress}>Schillerstra{"\u00DF"}e 12, 80336 M{"\u00FC"}nchen</Text>
+          <Text style={s.headerAddress}>{projectInfo?.address || ""}</Text>
         </View>
       </View>
 

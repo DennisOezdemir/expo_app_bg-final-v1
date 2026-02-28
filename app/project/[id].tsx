@@ -269,7 +269,7 @@ function formatTime(dateStr: string | null): string {
   return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
-function BegehungRow({ name, status, date }: { name: string; status: BegehungStatus; date: string }) {
+function BegehungRow({ name, status, date, projectId }: { name: string; status: BegehungStatus; date: string; projectId: string }) {
   const cfg = BEGEHUNG_CONFIG[status];
   const typeMap: Record<string, string> = {
     Erstbegehung: "erstbegehung",
@@ -280,7 +280,7 @@ function BegehungRow({ name, status, date }: { name: string; status: BegehungSta
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    router.push({ pathname: "/begehung/[type]", params: { type: typeMap[name] || "zwischenbegehung" } });
+    router.push({ pathname: "/begehung/[type]", params: { type: typeMap[name] || "zwischenbegehung", projectId } });
   };
   return (
     <Pressable
@@ -693,7 +693,7 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
             label="Material"
-            onPress={() => router.push({ pathname: "/begehung/[type]", params: { type: "erstbegehung", tab: "material" } })}
+            onPress={() => router.push({ pathname: "/begehung/[type]", params: { type: "erstbegehung", tab: "material", projectId: id || "" } })}
           />
           <QuickAction
             icon={<Ionicons name="people" size={24} color={Colors.raw.amber500} />}
@@ -731,6 +731,7 @@ export default function ProjectDetailScreen() {
                 name={mapBegehungType(ins.protocol_type)}
                 status={mapInspectionStatus(ins.status, ins.finalized_at)}
                 date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.inspection_date)}
+                projectId={id!}
               />
             ))
           ) : (
@@ -842,7 +843,7 @@ export default function ProjectDetailScreen() {
                 onPress={() => {
                   if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowBegehungPicker(false);
-                  router.push({ pathname: "/begehung/[type]", params: { type: item.key } });
+                  router.push({ pathname: "/begehung/[type]", params: { type: item.key, projectId: id || "" } });
                 }}
                 testID={`begehung-option-${item.key}`}
               >
