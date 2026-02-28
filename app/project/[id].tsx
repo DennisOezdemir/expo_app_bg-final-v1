@@ -920,8 +920,16 @@ interface InspectionPhoto {
   created_at: string;
 }
 
-const SCREEN_WIDTH = Dimensions.get("window").width;
-const THUMB_SIZE = (SCREEN_WIDTH - 60) / 2;
+function useThumbSize() {
+  const [size, setSize] = useState(() => (Dimensions.get("window").width - 60) / 2);
+  useEffect(() => {
+    const sub = Dimensions.addEventListener("change", ({ window }) => {
+      setSize((window.width - 60) / 2);
+    });
+    return () => sub.remove();
+  }, []);
+  return size;
+}
 
 function PhotoGalleryModal({
   projectId,
@@ -934,6 +942,7 @@ function PhotoGalleryModal({
 }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
+  const thumbSize = useThumbSize();
   const [photos, setPhotos] = useState<InspectionPhoto[]>([]);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -952,19 +961,28 @@ function PhotoGalleryModal({
       if (cancelled || error) { setLoading(false); return; }
       setPhotos(data || []);
 
-      // Generate signed URLs in batch
+      // Generate signed URLs — try batch first, fall back to individual
       const paths = (data || []).map((p) => p.storage_path);
       if (paths.length > 0) {
-        const { data: urlData } = await supabase.storage
+        const urlMap: Record<string, string> = {};
+        const { data: urlData, error: urlErr } = await supabase.storage
           .from("project-files")
           .createSignedUrls(paths, 3600);
-        if (!cancelled && urlData) {
-          const urlMap: Record<string, string> = {};
+        if (!urlErr && urlData) {
           urlData.forEach((u, i) => {
             if (u.signedUrl) urlMap[paths[i]] = u.signedUrl;
           });
-          setSignedUrls(urlMap);
+        } else {
+          // Fallback: generate individually
+          for (const path of paths) {
+            if (cancelled) break;
+            const { data: singleUrl } = await supabase.storage
+              .from("project-files")
+              .createSignedUrl(path, 3600);
+            if (singleUrl?.signedUrl) urlMap[path] = singleUrl.signedUrl;
+          }
         }
+        if (!cancelled) setSignedUrls(urlMap);
       }
       if (!cancelled) setLoading(false);
     })();
@@ -982,7 +1000,7 @@ function PhotoGalleryModal({
   }, [photos]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={pgStyles.container}>
         <View style={[pgStyles.header, { paddingTop: topInset + 8 }]}>
           <Text style={pgStyles.title}>Fotos ({photos.length})</Text>
@@ -1020,13 +1038,13 @@ function PhotoGalleryModal({
                             setFullscreenUri(uri);
                           }
                         }}
-                        style={({ pressed }) => [pgStyles.thumbWrap, { opacity: pressed ? 0.8 : 1 }]}
+                        style={({ pressed }) => [{ width: thumbSize }, { opacity: pressed ? 0.8 : 1 }]}
                       >
                         {uri ? (
-                          <Image source={{ uri }} style={pgStyles.thumb} />
+                          <Image source={{ uri }} style={{ width: thumbSize, height: thumbSize, borderRadius: 12, backgroundColor: Colors.raw.zinc800 }} />
                         ) : (
-                          <View style={[pgStyles.thumb, pgStyles.thumbPlaceholder]}>
-                            <Ionicons name="image-outline" size={24} color={Colors.raw.zinc600} />
+                          <View style={{ width: thumbSize, height: thumbSize, borderRadius: 12, backgroundColor: Colors.raw.zinc800, alignItems: "center", justifyContent: "center" }}>
+                            <ActivityIndicator size="small" color={Colors.raw.zinc600} />
                           </View>
                         )}
                         <Text style={pgStyles.thumbLabel} numberOfLines={1}>
@@ -1116,15 +1134,6 @@ const pgStyles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
-  },
-  thumbWrap: {
-    width: THUMB_SIZE,
-  },
-  thumb: {
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
-    borderRadius: 12,
-    backgroundColor: Colors.raw.zinc800,
   },
   thumbPlaceholder: {
     alignItems: "center",
