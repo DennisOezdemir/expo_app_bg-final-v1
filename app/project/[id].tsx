@@ -8,8 +8,7 @@ import {
   ActivityIndicator,
   Modal,
   Image,
-  Dimensions,
-  FlatList,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router, useFocusEffect } from "expo-router";
@@ -920,16 +919,7 @@ interface InspectionPhoto {
   created_at: string;
 }
 
-function useThumbSize() {
-  const [size, setSize] = useState(() => (Dimensions.get("window").width - 60) / 2);
-  useEffect(() => {
-    const sub = Dimensions.addEventListener("change", ({ window }) => {
-      setSize((window.width - 60) / 2);
-    });
-    return () => sub.remove();
-  }, []);
-  return size;
-}
+// Thumb size is computed inside PhotoGalleryModal using useWindowDimensions
 
 function PhotoGalleryModal({
   projectId,
@@ -942,7 +932,8 @@ function PhotoGalleryModal({
 }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
-  const thumbSize = useThumbSize();
+  const { width: screenWidth } = useWindowDimensions();
+  const thumbSize = Math.floor((screenWidth - 60) / 2);
   const [photos, setPhotos] = useState<InspectionPhoto[]>([]);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
