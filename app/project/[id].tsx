@@ -679,6 +679,7 @@ export default function ProjectDetailScreen() {
                 onPress={() => {
                   if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowBegehungPicker(false);
+                  router.push({ pathname: "/begehung/[type]", params: { type: item.key } });
                 }}
                 testID={`begehung-option-${item.key}`}
               >
