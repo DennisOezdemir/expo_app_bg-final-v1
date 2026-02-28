@@ -48,6 +48,7 @@ INSERT INTO schedule_defaults (trade, default_phase_order) VALUES
 ON CONFLICT (trade) DO NOTHING;
 
 -- 1e. Kern-Funktion: auto_plan_project
+-- Matcht Monteure per gewerk-Feld ODER Rollen-Freitext (z.B. "Elektriker" → Elektro)
 CREATE OR REPLACE FUNCTION auto_plan_project(p_project_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -77,6 +78,7 @@ DECLARE
   v_existing INT;
   v_phase_num INT := 0;
   v_day_offset INT := 0;
+  v_trade_pattern TEXT;
 BEGIN
   -- 1. Projekt validieren
   SELECT id, planned_start, planned_end, status
@@ -92,7 +94,7 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'Projekt hat kein Start-/Enddatum');
   END IF;
 
-  -- 2. Idempotenz: proposed Phasen bereits vorhanden?
+  -- 2. Idempotenz
   SELECT COUNT(*) INTO v_existing
   FROM schedule_phases
   WHERE project_id = p_project_id AND status = 'proposed';
@@ -117,36 +119,38 @@ BEGIN
   LOOP
     v_phase_num := v_phase_num + 1;
 
-    -- Defaults laden
-    SELECT * INTO v_defaults
-    FROM schedule_defaults
-    WHERE trade = v_trade.trade_name;
+    SELECT * INTO v_defaults FROM schedule_defaults WHERE trade = v_trade.trade_name;
 
-    -- Phase-Reihenfolge bestimmen
     IF v_defaults IS NOT NULL AND v_defaults.default_phase_order < 99 THEN
       v_phase_order := v_defaults.default_phase_order;
     ELSE
       v_phase_order := v_phase_num;
     END IF;
 
-    -- Dauer bestimmen
     IF v_defaults IS NOT NULL AND v_defaults.avg_duration_days IS NOT NULL AND v_defaults.observation_count > 0 THEN
       v_duration := CEIL(v_defaults.avg_duration_days);
     ELSE
-      -- Fallback: Projektdauer / Anzahl Gewerke, mindestens 3 Tage
       v_duration := GREATEST(CEIL(v_total_days::numeric / GREATEST(v_phase_num, 3)), 3);
     END IF;
 
-    -- Phase-Daten berechnen (sequenziell)
     v_phase_start := v_start + v_day_offset;
     v_phase_end := LEAST(v_phase_start + v_duration - 1, v_end);
     v_day_offset := v_day_offset + v_duration;
 
-    -- Monteur suchen
     v_best_member_id := NULL;
     v_best_member_name := NULL;
 
-    -- Erst Default prüfen
+    -- Trade-Pattern für Rollen-Freitext-Match
+    v_trade_pattern := CASE v_trade.trade_name
+      WHEN 'Sanitär' THEN 'sanit'
+      WHEN 'Maler' THEN 'maler'
+      WHEN 'Elektro' THEN 'elektr'
+      WHEN 'Fliesen' THEN 'fliesen'
+      WHEN 'Trockenbau' THEN 'trocken'
+      ELSE NULL
+    END;
+
+    -- Default-Monteur prüfen
     IF v_defaults IS NOT NULL AND v_defaults.default_team_member_id IS NOT NULL THEN
       SELECT id, name INTO v_member_id, v_member_name
       FROM team_members
@@ -167,17 +171,25 @@ BEGIN
       END IF;
     END IF;
 
-    -- Falls kein Default: bester verfügbarer Monteur mit passendem Gewerk
+    -- Besten verfügbaren Monteur suchen (gewerk, Rollen-Freitext, oder Fallback)
     IF v_best_member_id IS NULL THEN
       v_min_busy := 999999;
       FOR v_member_id, v_member_name IN
         SELECT tm.id, tm.name
         FROM team_members tm
         WHERE tm.active = true
-          AND tm.role = 'Monteur'
-          AND (tm.gewerk = v_trade.trade_name OR tm.gewerk IS NULL)
+          AND tm.role NOT IN ('GF', 'Bauleiter', 'Bauleiterin')
+          AND (
+            tm.gewerk = v_trade.trade_name
+            OR (v_trade_pattern IS NOT NULL AND LOWER(tm.role) LIKE '%' || v_trade_pattern || '%')
+            OR (v_trade.trade_name = 'Sonstiges' AND tm.gewerk IS NULL)
+          )
         ORDER BY
-          CASE WHEN tm.gewerk = v_trade.trade_name THEN 0 ELSE 1 END,
+          CASE
+            WHEN tm.gewerk = v_trade.trade_name THEN 0
+            WHEN v_trade_pattern IS NOT NULL AND LOWER(tm.role) LIKE '%' || v_trade_pattern || '%' THEN 1
+            ELSE 2
+          END,
           tm.name
       LOOP
         SELECT COUNT(*) INTO v_busy_count
