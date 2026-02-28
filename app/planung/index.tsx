@@ -1210,10 +1210,12 @@ export default function PlanungScreen() {
       {
         text: "Alle Verwerfen",
         style: "destructive",
-        onPress: () => {
-          proposedProjectIds.forEach(async (pid) => {
-            await supabase.rpc("discard_proposed_phases", { p_project_id: pid });
-          });
+        onPress: async () => {
+          await Promise.all(
+            Array.from(proposedProjectIds).map((pid) =>
+              supabase.rpc("discard_proposed_phases", { p_project_id: pid })
+            )
+          );
           fetchData();
         },
       },
