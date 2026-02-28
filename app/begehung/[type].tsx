@@ -14,10 +14,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 
 type PosCheckStatus = "none" | "confirmed" | "rejected";
 type ZBWorkStatus = "nicht_gestartet" | "geplant" | "in_arbeit";
@@ -459,6 +459,37 @@ function ZwischenbegehungView() {
   const [finalized, setFinalized] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+  const [loadingPrevious, setLoadingPrevious] = useState(true);
+  const [previousBegehungDate, setPreviousBegehungDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = new URL("/api/begehungen/BL-2026-023/latest/zwischenbegehung", getApiUrl());
+        const resp = await fetch(url.toString());
+        if (!resp.ok) throw new Error("fetch failed");
+        const data = await resp.json();
+        if (cancelled || !data || !data.positions) { setLoadingPrevious(false); return; }
+        const restored: Record<string, ZBPosState> = {};
+        for (const pos of data.positions) {
+          const parts = (pos.status || "").split(":");
+          const ws = (["nicht_gestartet", "geplant", "in_arbeit"].includes(parts[0]) ? parts[0] : "nicht_gestartet") as ZBWorkStatus;
+          const prog = ([0, 25, 50, 75, 100].includes(Number(parts[1])) ? Number(parts[1]) : 0) as ZBProgress;
+          restored[pos.position_id] = { workStatus: ws, progress: prog, photoCount: 0 };
+        }
+        if (!cancelled) {
+          setZbStates(restored);
+          if (data.finalized_at) {
+            const d = new Date(data.finalized_at);
+            setPreviousBegehungDate(d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }));
+          }
+        }
+      } catch (_e) {}
+      if (!cancelled) setLoadingPrevious(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const toggleRoom = useCallback((roomId: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -555,8 +586,17 @@ function ZwischenbegehungView() {
         <View style={s.progressBarBg}>
           <View style={[s.progressBarFill, { width: `${overallProgress}%` }, overallProgress === 100 && { backgroundColor: Colors.raw.emerald500 }]} />
         </View>
+        {previousBegehungDate && !loadingPrevious && (
+          <View style={s.previousBanner}>
+            <Ionicons name="time" size={14} color={Colors.raw.zinc500} />
+            <Text style={s.previousBannerText}>Fortgesetzt von {previousBegehungDate}</Text>
+          </View>
+        )}
       </View>
 
+      {loadingPrevious ? (
+        <View style={s.loadingWrap}><ActivityIndicator size="small" color={Colors.raw.amber500} /><Text style={s.loadingText}>Letzte Begehung laden...</Text></View>
+      ) : (
       <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: bottomInset + 40 }} showsVerticalScrollIndicator={false}>
         {INITIAL_ROOMS.map((room) => {
           const isExpanded = expandedRooms.has(room.id);
@@ -654,6 +694,7 @@ function ZwischenbegehungView() {
           </Pressable>
         )}
       </ScrollView>
+      )}
 
       <Modal visible={showFinalizeConfirm} transparent animationType="fade" onRequestClose={() => setShowFinalizeConfirm(false)}>
         <Pressable style={s.confirmOverlay} onPress={() => setShowFinalizeConfirm(false)}>
@@ -795,6 +836,10 @@ const s = StyleSheet.create({
   progressPct: { fontFamily: "Inter_800ExtraBold", fontSize: 22, color: Colors.raw.amber500 },
   progressBarBg: { height: 8, borderRadius: 4, backgroundColor: Colors.raw.zinc800, overflow: "hidden" },
   progressBarFill: { height: 8, borderRadius: 4, backgroundColor: Colors.raw.amber500 },
+  previousBanner: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, paddingHorizontal: 4 },
+  previousBannerText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500 },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  loadingText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc500 },
   scroll: { flex: 1, paddingHorizontal: 16 },
   roomCard: { backgroundColor: Colors.raw.zinc900, borderRadius: 14, borderWidth: 1, borderColor: Colors.raw.zinc800, marginTop: 12, overflow: "hidden" },
   roomHeader: { flexDirection: "row", alignItems: "center", padding: 16, gap: 10 },

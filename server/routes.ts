@@ -92,6 +92,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/begehungen/:projectId/latest/:type", async (req: Request, res: Response) => {
+    try {
+      const { projectId, type } = req.params;
+
+      const bgResult = await pool.query(
+        `SELECT * FROM begehungen WHERE project_id = $1 AND type = $2 AND finalized = TRUE ORDER BY finalized_at DESC LIMIT 1`,
+        [projectId, type]
+      );
+
+      if (bgResult.rows.length === 0) {
+        res.json(null);
+        return;
+      }
+
+      const begehungId = bgResult.rows[0].id;
+      const posResult = await pool.query(
+        `SELECT * FROM begehung_positions WHERE begehung_id = $1 ORDER BY room_id, position_nr`,
+        [begehungId]
+      );
+
+      res.json({
+        ...bgResult.rows[0],
+        positions: posResult.rows,
+      });
+    } catch (err: any) {
+      console.error("Error fetching latest begehung:", err);
+      res.status(500).json({ error: err.message || "Internal server error" });
+    }
+  });
+
   app.get("/api/begehungen/:projectId/:begehungId", async (req: Request, res: Response) => {
     try {
       const { projectId, begehungId } = req.params;
