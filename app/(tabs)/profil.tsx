@@ -9,12 +9,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import Colors from "@/constants/colors";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 interface ToggleSetting {
   key: string;
@@ -25,10 +26,10 @@ interface ToggleSetting {
 
 const NOTIFICATION_SETTINGS: ToggleSetting[] = [
   { key: "push", icon: "notifications", label: "Push-Benachrichtigungen", defaultOn: true },
-  { key: "email", icon: "mail", label: "Email-Zusammenfassung t\u00E4glich", defaultOn: false },
+  { key: "email", icon: "mail", label: "E-Mail-Zusammenfassung täglich", defaultOn: false },
   { key: "margin", icon: "warning", label: "Marge unter 20% warnen", defaultOn: true },
   { key: "material", icon: "cube", label: "Material-Erinnerungen", defaultOn: true },
-  { key: "payment", icon: "cash", label: "Zahlungseing\u00E4nge melden", defaultOn: true },
+  { key: "payment", icon: "cash", label: "Zahlungseingänge melden", defaultOn: true },
 ];
 
 interface TeamMember {
@@ -145,18 +146,43 @@ const rsStyles = StyleSheet.create({
   btnTextActive: { color: "#000", fontFamily: "Inter_700Bold" },
 });
 
+const DEFAULT_COMPANY_NAME = "Deine Baulöwen GmbH";
+const DEFAULT_COMPANY_SINCE = "Seit Januar 2025";
+
 export default function ProfilScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const { role, user, sees: _sees, isImpersonating } = useRole();
-  const { logout } = useAuth();
+  const { logout, user: authUser } = useAuth();
 
+  const [companyName, setCompanyName] = useState(DEFAULT_COMPANY_NAME);
+  const [companySince, setCompanySince] = useState(DEFAULT_COMPANY_SINCE);
+  const [teamCount, setTeamCount] = useState<number | null>(null);
   const [toggles, setToggles] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     NOTIFICATION_SETTINGS.forEach((s) => { init[s.key] = s.defaultOn; });
     return init;
   });
+
+  const fetchCompanySettings = useCallback(async () => {
+    const { data } = await supabase.from("company_settings").select("key, value").in("key", ["company_name", "company_since"]);
+    const map = new Map((data ?? []).map((r) => [r.key, r.value ?? ""]));
+    setCompanyName(map.get("company_name") || DEFAULT_COMPANY_NAME);
+    setCompanySince(map.get("company_since") || DEFAULT_COMPANY_SINCE);
+    const teamRes = await supabase.from("team_members").select("id", { count: "exact", head: true });
+    if (!teamRes.error && teamRes.count !== null) setTeamCount(teamRes.count);
+  }, []);
+
+  useEffect(() => {
+    fetchCompanySettings();
+  }, [fetchCompanySettings]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchCompanySettings();
+    }, [fetchCompanySettings])
+  );
 
   const toggleSetting = (key: string) => {
     setToggles((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -188,17 +214,28 @@ export default function ProfilScreen() {
       >
         <Text style={styles.title}>Profil</Text>
 
-        <View style={styles.profileCard}>
+        <Pressable
+          onPress={() => role === "gf" && router.push("/einstellungen/firma" as any)}
+          style={({ pressed }) => [styles.profileCard, role === "gf" && { opacity: pressed ? 0.9 : 1 }]}
+        >
           <View style={styles.avatarCircle}>
             <Ionicons name="person" size={32} color={Colors.raw.amber500} />
           </View>
-          <Text style={styles.profileName}>{user.name}</Text>
-          <Text style={styles.profileEmail}>{user.email}</Text>
+          <Text style={styles.profileName}>{authUser?.name ?? user.name}</Text>
+          {authUser?.email ? (
+            <Text style={styles.profileEmail}>{authUser.email}</Text>
+          ) : null}
           <Text style={styles.profileRole}>{user.roleLabel}</Text>
           <View style={styles.profileDivider} />
-          <Text style={styles.companyName}>Deine Baul\u00F6wen GmbH</Text>
-          <Text style={styles.companySince}>Seit Januar 2025</Text>
-        </View>
+          <Text style={styles.companyName}>{companyName}</Text>
+          <Text style={styles.companySince}>{companySince}</Text>
+          {role === "gf" && (
+            <View style={styles.profileCardEdit}>
+              <Ionicons name="pencil" size={14} color={Colors.raw.amber500} />
+              <Text style={styles.profileCardEditText}>Tippen zum Bearbeiten</Text>
+            </View>
+          )}
+        </Pressable>
 
         <View style={styles.statsRow}>
           {stats.map((stat) => (
@@ -260,8 +297,8 @@ export default function ProfilScreen() {
         <Text style={styles.sectionLabel}>Einstellungen</Text>
         <View style={styles.card}>
           {([
-            { icon: "business", label: "Firma", sub: "Deine Baul\u00F6wen GmbH", route: "/einstellungen/firma" },
-            { icon: "people", label: "Team", sub: "4 Mitarbeiter", route: "/einstellungen/team" },
+            { icon: "business", label: "Firma", sub: companyName, route: "/einstellungen/firma" },
+            { icon: "people", label: "Team", sub: teamCount !== null ? `${teamCount} Mitarbeiter` : "Mitarbeiter", route: "/einstellungen/team" },
             { icon: "people-outline", label: "Kunden", sub: "Stammdaten Auftraggeber", route: "/einstellungen/kunden" },
             { icon: "cube", label: "Lieferanten", sub: "21 Lieferanten", route: "/einstellungen/lieferanten" },
             { icon: "list", label: "Katalog", sub: "WABS \u2022 620 Positionen", route: "/einstellungen/katalog" },
@@ -389,6 +426,8 @@ const styles = StyleSheet.create({
   profileDivider: { height: 1, backgroundColor: Colors.raw.zinc800, alignSelf: "stretch", marginBottom: 16 },
   companyName: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.zinc300, marginBottom: 4 },
   companySince: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500 },
+  profileCardEdit: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
+  profileCardEditText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.raw.amber500 },
 
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 28 },
   statCard: {

@@ -7,15 +7,18 @@ import {
   Pressable,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { router } from "expo-router";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
 
 interface FormState {
   firmenname: string;
+  companySince: string;
   rechtsform: string;
   geschaeftsfuehrer: string;
   strasse: string;
@@ -45,12 +48,14 @@ function FormRow({
   onChangeText,
   keyboardType,
   flex,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChangeText: (t: string) => void;
   keyboardType?: "default" | "numeric" | "email-address" | "phone-pad";
   flex?: number;
+  placeholder?: string;
 }) {
   return (
     <View style={[rowStyles.row, flex !== undefined && { flex }]}>
@@ -59,6 +64,7 @@ function FormRow({
         style={rowStyles.input}
         value={value}
         onChangeText={onChangeText}
+        placeholder={placeholder ?? label}
         placeholderTextColor={Colors.raw.zinc600}
         keyboardType={keyboardType || "default"}
         selectionColor={Colors.raw.amber500}
@@ -66,6 +72,58 @@ function FormRow({
     </View>
   );
 }
+
+const FORM_TO_DB_KEY: Record<keyof FormState, string> = {
+  firmenname: "company_name",
+  companySince: "company_since",
+  rechtsform: "rechtsform",
+  geschaeftsfuehrer: "geschaeftsfuehrer",
+  strasse: "address_street",
+  plz: "address_zip",
+  ort: "address_city",
+  telefon: "phone",
+  email: "email",
+  website: "website",
+  steuernummer: "tax_id",
+  ustIdNr: "vat_id",
+  handelsregister: "handelsregister",
+  finanzamt: "finanzamt",
+  bank: "bank",
+  iban: "iban",
+  bic: "bic",
+  zahlungsziel: "zahlungsziel",
+  skontoPercent: "skonto_percent",
+  skontoTage: "skonto_tage",
+  mahnfrist1: "mahnfrist_1",
+  mahnfrist2: "mahnfrist_2",
+  verzugszinsen: "verzugszinsen",
+};
+
+const DEFAULT_FORM: FormState = {
+  firmenname: "Deine Baulöwen GmbH",
+  companySince: "Seit Januar 2025",
+  rechtsform: "GmbH",
+  geschaeftsfuehrer: "Dennis",
+  strasse: "Musterstraße 12",
+  plz: "20095",
+  ort: "Hamburg",
+  telefon: "040-123456",
+  email: "info@bauloewen.de",
+  website: "www.bauloewen.de",
+  steuernummer: "41/123/45678",
+  ustIdNr: "DE123456789",
+  handelsregister: "HRB 12345 Hamburg",
+  finanzamt: "Hamburg-Nord",
+  bank: "Hamburger Sparkasse",
+  iban: "DE89 3704 0044 0532 0130 00",
+  bic: "HASPDEHHXXX",
+  zahlungsziel: "14",
+  skontoPercent: "2",
+  skontoTage: "7",
+  mahnfrist1: "14",
+  mahnfrist2: "14",
+  verzugszinsen: "5",
+};
 
 const rowStyles = StyleSheet.create({
   row: {
@@ -132,36 +190,71 @@ export default function FirmaScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [form, setForm] = useState<FormState>({
-    firmenname: "Deine Baul\u00F6wen GmbH",
-    rechtsform: "GmbH",
-    geschaeftsfuehrer: "Dennis",
-    strasse: "Musterstra\u00DFe 12",
-    plz: "20095",
-    ort: "Hamburg",
-    telefon: "040-123456",
-    email: "info@bauloewen.de",
-    website: "www.bauloewen.de",
-    steuernummer: "41/123/45678",
-    ustIdNr: "DE123456789",
-    handelsregister: "HRB 12345 Hamburg",
-    finanzamt: "Hamburg-Nord",
-    bank: "Hamburger Sparkasse",
-    iban: "DE89 3704 0044 0532 0130 00",
-    bic: "HASPDEHHXXX",
-    zahlungsziel: "14",
-    skontoPercent: "2",
-    skontoTage: "7",
-    mahnfrist1: "14",
-    mahnfrist2: "14",
-    verzugszinsen: "5",
-  });
+  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("company_settings").select("key, value");
+    setLoading(false);
+    if (error) {
+      console.error("Firmendaten laden:", error);
+      return;
+    }
+    const map = new Map((data ?? []).map((r) => [r.key, r.value ?? ""]));
+    setForm({
+      firmenname: map.get("company_name") ?? DEFAULT_FORM.firmenname,
+      companySince: map.get("company_since") ?? DEFAULT_FORM.companySince,
+      rechtsform: map.get("rechtsform") ?? DEFAULT_FORM.rechtsform,
+      geschaeftsfuehrer: map.get("geschaeftsfuehrer") ?? DEFAULT_FORM.geschaeftsfuehrer,
+      strasse: map.get("address_street") ?? DEFAULT_FORM.strasse,
+      plz: map.get("address_zip") ?? DEFAULT_FORM.plz,
+      ort: map.get("address_city") ?? DEFAULT_FORM.ort,
+      telefon: map.get("phone") ?? DEFAULT_FORM.telefon,
+      email: map.get("email") ?? DEFAULT_FORM.email,
+      website: map.get("website") ?? DEFAULT_FORM.website,
+      steuernummer: map.get("tax_id") ?? DEFAULT_FORM.steuernummer,
+      ustIdNr: map.get("vat_id") ?? DEFAULT_FORM.ustIdNr,
+      handelsregister: map.get("handelsregister") ?? DEFAULT_FORM.handelsregister,
+      finanzamt: map.get("finanzamt") ?? DEFAULT_FORM.finanzamt,
+      bank: map.get("bank") ?? DEFAULT_FORM.bank,
+      iban: map.get("iban") ?? DEFAULT_FORM.iban,
+      bic: map.get("bic") ?? DEFAULT_FORM.bic,
+      zahlungsziel: map.get("zahlungsziel") ?? DEFAULT_FORM.zahlungsziel,
+      skontoPercent: map.get("skonto_percent") ?? DEFAULT_FORM.skontoPercent,
+      skontoTage: map.get("skonto_tage") ?? DEFAULT_FORM.skontoTage,
+      mahnfrist1: map.get("mahnfrist_1") ?? DEFAULT_FORM.mahnfrist1,
+      mahnfrist2: map.get("mahnfrist_2") ?? DEFAULT_FORM.mahnfrist2,
+      verzugszinsen: map.get("verzugszinsen") ?? DEFAULT_FORM.verzugszinsen,
+    });
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
 
   const update = (key: keyof FormState) => (value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaving(true);
+    const rows = (Object.keys(form) as (keyof FormState)[]).map((k) => ({
+      key: FORM_TO_DB_KEY[k],
+      value: form[k] ?? "",
+    }));
+    for (const row of rows) {
+      const { error } = await supabase
+        .from("company_settings")
+        .upsert({ key: row.key, value: row.value }, { onConflict: "key" });
+      if (error) {
+        setSaving(false);
+        Alert.alert("Fehler", error.message);
+        return;
+      }
+    }
+    setSaving(false);
     Alert.alert("Gespeichert", "Firmendaten wurden erfolgreich gespeichert.");
   };
 
@@ -186,16 +279,24 @@ export default function FirmaScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.title}>Firma</Text>
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color={Colors.raw.amber500} />
+          </View>
+        ) : (
+        <>
 
         <Text style={styles.sectionLabel}>Firmendaten</Text>
         <View style={styles.card}>
           <FormRow label="Firmenname" value={form.firmenname} onChangeText={update("firmenname")} />
           <View style={styles.divider} />
+          <FormRow label="Untertitel im Profil" value={form.companySince} onChangeText={update("companySince")} placeholder="z. B. Seit Januar 2025" />
+          <View style={styles.divider} />
           <FormRow label="Rechtsform" value={form.rechtsform} onChangeText={update("rechtsform")} />
           <View style={styles.divider} />
-          <FormRow label="Gesch\u00E4ftsf\u00FChrer" value={form.geschaeftsfuehrer} onChangeText={update("geschaeftsfuehrer")} />
+          <FormRow label="Geschäftsführer" value={form.geschaeftsfuehrer} onChangeText={update("geschaeftsfuehrer")} />
           <View style={styles.divider} />
-          <FormRow label="Stra\u00DFe" value={form.strasse} onChangeText={update("strasse")} />
+          <FormRow label="Straße" value={form.strasse} onChangeText={update("strasse")} />
           <View style={styles.divider} />
           <View style={styles.splitRow}>
             <View style={{ flex: 1 }}>
@@ -282,19 +383,26 @@ export default function FirmaScreen() {
             <Text style={styles.paymentLabel}>Verzugszinsen:</Text>
             <View style={styles.paymentInline}>
               <InlineNumberInput value={form.verzugszinsen} onChangeText={update("verzugszinsen")} width={44} />
-              <Text style={styles.paymentUnit}>% \u00FCber Basiszins</Text>
+              <Text style={styles.paymentUnit}>% über Basiszins</Text>
             </View>
           </View>
         </View>
+        </>
+        )}
       </ScrollView>
 
       <View style={[styles.stickyBottom, { paddingBottom: bottomInset + 16 }]}>
         <Pressable
           onPress={handleSave}
-          style={({ pressed }) => [styles.saveButton, { opacity: pressed ? 0.85 : 1 }]}
+          disabled={loading || saving}
+          style={({ pressed }) => [styles.saveButton, { opacity: loading || saving || pressed ? 0.7 : 1 }]}
           testID="save-button"
         >
-          <Text style={styles.saveText}>Speichern</Text>
+          {saving ? (
+            <ActivityIndicator size="small" color="#000" />
+          ) : (
+            <Text style={styles.saveText}>Speichern</Text>
+          )}
         </Pressable>
       </View>
     </View>
@@ -332,6 +440,10 @@ const styles = StyleSheet.create({
     fontSize: 30,
     color: Colors.raw.white,
     marginBottom: 24,
+  },
+  loadingWrap: {
+    paddingVertical: 48,
+    alignItems: "center",
   },
   sectionLabel: {
     fontFamily: "Inter_700Bold",

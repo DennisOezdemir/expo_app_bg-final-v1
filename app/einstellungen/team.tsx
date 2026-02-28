@@ -8,29 +8,25 @@ import {
   Modal,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { router } from "expo-router";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
 
-interface TeamMember {
+export interface TeamMember {
   id: string;
   name: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
   role: string;
-  roleLabel: string;
-  gewerk: string;
+  role_label: string | null;
+  gewerk: string | null;
   active: boolean;
 }
-
-const TEAM_DATA: TeamMember[] = [
-  { id: "1", name: "Dennis", email: "dennis@bauloewen.de", role: "GF", roleLabel: "Geschäftsführer", gewerk: "", active: true },
-  { id: "2", name: "Ayse", email: "ayse@bauloewen.de", role: "Bauleiter", roleLabel: "Projektleiterin", gewerk: "", active: true },
-  { id: "3", name: "Mehmet", email: "mehmet@bauloewen.de", role: "Monteur", roleLabel: "Maler", gewerk: "Maler", active: true },
-  { id: "4", name: "Ali", email: "ali@bauloewen.de", role: "Monteur", roleLabel: "Fliesenleger", gewerk: "Fliesen", active: true },
-];
 
 const ROLES = [
   { key: "GF", label: "GF", icon: "briefcase" as const },
@@ -46,19 +42,48 @@ function getRoleIcon(role: string): string {
   return "construct";
 }
 
+const DEFAULT_ROLE_LABELS: Record<string, string> = {
+  GF: "Geschäftsführer",
+  Bauleiter: "Projektleiterin",
+  Monteur: "Monteur",
+};
+
 export default function TeamScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [telefon, setTelefon] = useState("");
   const [selectedRole, setSelectedRole] = useState("GF");
   const [selectedGewerk, setSelectedGewerk] = useState("");
 
+  const fetchMembers = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("team_members")
+      .select("id, name, email, phone, role, role_label, gewerk, active")
+      .order("sort_order", { ascending: true });
+    setLoading(false);
+    if (error) {
+      console.error("Team laden:", error);
+      return;
+    }
+    setMembers((data as TeamMember[]) ?? []);
+  }, []);
+
+  useEffect(() => {
+    fetchMembers();
+  }, [fetchMembers]);
+
   const resetForm = () => {
+    setEditingMember(null);
     setName("");
     setEmail("");
     setTelefon("");
@@ -66,14 +91,95 @@ export default function TeamScreen() {
     setSelectedGewerk("");
   };
 
-  const handleSend = () => {
-    Alert.alert(
-      "Einladung gesendet",
-      `${name} wurde erfolgreich eingeladen.`,
-      [{ text: "OK" }]
-    );
+  const openNew = () => {
+    resetForm();
+    setModalVisible(true);
+  };
+
+  const openEdit = (member: TeamMember) => {
+    setEditingMember(member);
+    setName(member.name);
+    setEmail(member.email ?? "");
+    setTelefon(member.phone ?? "");
+    setSelectedRole(member.role);
+    setSelectedGewerk(member.gewerk ?? "");
+    setModalVisible(true);
+  };
+
+  const getRoleLabel = () => {
+    if (selectedRole === "Monteur" && selectedGewerk) return selectedGewerk;
+    return DEFAULT_ROLE_LABELS[selectedRole] ?? selectedRole;
+  };
+
+  const handleSave = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      Alert.alert("Fehler", "Name ist Pflicht.");
+      return;
+    }
+    setSaving(true);
+    const roleLabel = getRoleLabel();
+    if (editingMember) {
+      const { error } = await supabase
+        .from("team_members")
+        .update({
+          name: trimmedName,
+          email: email.trim() || null,
+          phone: telefon.trim() || null,
+          role: selectedRole,
+          role_label: roleLabel,
+          gewerk: selectedRole === "Monteur" ? selectedGewerk || null : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editingMember.id);
+      setSaving(false);
+      if (error) {
+        Alert.alert("Fehler", error.message);
+        return;
+      }
+    } else {
+      const { error } = await supabase.from("team_members").insert({
+        name: trimmedName,
+        email: email.trim() || null,
+        phone: telefon.trim() || null,
+        role: selectedRole,
+        role_label: roleLabel,
+        gewerk: selectedRole === "Monteur" ? selectedGewerk || null : null,
+        active: true,
+        sort_order: members.length,
+      });
+      setSaving(false);
+      if (error) {
+        Alert.alert("Fehler", error.message);
+        return;
+      }
+    }
+    fetchMembers();
     resetForm();
     setModalVisible(false);
+  };
+
+  const handleDelete = () => {
+    if (!editingMember) return;
+    Alert.alert(
+      "Mitarbeiter entfernen",
+      `"${editingMember.name}" wirklich aus dem Team entfernen?`,
+      [
+        { text: "Abbrechen", style: "cancel" },
+        {
+          text: "Entfernen",
+          style: "destructive",
+          onPress: async () => {
+            setSaving(true);
+            await supabase.from("team_members").delete().eq("id", editingMember.id);
+            setSaving(false);
+            fetchMembers();
+            resetForm();
+            setModalVisible(false);
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -95,45 +201,55 @@ export default function TeamScreen() {
         </Pressable>
 
         <Text style={styles.title}>Team</Text>
-        <Text style={styles.subtitle}>4 Mitarbeiter</Text>
+        <Text style={styles.subtitle}>{members.length} Mitarbeiter</Text>
 
-        <View style={styles.card}>
-          {TEAM_DATA.map((member, i) => (
-            <View key={member.id}>
-              <View style={styles.memberRow}>
-                <View style={styles.memberLeft}>
-                  <View style={styles.avatar}>
-                    <Ionicons name="person" size={20} color={Colors.raw.amber500} />
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color={Colors.raw.amber500} />
+          </View>
+        ) : (
+          <View style={styles.card}>
+            {members.map((member, i) => (
+              <Pressable
+                key={member.id}
+                onPress={() => openEdit(member)}
+                style={({ pressed }) => [styles.memberRowWrap, pressed && { opacity: 0.8 }]}
+              >
+                <View style={styles.memberRow}>
+                  <View style={styles.memberLeft}>
+                    <View style={styles.avatar}>
+                      <Ionicons name="person" size={20} color={Colors.raw.amber500} />
+                    </View>
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName}>{member.name}</Text>
+                      <Text style={styles.memberEmail}>{member.email ?? "—"}</Text>
+                    </View>
                   </View>
-                  <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{member.name}</Text>
-                    <Text style={styles.memberEmail}>{member.email}</Text>
+                  <View style={styles.memberRight}>
+                    <View style={styles.roleBadge}>
+                      <Ionicons
+                        name={getRoleIcon(member.role) as any}
+                        size={12}
+                        color={Colors.raw.amber500}
+                      />
+                      <Text style={styles.roleBadgeText}>{member.role_label ?? member.role}</Text>
+                    </View>
+                    {member.active && <View style={styles.activeDot} />}
                   </View>
                 </View>
-                <View style={styles.memberRight}>
-                  <View style={styles.roleBadge}>
-                    <Ionicons
-                      name={getRoleIcon(member.role) as any}
-                      size={12}
-                      color={Colors.raw.amber500}
-                    />
-                    <Text style={styles.roleBadgeText}>{member.roleLabel}</Text>
-                  </View>
-                  {member.active && <View style={styles.activeDot} />}
-                </View>
-              </View>
-              {i < TEAM_DATA.length - 1 && <View style={styles.divider} />}
-            </View>
-          ))}
-        </View>
+                {i < members.length - 1 && <View style={styles.divider} />}
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         <Pressable
-          onPress={() => setModalVisible(true)}
+          onPress={openNew}
           style={({ pressed }) => [styles.inviteBtn, { opacity: pressed ? 0.7 : 1 }]}
           testID="invite-button"
         >
           <Ionicons name="add-circle" size={22} color={Colors.raw.amber500} />
-          <Text style={styles.inviteBtnText}>Mitarbeiter einladen</Text>
+          <Text style={styles.inviteBtnText}>Mitarbeiter hinzufügen</Text>
         </Pressable>
       </ScrollView>
 
@@ -146,7 +262,9 @@ export default function TeamScreen() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { paddingBottom: bottomInset + 20 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Mitarbeiter einladen</Text>
+              <Text style={styles.modalTitle}>
+                {editingMember ? "Mitarbeiter bearbeiten" : "Mitarbeiter hinzufügen"}
+              </Text>
               <Pressable
                 onPress={() => {
                   resetForm();
@@ -169,12 +287,12 @@ export default function TeamScreen() {
                 selectionColor={Colors.raw.amber500}
               />
 
-              <Text style={styles.inputLabel}>Email</Text>
+              <Text style={styles.inputLabel}>E-Mail</Text>
               <TextInput
                 style={styles.input}
                 value={email}
                 onChangeText={setEmail}
-                placeholder="Email eingeben"
+                placeholder="E-Mail eingeben"
                 placeholderTextColor={Colors.raw.zinc600}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -241,12 +359,26 @@ export default function TeamScreen() {
               )}
 
               <Pressable
-                onPress={handleSend}
-                style={({ pressed }) => [styles.sendBtn, { opacity: pressed ? 0.7 : 1 }]}
+                onPress={handleSave}
+                disabled={saving}
+                style={({ pressed }) => [styles.sendBtn, { opacity: saving || pressed ? 0.7 : 1 }]}
                 testID="send-invite"
               >
-                <Text style={styles.sendBtnText}>Einladung senden</Text>
+                {saving ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <Text style={styles.sendBtnText}>{editingMember ? "Speichern" : "Hinzufügen"}</Text>
+                )}
               </Pressable>
+              {editingMember && (
+                <Pressable
+                  onPress={handleDelete}
+                  disabled={saving}
+                  style={({ pressed }) => [styles.deleteBtn, { opacity: saving || pressed ? 0.7 : 1 }]}
+                >
+                  <Text style={styles.deleteBtnText}>Mitarbeiter entfernen</Text>
+                </Pressable>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -294,6 +426,11 @@ const styles = StyleSheet.create({
   },
   divider: { height: 1, backgroundColor: Colors.raw.zinc800 },
 
+  loadingWrap: {
+    paddingVertical: 48,
+    alignItems: "center",
+  },
+  memberRowWrap: {},
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -451,5 +588,15 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: "#000",
+  },
+  deleteBtn: {
+    marginTop: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  deleteBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.rose500,
   },
 });
