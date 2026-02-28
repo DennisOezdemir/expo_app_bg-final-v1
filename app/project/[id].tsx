@@ -18,9 +18,10 @@ import Animated, {
 } from "react-native-reanimated";
 import { useState, useEffect, useCallback } from "react";
 import * as Haptics from "expo-haptics";
+import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
-import { getApiUrl } from "@/lib/query-client";
+import { mapDbStatus, type ProjectStatus } from "@/lib/status";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -44,16 +45,20 @@ interface ProjectData {
 }
 
 interface OfferData {
+  offer_number: string;
   total_net: number | null;
   status: string | null;
+  pdf_storage_path: string | null;
 }
 
 interface InspectionData {
   id: string;
-  type: string;
-  finalized: boolean;
+  protocol_type: string;
+  status: string | null;
+  inspection_date: string;
   finalized_at: string | null;
   created_at: string;
+  pdf_storage_path: string | null;
 }
 
 interface MessageData {
@@ -207,6 +212,27 @@ const shStyles = StyleSheet.create({
   },
 });
 
+const PROJECT_STATUS_CONFIG: Record<ProjectStatus, { color: string; label: string }> = {
+  kritisch: { color: Colors.raw.rose500, label: "Kritisch" },
+  achtung: { color: Colors.raw.amber500, label: "Achtung" },
+  laeuft: { color: Colors.raw.emerald500, label: "Läuft" },
+  fertig: { color: Colors.raw.zinc500, label: "Fertig" },
+};
+
+const DB_STATUS_LABEL: Record<string, string> = {
+  INTAKE: "Eingang",
+  DRAFT: "Entwurf",
+  ACTIVE: "Aktiv",
+  PLANNING: "Planung",
+  IN_PROGRESS: "In Arbeit",
+  INSPECTION: "Begehung",
+  COMPLETION: "Abschluss",
+  ON_HOLD: "Pausiert",
+  COMPLETED: "Fertig",
+  CANCELLED: "Storniert",
+  ARCHIVED: "Archiviert",
+};
+
 type BegehungStatus = "erledigt" | "geplant" | "offen";
 
 const BEGEHUNG_CONFIG: Record<BegehungStatus, { dot: string; label: string }> = {
@@ -215,8 +241,11 @@ const BEGEHUNG_CONFIG: Record<BegehungStatus, { dot: string; label: string }> = 
   offen: { dot: Colors.raw.zinc600, label: "nicht geplant" },
 };
 
-function mapInspectionFinalized(finalized: boolean): BegehungStatus {
-  return finalized ? "erledigt" : "geplant";
+function mapInspectionStatus(status: string | null, finalizedAt: string | null): BegehungStatus {
+  if (finalizedAt) return "erledigt";
+  if (status === "completed") return "erledigt";
+  if (status === "in_progress") return "geplant";
+  return "offen";
 }
 
 function mapBegehungType(type: string): string {
@@ -327,17 +356,55 @@ const bgStyles = StyleSheet.create({
   },
 });
 
-function DocumentRow({ name }: { name: string }) {
+function DocumentRow({
+  name,
+  subtitle,
+  storagePath,
+  icon,
+}: {
+  name: string;
+  subtitle?: string;
+  storagePath: string | null;
+  icon?: string;
+}) {
+  const hasPdf = !!storagePath;
+
+  const handlePress = async () => {
+    if (!storagePath) return;
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    const { data } = await supabase.storage
+      .from("project-files")
+      .createSignedUrl(storagePath, 300);
+    if (data?.signedUrl) {
+      Linking.openURL(data.signedUrl);
+    }
+  };
+
   return (
     <Pressable
+      onPress={handlePress}
+      disabled={!hasPdf}
       style={({ pressed }) => [
         docStyles.row,
         { opacity: pressed ? 0.8 : 1 },
       ]}
     >
-      <Ionicons name="document-text" size={20} color={Colors.raw.amber500} />
-      <Text style={docStyles.name}>{name}</Text>
-      <Feather name="download" size={16} color={Colors.raw.zinc600} />
+      <Ionicons
+        name={(icon as any) || "document-text"}
+        size={20}
+        color={hasPdf ? Colors.raw.amber500 : Colors.raw.zinc700}
+      />
+      <View style={docStyles.textCol}>
+        <Text style={[docStyles.name, !hasPdf && { color: Colors.raw.zinc600 }]}>{name}</Text>
+        {subtitle && <Text style={docStyles.subtitle}>{subtitle}</Text>}
+      </View>
+      {hasPdf ? (
+        <Feather name="download" size={16} color={Colors.raw.amber500} />
+      ) : (
+        <Text style={docStyles.noPdf}>Kein PDF</Text>
+      )}
     </Pressable>
   );
 }
@@ -351,11 +418,24 @@ const docStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.raw.zinc800,
   },
+  textCol: {
+    flex: 1,
+  },
   name: {
     fontFamily: "Inter_500Medium",
     fontSize: 14,
     color: Colors.raw.zinc300,
-    flex: 1,
+  },
+  subtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc600,
+    marginTop: 2,
+  },
+  noPdf: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc700,
   },
 });
 
@@ -382,7 +462,7 @@ export default function ProjectDetailScreen() {
     setLoading(true);
     setError(null);
 
-    const [projectRes, offersRes, messagesRes, costsRes] = await Promise.all([
+    const [projectRes, offersRes, messagesRes, costsRes, inspectionsRes] = await Promise.all([
       supabase
         .from("projects")
         .select("id, project_number, name, display_name, object_street, object_zip, object_city, object_floor, status, budget_net, progress_percent, planned_start, planned_end, client_id")
@@ -390,7 +470,7 @@ export default function ProjectDetailScreen() {
         .single(),
       supabase
         .from("offers")
-        .select("total_net, status")
+        .select("offer_number, total_net, status, pdf_storage_path")
         .eq("project_id", id),
       supabase
         .from("project_messages")
@@ -402,6 +482,11 @@ export default function ProjectDetailScreen() {
         .from("purchase_invoices")
         .select("total_net")
         .eq("project_id", id),
+      supabase
+        .from("inspection_protocols")
+        .select("id, protocol_type, status, inspection_date, finalized_at, created_at, pdf_storage_path")
+        .eq("project_id", id)
+        .order("created_at", { ascending: true }),
     ]);
 
     if (projectRes.error) {
@@ -413,16 +498,7 @@ export default function ProjectDetailScreen() {
     setProject(projectRes.data);
     setOffers(offersRes.data ?? []);
     setMessages(messagesRes.data ?? []);
-
-    const projectNumber = projectRes.data.project_number || id;
-    try {
-      const bgUrl = new URL(`/api/begehungen/${projectNumber}`, getApiUrl());
-      const bgResp = await fetch(bgUrl.toString());
-      const bgData = bgResp.ok ? await bgResp.json() : [];
-      setInspections(Array.isArray(bgData) ? bgData : []);
-    } catch {
-      setInspections([]);
-    }
+    setInspections(inspectionsRes.data ?? []);
 
     const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
     setTotalCosts(costs);
@@ -511,12 +587,69 @@ export default function ProjectDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.heroSection}>
+          <View style={styles.heroStatusRow}>
+            {(() => {
+              const mapped = mapDbStatus(project.status);
+              const cfg = PROJECT_STATUS_CONFIG[mapped];
+              return (
+                <View style={[styles.heroStatusPill, { backgroundColor: cfg.color + "18" }]}>
+                  <View style={[styles.heroStatusDot, { backgroundColor: cfg.color }]} />
+                  <Text style={[styles.heroStatusText, { color: cfg.color }]}>
+                    {DB_STATUS_LABEL[project.status ?? ""] ?? cfg.label}
+                  </Text>
+                </View>
+              );
+            })()}
+          </View>
           <Text style={styles.heroAddress}>
             {addressLine || project.display_name || project.name}
           </Text>
           <Text style={styles.heroClient}>
             {clientName}
           </Text>
+
+          {/* Progress */}
+          <View style={styles.progressRow}>
+            <View style={styles.progressBarBg}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: `${project.progress_percent ?? 0}%`,
+                    backgroundColor: PROJECT_STATUS_CONFIG[mapDbStatus(project.status)].color,
+                  },
+                ]}
+              />
+            </View>
+            <Text
+              style={[
+                styles.progressText,
+                { color: PROJECT_STATUS_CONFIG[mapDbStatus(project.status)].color },
+              ]}
+            >
+              {project.progress_percent ?? 0}%
+            </Text>
+          </View>
+
+          {/* Zeitplan */}
+          {(project.planned_start || project.planned_end) && (
+            <View style={styles.zeitplanRow}>
+              {project.planned_start && (
+                <View style={styles.zeitplanItem}>
+                  <Feather name="play-circle" size={14} color={Colors.raw.zinc500} />
+                  <Text style={styles.zeitplanLabel}>Start</Text>
+                  <Text style={styles.zeitplanDate}>{formatDate(project.planned_start)}</Text>
+                </View>
+              )}
+              {project.planned_end && (
+                <View style={styles.zeitplanItem}>
+                  <Feather name="flag" size={14} color={Colors.raw.zinc500} />
+                  <Text style={styles.zeitplanLabel}>Ende</Text>
+                  <Text style={styles.zeitplanDate}>{formatDate(project.planned_end)}</Text>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
         <SectionCard>
@@ -595,9 +728,9 @@ export default function ProjectDetailScreen() {
             inspections.map((ins) => (
               <BegehungRow
                 key={ins.id}
-                name={mapBegehungType(ins.type)}
-                status={mapInspectionFinalized(ins.finalized)}
-                date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.created_at)}
+                name={mapBegehungType(ins.protocol_type)}
+                status={mapInspectionStatus(ins.status, ins.finalized_at)}
+                date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.inspection_date)}
               />
             ))
           ) : (
@@ -658,12 +791,31 @@ export default function ProjectDetailScreen() {
 
         {/* Dokumente */}
         <SectionCard>
-          <SectionHeader title="Dokumente" />
-          {offers.length > 0 && <DocumentRow name="Angebot" />}
-          {inspections.some((i) => i.finalized) && (
-            <DocumentRow name="Protokoll Begehung" />
-          )}
-          {(offers.length === 0 && inspections.length === 0) && (
+          <SectionHeader
+            title="Dokumente"
+            badge={offers.length + inspections.length > 0 ? String(offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length) : undefined}
+          />
+          {offers.map((offer) => (
+            <DocumentRow
+              key={offer.offer_number}
+              name={`Angebot ${offer.offer_number}`}
+              subtitle={offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? undefined}
+              storagePath={offer.pdf_storage_path}
+              icon="document-text"
+            />
+          ))}
+          {inspections
+            .filter((i) => i.finalized_at || i.status === "completed")
+            .map((ins) => (
+              <DocumentRow
+                key={`proto-${ins.id}`}
+                name={`Protokoll ${mapBegehungType(ins.protocol_type)}`}
+                subtitle={formatDate(ins.finalized_at || ins.inspection_date)}
+                storagePath={ins.pdf_storage_path}
+                icon="clipboard"
+              />
+            ))}
+          {offers.length === 0 && inspections.length === 0 && (
             <Text style={styles.emptySection}>Keine Dokumente</Text>
           )}
         </SectionCard>
@@ -782,6 +934,27 @@ const styles = StyleSheet.create({
   heroSection: {
     marginBottom: 24,
   },
+  heroStatusRow: {
+    flexDirection: "row",
+    marginBottom: 12,
+  },
+  heroStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  heroStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  heroStatusText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+  },
   heroAddress: {
     fontFamily: "Inter_800ExtraBold",
     fontSize: 28,
@@ -793,6 +966,48 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 15,
     color: Colors.raw.zinc500,
+  },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 16,
+  },
+  progressBarBg: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.raw.zinc800,
+  },
+  progressBarFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  progressText: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 16,
+    minWidth: 42,
+    textAlign: "right",
+  },
+  zeitplanRow: {
+    flexDirection: "row",
+    gap: 24,
+    marginTop: 14,
+  },
+  zeitplanItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  zeitplanLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
+  },
+  zeitplanDate: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.zinc300,
   },
   marginBreakdown: {
     flexDirection: "row",

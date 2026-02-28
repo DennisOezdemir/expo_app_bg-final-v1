@@ -208,7 +208,7 @@ export default function ProjekteScreen() {
   }, []);
 
   const filtered = activeFilter === "alle"
-    ? projects
+    ? projects.filter((p) => p.status !== "fertig")
     : projects.filter((p) => p.status === activeFilter);
 
   const kritischCount = projects.filter((p) => p.status === "kritisch").length;
