@@ -601,6 +601,13 @@ function ZwischenbegehungView() {
 
                         <View style={s.zbControls}>
                           <View style={s.zbStatusBtns}>
+                            <View
+                              style={[s.zbStatusBtn, s.zbStatusBtnDisabled, zs.workStatus === "geplant" && { backgroundColor: Colors.raw.blue500 + "20", borderColor: Colors.raw.blue500 + "40" }]}
+                              testID={`zb-geplant-${pos.id}`}
+                            >
+                              <Ionicons name="calendar" size={14} color={zs.workStatus === "geplant" ? Colors.raw.blue500 : Colors.raw.zinc600} />
+                              <Text style={[s.zbStatusBtnText, { color: zs.workStatus === "geplant" ? Colors.raw.blue500 : Colors.raw.zinc600 }]}>Geplant</Text>
+                            </View>
                             <Pressable
                               onPress={() => setWorkStatus(pos.id, "in_arbeit")}
                               style={[s.zbStatusBtn, zs.workStatus === "in_arbeit" && { backgroundColor: Colors.raw.amber500, borderColor: Colors.raw.amber500 }]}
@@ -608,14 +615,6 @@ function ZwischenbegehungView() {
                             >
                               <Ionicons name="hammer" size={14} color={zs.workStatus === "in_arbeit" ? Colors.raw.zinc950 : Colors.raw.zinc500} />
                               <Text style={[s.zbStatusBtnText, zs.workStatus === "in_arbeit" && { color: Colors.raw.zinc950 }]}>In Arbeit</Text>
-                            </Pressable>
-                            <Pressable
-                              onPress={() => setWorkStatus(pos.id, "geplant")}
-                              style={[s.zbStatusBtn, zs.workStatus === "geplant" && { backgroundColor: Colors.raw.blue500, borderColor: Colors.raw.blue500 }]}
-                              testID={`zb-geplant-${pos.id}`}
-                            >
-                              <Ionicons name="calendar" size={14} color={zs.workStatus === "geplant" ? Colors.raw.white : Colors.raw.zinc500} />
-                              <Text style={[s.zbStatusBtnText, zs.workStatus === "geplant" && { color: Colors.raw.white }]}>Geplant</Text>
                             </Pressable>
                             <View style={[s.zbStatusIndicator, { backgroundColor: wsCfg.color + "20", borderColor: wsCfg.color + "40" }]}>
                               <View style={[s.zbStatusDot, { backgroundColor: wsCfg.color }]} />
@@ -840,6 +839,7 @@ const s = StyleSheet.create({
   zbControls: { marginTop: 10, gap: 8 },
   zbStatusBtns: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   zbStatusBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1.5, borderColor: Colors.raw.zinc700 },
+  zbStatusBtnDisabled: { borderStyle: "dashed" as any, opacity: 0.7 },
   zbStatusBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.zinc500 },
   zbStatusIndicator: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
   zbStatusDot: { width: 6, height: 6, borderRadius: 3 },
