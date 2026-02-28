@@ -27,6 +27,22 @@ import { supabase } from "@/lib/supabase";
 
 const SCREEN_W = Dimensions.get("window").width;
 
+// Web-safe alert
+function showAlert(title: string, msg?: string, buttons?: { text: string; style?: string; onPress?: () => void }[]) {
+  if (Platform.OS === "web") {
+    if (buttons && buttons.length > 1) {
+      const destructive = buttons.find((b) => b.style === "destructive");
+      if (destructive && window.confirm(`${title}\n\n${msg || ""}`)) {
+        destructive.onPress?.();
+      }
+    } else {
+      window.alert(`${title}${msg ? "\n\n" + msg : ""}`);
+    }
+  } else {
+    showAlert(title, msg, buttons as any);
+  }
+}
+
 // ── types ───────────────────────────────────────────────────────────
 
 interface Trade {
@@ -633,12 +649,12 @@ export default function PlanungDetailScreen() {
       p_project_id: project.id,
     });
     if (error) {
-      Alert.alert("Fehler", error.message);
+      showAlert("Fehler", error.message);
       return;
     }
     const result = data as any;
     if (!result?.success) {
-      Alert.alert("Fehler", result?.error || "Unbekannter Fehler");
+      showAlert("Fehler", result?.error || "Unbekannter Fehler");
       return;
     }
     if (Platform.OS !== "web") {
@@ -649,7 +665,7 @@ export default function PlanungDetailScreen() {
 
   const handleDiscardAll = useCallback(() => {
     if (!project) return;
-    Alert.alert("Vorschläge verwerfen", "Alle Vorschläge für dieses Projekt löschen?", [
+    showAlert("Vorschläge verwerfen", "Alle Vorschläge für dieses Projekt löschen?", [
       { text: "Abbrechen", style: "cancel" },
       {
         text: "Verwerfen",
@@ -679,7 +695,7 @@ export default function PlanungDetailScreen() {
       .update({ assigned_team_member_id: memberId, updated_at: new Date().toISOString() })
       .eq("id", phaseId);
     if (error) {
-      Alert.alert("Fehler", error.message);
+      showAlert("Fehler", error.message);
       return;
     }
     setMonteurPickerTrade(null);
