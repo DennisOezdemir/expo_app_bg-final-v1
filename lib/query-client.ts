@@ -1,39 +1,22 @@
 import { fetch } from "expo/fetch";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const LOCAL_HOSTNAMES = /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/i;
-
-function isLocalHostname(hostname: string): boolean {
-  return LOCAL_HOSTNAMES.test(hostname);
-}
-
 export function getApiUrl(): string {
-  let hostname: string;
-  let port: string;
+  let host = process.env.EXPO_PUBLIC_DOMAIN;
 
-  const envHost = process.env.EXPO_PUBLIC_DOMAIN;
-  if (envHost) {
-    const base = envHost.includes("://") ? envHost : `http://${envHost}`;
-    try {
-      const u = new URL(base);
-      hostname = u.hostname;
-      port = u.port;
-    } catch {
-      const parts = envHost.split(":");
-      hostname = parts[0] || "localhost";
-      port = parts[1] ?? "";
-    }
-  } else {
-    if (typeof window === "undefined") {
+  if (!host) {
+    // Lokale Entwicklung: Backend läuft typisch auf Port 5000
+    if (typeof window !== "undefined") {
+      host = `${window.location.hostname}:5000`;
+    } else {
       throw new Error("EXPO_PUBLIC_DOMAIN is not set");
     }
-    hostname = window.location.hostname;
-    port = "5000";
   }
 
-  const protocol = isLocalHostname(hostname) ? "http" : "https";
-  const origin = port ? `${protocol}://${hostname}:${port}` : `${protocol}://${hostname}`;
-  return new URL("/", origin).href;
+  const protocol = host.startsWith("localhost") ? "http" : "https";
+  let url = new URL(`${protocol}://${host}`);
+
+  return url.href;
 }
 
 async function throwIfResNotOk(res: Response) {
