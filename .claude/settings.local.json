@@ -7,7 +7,10 @@
       "Bash(supabase:*)",
       "Bash(gh auth:*)",
       "Bash(npm install:*)",
-      "mcp__claude_ai_Supabase__list_tables"
+      "mcp__claude_ai_Supabase__list_tables",
+      "Bash(grep:*)",
+      "Bash(python3:*)",
+      "mcp__claude_ai_Supabase__execute_sql"
     ]
   }
 }
