@@ -212,7 +212,7 @@ async function fetchRoomsForProject(projectId: string): Promise<BegehungRoom[]> 
 }
 
 export default function BegehungScreen() {
-  const { type, projectId } = useLocalSearchParams<{ type: string; projectId: string }>();
+  const { type, projectId, protocolId } = useLocalSearchParams<{ type: string; projectId: string; protocolId?: string }>();
 
   if (!projectId) {
     return (
@@ -226,12 +226,12 @@ export default function BegehungScreen() {
     );
   }
 
-  if (type === "zwischenbegehung") return <ZwischenbegehungView projectId={projectId} />;
-  if (type === "abnahme") return <AbnahmeView projectId={projectId} />;
-  return <ErstbegehungView type={type || "erstbegehung"} projectId={projectId} />;
+  if (type === "zwischenbegehung") return <ZwischenbegehungView projectId={projectId} protocolId={protocolId} />;
+  if (type === "abnahme") return <AbnahmeView projectId={projectId} protocolId={protocolId} />;
+  return <ErstbegehungView type={type || "erstbegehung"} projectId={projectId} protocolId={protocolId} />;
 }
 
-function ErstbegehungView({ type, projectId }: { type: string; projectId: string }) {
+function ErstbegehungView({ type, projectId, protocolId }: { type: string; projectId: string; protocolId?: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -271,10 +271,31 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
         setRooms(fetchedRooms);
         setProjectInfo(info);
         if (fetchedRooms.length > 0) {
-          setExpandedRooms(new Set([fetchedRooms[0].id]));
+          setExpandedRooms(new Set(fetchedRooms.map((r) => r.id)));
         }
         if (fetchedRooms.length === 0) {
           setLoadError("Kein Angebot mit Positionen gefunden");
+        }
+
+        // Load saved protocol data if viewing a finalized inspection
+        if (protocolId) {
+          const { data: items } = await supabase
+            .from("inspection_protocol_items")
+            .select("offer_position_id, status, notes, has_defect")
+            .eq("protocol_id", protocolId);
+          if (!cancelled && items) {
+            const restored: Record<string, PosState> = {};
+            for (const item of items) {
+              if (!item.offer_position_id) continue;
+              restored[item.offer_position_id] = {
+                status: item.status === "ja" ? "confirmed" : item.status === "nein" ? "rejected" : "none",
+                photoCount: 0,
+                note: item.notes || "",
+              };
+            }
+            setPosStates(restored);
+            setFinalized(true);
+          }
         }
       } catch (err: any) {
         if (!cancelled) setLoadError(err.message || "Laden fehlgeschlagen");
@@ -283,7 +304,7 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
       }
     })();
     return () => { cancelled = true; };
-  }, [projectId]);
+  }, [projectId, protocolId]);
 
   const toggleRoom = useCallback((roomId: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -611,7 +632,7 @@ function ErstbegehungView({ type, projectId }: { type: string; projectId: string
   );
 }
 
-function ZwischenbegehungView({ projectId }: { projectId: string }) {
+function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; protocolId?: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -641,13 +662,36 @@ function ZwischenbegehungView({ projectId }: { projectId: string }) {
         setRooms(fetchedRooms);
         setProjectInfo(info);
         if (fetchedRooms.length > 0) {
-          setExpandedRooms(new Set([fetchedRooms[0].id]));
+          setExpandedRooms(new Set(fetchedRooms.map((r) => r.id)));
+        }
+
+        // Load saved protocol data if viewing a finalized inspection
+        if (protocolId) {
+          const { data: items } = await supabase
+            .from("inspection_protocol_items")
+            .select("offer_position_id, status, progress_percent, notes")
+            .eq("protocol_id", protocolId);
+          if (!cancelled && items) {
+            const restored: Record<string, ZBPosState> = {};
+            for (const item of items) {
+              if (!item.offer_position_id) continue;
+              const prog = (item.progress_percent ?? 0) as ZBProgress;
+              restored[item.offer_position_id] = {
+                workStatus: prog === 100 ? "in_arbeit" : prog > 0 ? "in_arbeit" : "nicht_gestartet",
+                progress: ([0, 25, 50, 75, 100].includes(prog) ? prog : 0) as ZBProgress,
+                photoCount: 0,
+              };
+            }
+            setZbStates(restored);
+            setFinalized(true);
+            setLoadingPrevious(false);
+          }
         }
       } catch (_e) {}
       if (!cancelled) setLoadingRooms(false);
     })();
     return () => { cancelled = true; };
-  }, [projectId]);
+  }, [projectId, protocolId]);
 
   // Load previous begehung (depends on projectInfo)
   useEffect(() => {
@@ -969,7 +1013,7 @@ interface AbnahmePosition {
   roomName: string;
 }
 
-function AbnahmeView({ projectId }: { projectId: string }) {
+function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -995,36 +1039,68 @@ function AbnahmeView({ projectId }: { projectId: string }) {
         setProjectInfo(info);
         if (!info) { setLoading(false); return; }
 
-        const url = new URL(`/api/begehungen/${info.projectNumber}/latest/zwischenbegehung`, getApiUrl());
-        const resp = await fetch(url.toString());
-        if (!resp.ok) throw new Error("fetch failed");
-        const data = await resp.json();
-        if (cancelled) return;
-        if (!data || !data.positions) { setLoading(false); return; }
-        const completed: AbnahmePosition[] = [];
-        for (const pos of data.positions) {
-          const parts = (pos.status || "").split(":");
-          const prog = Number(parts[1]) || 0;
-          if (prog === 100) {
-            completed.push({
-              id: pos.position_id,
-              nr: pos.position_nr,
-              title: pos.title,
-              desc: pos.description || pos.desc || "",
-              qty: Number(pos.qty) || 0,
-              unit: pos.unit,
-              price: Number(pos.price) || 0,
-              trade: pos.trade,
-              roomName: pos.room_name,
-            });
+        // If viewing a finalized protocol, load saved items directly
+        if (protocolId) {
+          const { data: items } = await supabase
+            .from("inspection_protocol_items")
+            .select("offer_position_id, status, progress_percent, notes")
+            .eq("protocol_id", protocolId);
+
+          // Also load position details from offer
+          const rooms = await fetchRoomsForProject(projectId);
+          const allPositions: Record<string, { nr: string; title: string; desc: string; qty: number; unit: string; price: number; trade: string; roomName: string }> = {};
+          rooms.forEach((r) => r.positions.forEach((p) => {
+            allPositions[p.id] = { nr: p.nr, title: p.title, desc: p.desc, qty: p.qty, unit: p.unit, price: p.price, trade: p.trade, roomName: r.name };
+          }));
+
+          if (!cancelled && items) {
+            const restored: AbnahmePosition[] = [];
+            const checkedIds = new Set<string>();
+            for (const item of items) {
+              if (!item.offer_position_id) continue;
+              const posInfo = allPositions[item.offer_position_id];
+              if (posInfo) {
+                restored.push({ id: item.offer_position_id, nr: posInfo.nr, title: posInfo.title, desc: posInfo.desc, qty: posInfo.qty, unit: posInfo.unit, price: posInfo.price, trade: posInfo.trade, roomName: posInfo.roomName });
+                if (item.status === "ja") checkedIds.add(item.offer_position_id);
+              }
+            }
+            setPositions(restored);
+            setChecked(checkedIds);
+            setFinalized(true);
           }
+        } else {
+          // Load positions from latest ZB (original flow)
+          const url = new URL(`/api/begehungen/${info.projectNumber}/latest/zwischenbegehung`, getApiUrl());
+          const resp = await fetch(url.toString());
+          if (!resp.ok) throw new Error("fetch failed");
+          const data = await resp.json();
+          if (cancelled) return;
+          if (!data || !data.positions) { setLoading(false); return; }
+          const completed: AbnahmePosition[] = [];
+          for (const pos of data.positions) {
+            const parts = (pos.status || "").split(":");
+            const prog = Number(parts[1]) || 0;
+            if (prog === 100) {
+              completed.push({
+                id: pos.position_id,
+                nr: pos.position_nr,
+                title: pos.title,
+                desc: pos.description || pos.desc || "",
+                qty: Number(pos.qty) || 0,
+                unit: pos.unit,
+                price: Number(pos.price) || 0,
+                trade: pos.trade,
+                roomName: pos.room_name,
+              });
+            }
+          }
+          if (!cancelled) setPositions(completed);
         }
-        if (!cancelled) setPositions(completed);
       } catch (_e) {}
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [projectId]);
+  }, [projectId, protocolId]);
 
   const toggleCheck = useCallback((posId: string) => {
     if (finalized) return;

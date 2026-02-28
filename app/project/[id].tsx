@@ -272,7 +272,7 @@ function formatTime(dateStr: string | null): string {
   return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
-function BegehungRow({ name, status, date, projectId }: { name: string; status: BegehungStatus; date: string; projectId: string }) {
+function BegehungRow({ name, status, date, projectId, protocolId }: { name: string; status: BegehungStatus; date: string; projectId: string; protocolId?: string }) {
   const cfg = BEGEHUNG_CONFIG[status];
   const typeMap: Record<string, string> = {
     Erstbegehung: "erstbegehung",
@@ -283,7 +283,9 @@ function BegehungRow({ name, status, date, projectId }: { name: string; status: 
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    router.push({ pathname: "/begehung/[type]", params: { type: typeMap[name] || "zwischenbegehung", projectId } });
+    const params: any = { type: typeMap[name] || "zwischenbegehung", projectId };
+    if (protocolId) params.protocolId = protocolId;
+    router.push({ pathname: "/begehung/[type]", params });
   };
   return (
     <Pressable
@@ -744,6 +746,7 @@ export default function ProjectDetailScreen() {
                 status={mapInspectionStatus(ins.status, ins.finalized_at)}
                 date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.inspection_date)}
                 projectId={id!}
+                protocolId={ins.id}
               />
             ))
           ) : (
