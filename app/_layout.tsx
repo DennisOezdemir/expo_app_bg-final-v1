@@ -30,6 +30,7 @@ function RootLayoutNav() {
       <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: "fade" }} />
       <Stack.Screen name="project/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+      <Stack.Screen name="auftrag/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="begehung/[type]" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="planung/index" options={{ headerShown: false, animation: "slide_from_right" }} />
       <Stack.Screen name="planung/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />

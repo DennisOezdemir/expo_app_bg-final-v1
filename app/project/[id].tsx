@@ -551,7 +551,7 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<Ionicons name="clipboard" size={24} color={Colors.raw.amber500} />}
             label="Auftrag"
-            onPress={() => router.push({ pathname: "/begehung/[type]", params: { type: "erstbegehung", tab: "auftrag" } })}
+            onPress={() => router.push({ pathname: "/auftrag/[id]", params: { id: id || "1" } })}
           />
           <QuickAction
             icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
