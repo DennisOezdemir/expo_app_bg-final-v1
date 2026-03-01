@@ -8,6 +8,7 @@ const DB_STATUS_MAP: Record<string, ProjectStatus> = {
   IN_PROGRESS: "laeuft",
   INSPECTION: "achtung",
   COMPLETION: "achtung",
+  BILLING: "achtung",
   ON_HOLD: "kritisch",
   COMPLETED: "fertig",
   CANCELLED: "kritisch",

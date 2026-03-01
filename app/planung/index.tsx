@@ -19,22 +19,6 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 
 const SCREEN_W = Dimensions.get("window").width;
-
-// Web-safe alert
-function showAlert(title: string, msg?: string, buttons?: { text: string; style?: string; onPress?: () => void }[]) {
-  if (Platform.OS === "web") {
-    if (buttons && buttons.length > 1) {
-      const destructive = buttons.find((b) => b.style === "destructive");
-      if (destructive && window.confirm(`${title}\n\n${msg || ""}`)) {
-        destructive.onPress?.();
-      }
-    } else {
-      window.alert(`${title}${msg ? "\n\n" + msg : ""}`);
-    }
-  } else {
-    Alert.alert(title, msg, buttons as any);
-  }
-}
 const NAME_COL_W = 76;
 const DAY_COL_W = Math.max((SCREEN_W - NAME_COL_W - 40) / 5, 56);
 const BAR_H = 28;
@@ -330,41 +314,28 @@ function DetailSheet({
           )}
 
           {assignment.isProposed ? (
-            <>
+            <View style={dsStyles.actions}>
               <Pressable
                 onPress={() => {
+                  onDiscard?.(assignment.projectId);
                   onClose();
-                  router.push(`/planung/${assignment.projectId}` as any);
                 }}
-                style={({ pressed }) => [dsStyles.editBtn, { opacity: pressed ? 0.8 : 1 }]}
+                style={({ pressed }) => [dsStyles.actionBtn, { backgroundColor: Colors.raw.zinc800, opacity: pressed ? 0.8 : 1 }]}
               >
-                <Ionicons name="create-outline" size={16} color={Colors.raw.amber500} />
-                <Text style={dsStyles.editBtnText}>Monteur / Daten ändern</Text>
-                <Ionicons name="arrow-forward" size={14} color={Colors.raw.zinc500} />
+                <Ionicons name="close" size={16} color={Colors.raw.zinc300} />
+                <Text style={dsStyles.actionSecondaryText}>Verwerfen</Text>
               </Pressable>
-              <View style={dsStyles.actions}>
-                <Pressable
-                  onPress={() => {
-                    onDiscard?.(assignment.projectId);
-                    onClose();
-                  }}
-                  style={({ pressed }) => [dsStyles.actionBtn, { backgroundColor: Colors.raw.zinc800, opacity: pressed ? 0.8 : 1 }]}
-                >
-                  <Ionicons name="close" size={16} color={Colors.raw.zinc300} />
-                  <Text style={dsStyles.actionSecondaryText}>Verwerfen</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    onConfirm?.(assignment.projectId);
-                    onClose();
-                  }}
-                  style={({ pressed }) => [dsStyles.actionBtn, { backgroundColor: Colors.raw.emerald500, opacity: pressed ? 0.9 : 1 }]}
-                >
-                  <Ionicons name="checkmark" size={16} color="#000" />
-                  <Text style={[dsStyles.actionPrimaryText, { color: "#000" }]}>Freigeben</Text>
-                </Pressable>
-              </View>
-            </>
+              <Pressable
+                onPress={() => {
+                  onConfirm?.(assignment.projectId);
+                  onClose();
+                }}
+                style={({ pressed }) => [dsStyles.actionBtn, { backgroundColor: Colors.raw.emerald500, opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Ionicons name="checkmark" size={16} color="#000" />
+                <Text style={[dsStyles.actionPrimaryText, { color: "#000" }]}>Freigeben</Text>
+              </Pressable>
+            </View>
           ) : (
             <View style={dsStyles.actions}>
               <Pressable
@@ -493,24 +464,6 @@ const dsStyles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 15,
     color: "#000",
-  },
-  editBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: Colors.raw.amber500 + "14",
-    borderWidth: 1,
-    borderColor: Colors.raw.amber500 + "40",
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginTop: 12,
-  },
-  editBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.amber500,
-    flex: 1,
   },
 });
 
@@ -888,54 +841,36 @@ const wgStyles = StyleSheet.create({
 
 function ProposedBanner({
   count,
-  proposedKw,
-  isOnProposedWeek,
-  onNavigate,
   onConfirmAll,
   onDiscardAll,
 }: {
   count: number;
-  proposedKw: number | null;
-  isOnProposedWeek: boolean;
-  onNavigate: () => void;
   onConfirmAll: () => void;
   onDiscardAll: () => void;
 }) {
   if (count === 0) return null;
   return (
     <View style={pbStyles.banner}>
-      <Pressable style={pbStyles.left} onPress={!isOnProposedWeek ? onNavigate : undefined}>
+      <View style={pbStyles.left}>
         <Ionicons name="flash" size={16} color={Colors.raw.amber500} />
         <Text style={pbStyles.text}>
-          {count} {count === 1 ? "Vorschlag" : "Vorschläge"}
-          {proposedKw != null ? ` in KW ${proposedKw}` : ""}
-          {!isOnProposedWeek ? " → Anzeigen" : " — Freigeben?"}
+          {count} Vorschläge warten auf Freigabe
         </Text>
-      </Pressable>
-      {isOnProposedWeek && (
-        <View style={pbStyles.actions}>
-          <Pressable
-            onPress={onDiscardAll}
-            style={({ pressed }) => [pbStyles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <Text style={pbStyles.discardText}>Verwerfen</Text>
-          </Pressable>
-          <Pressable
-            onPress={onConfirmAll}
-            style={({ pressed }) => [pbStyles.confirmBtn, { opacity: pressed ? 0.8 : 1 }]}
-          >
-            <Text style={pbStyles.confirmText}>Alle Freigeben</Text>
-          </Pressable>
-        </View>
-      )}
-      {!isOnProposedWeek && (
+      </View>
+      <View style={pbStyles.actions}>
         <Pressable
-          onPress={onNavigate}
+          onPress={onDiscardAll}
+          style={({ pressed }) => [pbStyles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Text style={pbStyles.discardText}>Verwerfen</Text>
+        </Pressable>
+        <Pressable
+          onPress={onConfirmAll}
           style={({ pressed }) => [pbStyles.confirmBtn, { opacity: pressed ? 0.8 : 1 }]}
         >
-          <Text style={pbStyles.confirmText}>Zur KW {proposedKw}</Text>
+          <Text style={pbStyles.confirmText}>Alle Freigeben</Text>
         </Pressable>
-      )}
+      </View>
     </View>
   );
 }
@@ -1053,10 +988,6 @@ export default function PlanungScreen() {
   const [autoPlanning, setAutoPlanning] = useState<string | null>(null);
   const [phases, setPhases] = useState<any[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedProject[]>([]);
-  const [globalProposedCount, setGlobalProposedCount] = useState(0);
-  const [globalProposedProjectIds, setGlobalProposedProjectIds] = useState<Set<string>>(new Set());
-  const [proposedWeekOffset, setProposedWeekOffset] = useState<number | null>(null);
-  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
   const monday = useMemo(() => getMonday(weekOffset), [weekOffset]);
   const weekDays = useMemo(() => getWeekDays(monday), [monday]);
@@ -1094,30 +1025,8 @@ export default function PlanungScreen() {
     const { data: unassignedData } = await supabase
       .from("projects")
       .select("id, project_number, name, object_street, status, planned_start")
-      .eq("status", "PLANNING")
+      .in("status", ["PLANNING", "IN_PROGRESS"])
       .order("created_at", { ascending: false });
-
-    // Fetch global proposed phases count (across all weeks)
-    const { data: proposedData } = await supabase
-      .from("schedule_phases")
-      .select("project_id, start_date")
-      .eq("status", "proposed")
-      .order("start_date");
-    if (proposedData && proposedData.length > 0) {
-      setGlobalProposedCount(proposedData.length);
-      const pids = new Set<string>();
-      proposedData.forEach((p: any) => pids.add(p.project_id));
-      setGlobalProposedProjectIds(pids);
-      // Compute week offset for earliest proposed phase
-      const earliest = new Date(proposedData[0].start_date + "T00:00:00");
-      const todayMon = getMonday(0);
-      const diffW = Math.round((earliest.getTime() - todayMon.getTime()) / (7 * 86400000));
-      setProposedWeekOffset(diffW);
-    } else {
-      setGlobalProposedCount(0);
-      setGlobalProposedProjectIds(new Set());
-      setProposedWeekOffset(null);
-    }
 
     if (unassignedData) {
       // Filter projects that have no schedule_phases
@@ -1208,46 +1117,32 @@ export default function PlanungScreen() {
 
   const handleAutoPlan = useCallback(async (projectId: string) => {
     setAutoPlanning(projectId);
-    setFeedbackMsg(null);
     try {
       const { data, error } = await supabase.rpc("auto_plan_project", {
         p_project_id: projectId,
       });
       if (error) {
-        setFeedbackMsg("Fehler: " + error.message);
+        Alert.alert("Fehler", error.message);
         return;
       }
       const result = data as any;
       if (!result?.success) {
-        setFeedbackMsg("Fehler: " + (result?.error || "Unbekannter Fehler"));
+        Alert.alert("Fehler", result?.error || "Unbekannter Fehler");
         return;
       }
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-      const msg = `${result.phases_created} Phasen erstellt, ${result.assigned_count} Monteure zugewiesen.`;
-      setFeedbackMsg(msg);
-
-      // Navigate to the week containing the proposed phases
-      const { data: newPhases } = await supabase
-        .from("schedule_phases")
-        .select("start_date")
-        .eq("project_id", projectId)
-        .eq("status", "proposed")
-        .order("start_date")
-        .limit(1);
-
-      if (newPhases && newPhases.length > 0) {
-        const phaseStart = new Date(newPhases[0].start_date + "T00:00:00");
-        const todayMonday = getMonday(0);
-        const diffWeeks = Math.round((phaseStart.getTime() - todayMonday.getTime()) / (7 * 86400000));
-        setWeekOffset(diffWeeks);
-      }
-
-      // Small delay to let week change settle, then reload
-      setTimeout(() => fetchData(), 100);
+      const unassignedTrades = result.unassigned_trades || [];
+      Alert.alert(
+        "Vorschlag erstellt",
+        `${result.phases_created} Phasen erstellt, ${result.assigned_count} Monteure zugewiesen.${
+          unassignedTrades.length > 0 ? `\n\nOhne Monteur: ${unassignedTrades.join(", ")}` : ""
+        }\n\nBitte Vorschläge prüfen und freigeben.`
+      );
+      fetchData();
     } catch (e: any) {
-      setFeedbackMsg("Fehler: " + (e.message || "Auto-Planung fehlgeschlagen"));
+      Alert.alert("Fehler", e.message || "Auto-Planung fehlgeschlagen");
     } finally {
       setAutoPlanning(null);
     }
@@ -1258,12 +1153,12 @@ export default function PlanungScreen() {
       p_project_id: projectId,
     });
     if (error) {
-      showAlert("Fehler", error.message);
+      Alert.alert("Fehler", error.message);
       return;
     }
     const result = data as any;
     if (!result?.success) {
-      showAlert("Fehler", result?.error || "Unbekannter Fehler");
+      Alert.alert("Fehler", result?.error || "Unbekannter Fehler");
       return;
     }
     if (Platform.OS !== "web") {
@@ -1273,7 +1168,7 @@ export default function PlanungScreen() {
   }, [fetchData]);
 
   const handleDiscardProposed = useCallback(async (projectId: string) => {
-    showAlert("Vorschläge verwerfen", "Alle Vorschläge für dieses Projekt löschen?", [
+    Alert.alert("Vorschläge verwerfen", "Alle Vorschläge für dieses Projekt löschen?", [
       { text: "Abbrechen", style: "cancel" },
       {
         text: "Verwerfen",
@@ -1283,7 +1178,7 @@ export default function PlanungScreen() {
             p_project_id: projectId,
           });
           if (error) {
-            showAlert("Fehler", error.message);
+            Alert.alert("Fehler", error.message);
             return;
           }
           fetchData();
@@ -1292,44 +1187,38 @@ export default function PlanungScreen() {
     ]);
   }, [fetchData]);
 
-  const handleConfirmAll = useCallback(async () => {
-    for (const pid of globalProposedProjectIds) {
-      await handleConfirmProposed(pid);
-    }
-  }, [globalProposedProjectIds, handleConfirmProposed]);
+  const proposedCount = useMemo(() => {
+    return assignments.filter((a) => a.isProposed).length;
+  }, [assignments]);
+
+  const proposedProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    assignments.filter((a) => a.isProposed).forEach((a) => ids.add(a.projectId));
+    return ids;
+  }, [assignments]);
+
+  const handleConfirmAll = useCallback(() => {
+    proposedProjectIds.forEach((pid) => {
+      handleConfirmProposed(pid);
+    });
+  }, [proposedProjectIds, handleConfirmProposed]);
 
   const handleDiscardAll = useCallback(() => {
-    const count = globalProposedProjectIds.size;
-    showAlert("Alle Vorschläge verwerfen", `${count} Projekt-Vorschläge verwerfen?`, [
+    const count = proposedProjectIds.size;
+    Alert.alert("Alle Vorschläge verwerfen", `${count} Projekt-Vorschläge verwerfen?`, [
       { text: "Abbrechen", style: "cancel" },
       {
         text: "Alle Verwerfen",
         style: "destructive",
-        onPress: async () => {
-          await Promise.all(
-            Array.from(globalProposedProjectIds).map((pid) =>
-              supabase.rpc("discard_proposed_phases", { p_project_id: pid })
-            )
-          );
+        onPress: () => {
+          proposedProjectIds.forEach(async (pid) => {
+            await supabase.rpc("discard_proposed_phases", { p_project_id: pid });
+          });
           fetchData();
         },
       },
     ]);
-  }, [globalProposedProjectIds, fetchData]);
-
-  const proposedKw = useMemo(() => {
-    if (proposedWeekOffset == null) return null;
-    const proposedMon = getMonday(proposedWeekOffset);
-    return getWeekNumber(proposedMon);
-  }, [proposedWeekOffset]);
-
-  const isOnProposedWeek = proposedWeekOffset != null && weekOffset === proposedWeekOffset;
-
-  const handleNavigateToProposed = useCallback(() => {
-    if (proposedWeekOffset != null) {
-      setWeekOffset(proposedWeekOffset);
-    }
-  }, [proposedWeekOffset]);
+  }, [proposedProjectIds, fetchData]);
 
   const startDateStr = `${String(weekDays[0]?.dayNum).padStart(2, "0")}.${String(monday.getMonth() + 1).padStart(2, "0")}.`;
   const endDateStr = `${String(weekDays[4]?.dayNum).padStart(2, "0")}.${String(friday.getMonth() + 1).padStart(2, "0")}.${friday.getFullYear()}`;
@@ -1438,22 +1327,10 @@ export default function PlanungScreen() {
         ) : viewMode === "week" ? (
           <>
             <ProposedBanner
-              count={globalProposedCount}
-              proposedKw={proposedKw}
-              isOnProposedWeek={isOnProposedWeek}
-              onNavigate={handleNavigateToProposed}
+              count={proposedCount}
               onConfirmAll={handleConfirmAll}
               onDiscardAll={handleDiscardAll}
             />
-
-            {feedbackMsg && (
-              <View style={s.feedbackBanner}>
-                <Text style={s.feedbackText}>{feedbackMsg}</Text>
-                <Pressable onPress={() => setFeedbackMsg(null)}>
-                  <Ionicons name="close" size={16} color={Colors.raw.amber500} />
-                </Pressable>
-              </View>
-            )}
 
             {conflicts.length > 0 &&
               conflicts.map((c, i) => (
@@ -1785,25 +1662,6 @@ const s = StyleSheet.create({
     fontSize: 12,
     color: Colors.raw.zinc600,
     marginTop: 2,
-  },
-  feedbackBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: Colors.raw.zinc800,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.raw.amber500,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginHorizontal: 20,
-    marginBottom: 12,
-  },
-  feedbackText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.raw.zinc200,
-    flex: 1,
   },
   statsBar: {
     position: "absolute",

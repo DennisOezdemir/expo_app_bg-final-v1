@@ -32,7 +32,7 @@ import { supabase } from "@/lib/supabase";
 
 // --- Types ---
 
-type ApprovalUiType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung";
+type ApprovalUiType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung" | "begehung";
 
 const APPROVAL_TYPE_MAP: Record<string, ApprovalUiType> = {
   PROJECT_START: "auftrag",
@@ -43,6 +43,7 @@ const APPROVAL_TYPE_MAP: Record<string, ApprovalUiType> = {
   SCHEDULE: "angebot",
   COMPLETION: "angebot",
   INSPECTION: "angebot",
+  SITE_INSPECTION: "begehung",
 };
 
 interface ApprovalDetail {
@@ -915,6 +916,8 @@ export default function FreigabeDetailScreen() {
   const typeTitle =
     data.uiType === "auftrag"
       ? "Auftrag freigeben"
+      : data.uiType === "begehung"
+      ? "Erstbegehung nötig"
       : data.uiType === "material"
       ? "Material bestellen"
       : data.uiType === "nachtrag"
@@ -926,11 +929,20 @@ export default function FreigabeDetailScreen() {
   const approveLabel =
     data.uiType === "auftrag"
       ? "FREIGEBEN"
+      : data.uiType === "begehung"
+      ? "ERSTBEGEHUNG STARTEN"
       : data.uiType === "material"
       ? "BESTELLEN"
       : data.uiType === "nachtrag"
       ? "GENEHMIGEN"
       : "FREIGEBEN";
+
+  const handleBegehungStart = () => {
+    router.push({
+      pathname: "/begehung/[type]",
+      params: { type: "erstbegehung", projectId: data.projectId },
+    });
+  };
 
   return (
     <View style={s.container}>
@@ -1011,6 +1023,31 @@ export default function FreigabeDetailScreen() {
 
         {data.uiType === "auftrag" ? (
           <AuftragContent data={data} onDataUpdate={handleDataUpdate} clientSuggestions={clientSuggestions} />
+        ) : data.uiType === "begehung" ? (
+          <>
+            <SectionLabel label="AKTION ERFORDERLICH" />
+            <Card>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                <Ionicons name="eye" size={22} color={Colors.raw.amber500} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.zinc200 }}>
+                    Erstbegehung durchführen
+                  </Text>
+                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500, marginTop: 4 }}>
+                    Vor-Ort-Begehung um Monteure, Material und Umfang zu klären
+                  </Text>
+                </View>
+              </View>
+            </Card>
+            {data.summary ? (
+              <>
+                <SectionLabel label="AUFTRAGSDETAILS" />
+                <Card>
+                  <Text style={s.summaryText}>{data.summary}</Text>
+                </Card>
+              </>
+            ) : null}
+          </>
         ) : (
           <GenericContent data={data} />
         )}
@@ -1039,7 +1076,7 @@ export default function FreigabeDetailScreen() {
             <Text style={s.rejectText}>Nein</Text>
           </Pressable>
           <Pressable
-            onPress={handleApprove}
+            onPress={data.uiType === "begehung" ? handleBegehungStart : handleApprove}
             disabled={acting}
             style={({ pressed }) => [
               s.approveButton,

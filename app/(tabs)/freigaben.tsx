@@ -37,7 +37,7 @@ import { supabase } from "@/lib/supabase";
 
 // --- Types ---
 
-type ApprovalType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung";
+type ApprovalType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung" | "begehung";
 
 interface Approval {
   id: string;
@@ -61,6 +61,7 @@ const TYPE_CONFIG: Record<
   material: { label: "Material bestellen", icon: "package-variant", iconSet: "material", color: Colors.raw.emerald500 },
   nachtrag: { label: "Nachtrag genehmigen", icon: "git-pull-request", iconSet: "feather", color: Colors.raw.amber400 },
   rechnung: { label: "Rechnung freigeben", icon: "receipt", iconSet: "ionicons", color: Colors.raw.zinc400 },
+  begehung: { label: "Erstbegehung nötig", icon: "eye", iconSet: "ionicons", color: Colors.raw.amber500 },
 };
 
 const APPROVAL_TYPE_MAP: Record<string, ApprovalType> = {
@@ -72,6 +73,7 @@ const APPROVAL_TYPE_MAP: Record<string, ApprovalType> = {
   SCHEDULE: "angebot",
   COMPLETION: "angebot",
   INSPECTION: "angebot",
+  SITE_INSPECTION: "begehung",
 };
 
 type FilterKey = "alle" | "auftrag" | "angebot" | "material" | "nachtrag";
