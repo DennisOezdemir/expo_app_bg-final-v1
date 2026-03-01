@@ -13,6 +13,7 @@ import {
   Inter_700Bold,
   Inter_800ExtraBold,
 } from "@expo-google-fonts/inter";
+import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { RoleProvider } from "@/contexts/RoleContext";
@@ -71,6 +72,9 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
     Inter_800ExtraBold,
+    ...Ionicons.font,
+    ...MaterialCommunityIcons.font,
+    ...Feather.font,
   });
 
   useEffect(() => {

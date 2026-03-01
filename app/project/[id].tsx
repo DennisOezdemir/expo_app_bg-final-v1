@@ -24,6 +24,7 @@ import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { mapDbStatus, type ProjectStatus } from "@/lib/status";
+import { captureAndUploadPhoto } from "@/lib/photo-capture";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -463,6 +464,26 @@ export default function ProjectDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showBegehungPicker, setShowBegehungPicker] = useState(false);
   const [showPhotoGallery, setShowPhotoGallery] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  const handleCapturePhoto = useCallback(async () => {
+    if (!id || photoUploading) return;
+    setPhotoUploading(true);
+    try {
+      const result = await captureAndUploadPhoto({
+        projectId: id,
+        inspectionType: "erstbegehung",
+      });
+      if (result) {
+        setPhotoCount((c) => c + 1);
+        if (Platform.OS === "web") {
+          window.alert("Foto erfolgreich hochgeladen!");
+        }
+      }
+    } finally {
+      setPhotoUploading(false);
+    }
+  }, [id, photoUploading]);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -715,9 +736,9 @@ export default function ProjectDetailScreen() {
             onPress={() => router.push("/project/team" as any)}
           />
           <QuickAction
-            icon={<Ionicons name="camera" size={24} color={Colors.raw.amber500} />}
-            label="Foto"
-            onPress={() => router.push({ pathname: "/foto", params: { projectId: id || "1" } })}
+            icon={<Ionicons name="camera" size={24} color={photoUploading ? Colors.raw.zinc600 : Colors.raw.amber500} />}
+            label={photoUploading ? "Lädt..." : "Foto"}
+            onPress={handleCapturePhoto}
           />
           <QuickAction
             icon={<Ionicons name="chatbubbles" size={24} color={Colors.raw.amber500} />}
@@ -756,10 +777,24 @@ export default function ProjectDetailScreen() {
 
         {/* Fotos */}
         <SectionCard>
-          <SectionHeader
-            title="Fotos"
-            badge={photoCount > 0 ? String(photoCount) : undefined}
-          />
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <SectionHeader
+              title="Fotos"
+              badge={photoCount > 0 ? String(photoCount) : undefined}
+            />
+            {photoCount > 0 && (
+              <Pressable
+                onPress={handleCapturePhoto}
+                style={({ pressed }) => [styles.begehungAddBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                {photoUploading ? (
+                  <ActivityIndicator size={14} color={Colors.raw.zinc950} />
+                ) : (
+                  <Ionicons name="add" size={18} color={Colors.raw.zinc950} />
+                )}
+              </Pressable>
+            )}
+          </View>
           {photoCount > 0 ? (
             <Pressable
               onPress={() => {
@@ -779,19 +814,20 @@ export default function ProjectDetailScreen() {
             </Pressable>
           ) : (
             <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({ pathname: "/foto", params: { projectId: id || "1" } });
-              }}
+              onPress={handleCapturePhoto}
               style={({ pressed }) => [styles.photoRow, { opacity: pressed ? 0.8 : 1 }]}
             >
               <View style={styles.photoPreviewRow}>
-                <Ionicons name="camera-outline" size={32} color={Colors.raw.zinc600} />
+                <Ionicons name="camera-outline" size={32} color={photoUploading ? Colors.raw.amber500 : Colors.raw.zinc600} />
                 <View style={styles.photoTextCol}>
-                  <Text style={styles.photoSubtitle}>Noch keine Fotos</Text>
-                  <Text style={styles.photoSubtitle}>Tippen um Foto aufzunehmen</Text>
+                  <Text style={styles.photoSubtitle}>{photoUploading ? "Wird hochgeladen..." : "Noch keine Fotos"}</Text>
+                  <Text style={styles.photoSubtitle}>{photoUploading ? "Bitte warten" : "Tippen um Foto aufzunehmen"}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc600} />
+                {photoUploading ? (
+                  <ActivityIndicator size="small" color={Colors.raw.amber500} />
+                ) : (
+                  <Ionicons name="add-circle" size={28} color={Colors.raw.amber500} />
+                )}
               </View>
             </Pressable>
           )}

@@ -17,45 +17,50 @@ export interface CapturePhotoResult {
   storagePath: string;
 }
 
+/**
+ * On web/iPad: opens native file picker with camera capture via <input capture>.
+ * Returns a File/Blob or null if cancelled.
+ */
+function pickFileFromWebCamera(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.capture = "environment"; // rear camera on iPad/mobile
+    input.style.display = "none";
+    document.body.appendChild(input);
+
+    input.addEventListener("change", () => {
+      const file = input.files?.[0] || null;
+      document.body.removeChild(input);
+      resolve(file);
+    });
+
+    // User cancelled the file picker
+    input.addEventListener("cancel", () => {
+      document.body.removeChild(input);
+      resolve(null);
+    });
+
+    // Fallback: if focus returns without change, treat as cancel
+    const onFocus = () => {
+      setTimeout(() => {
+        if (document.body.contains(input)) {
+          document.body.removeChild(input);
+          resolve(null);
+        }
+      }, 500);
+      window.removeEventListener("focus", onFocus);
+    };
+    window.addEventListener("focus", onFocus);
+
+    input.click();
+  });
+}
+
 export async function captureAndUploadPhoto(
   options: CapturePhotoOptions
 ): Promise<CapturePhotoResult | null> {
-  // 1. Request camera permissions
-  if (Platform.OS !== "web") {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Kamera-Zugriff benötigt",
-        "Bitte erlauben Sie den Kamera-Zugriff in den Einstellungen."
-      );
-      return null;
-    }
-  }
-
-  // 2. Launch camera (or image library on web)
-  // Request base64 on native to avoid the fetch+blob issue
-  let result: ImagePicker.ImagePickerResult;
-  if (Platform.OS === "web") {
-    result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.7,
-      allowsEditing: false,
-    });
-  } else {
-    result = await ImagePicker.launchCameraAsync({
-      quality: 0.7,
-      allowsEditing: false,
-      base64: true,
-    });
-  }
-
-  if (result.canceled || !result.assets || result.assets.length === 0) {
-    return null;
-  }
-
-  const asset = result.assets[0];
-
-  // 3. Upload to Supabase Storage
   const timestamp = Date.now();
   const sectionPart = options.sectionId || "general";
   const positionPart = options.positionId || "none";
@@ -65,15 +70,16 @@ export async function captureAndUploadPhoto(
 
   try {
     if (Platform.OS === "web") {
-      // Web: fetch + blob works fine
-      const response = await fetch(asset.uri);
-      const blob = await response.blob();
-      fileSize = blob.size;
+      // Web: use native HTML file input with capture for camera access
+      const file = await pickFileFromWebCamera();
+      if (!file) return null;
+
+      fileSize = file.size;
 
       const { error: uploadError } = await supabase.storage
         .from("project-files")
-        .upload(storagePath, blob, {
-          contentType: "image/jpeg",
+        .upload(storagePath, file, {
+          contentType: file.type || "image/jpeg",
           upsert: false,
         });
 
@@ -82,8 +88,27 @@ export async function captureAndUploadPhoto(
         return null;
       }
     } else {
-      // Native: use base64 from ImagePicker directly, decode to ArrayBuffer
-      const base64 = asset.base64;
+      // Native: request camera permissions + launch camera
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Kamera-Zugriff benötigt",
+          "Bitte erlauben Sie den Kamera-Zugriff in den Einstellungen."
+        );
+        return null;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.7,
+        allowsEditing: false,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return null;
+      }
+
+      const base64 = result.assets[0].base64;
       if (!base64) {
         Alert.alert("Fehler", "Kein Bilddaten erhalten");
         return null;
@@ -107,7 +132,7 @@ export async function captureAndUploadPhoto(
     return null;
   }
 
-  // 4. Insert into inspection_photos
+  // Insert into inspection_photos
   const { data: insertData, error: insertError } = await supabase
     .from("inspection_photos")
     .insert({
