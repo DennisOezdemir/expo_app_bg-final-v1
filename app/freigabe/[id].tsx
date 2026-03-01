@@ -7,6 +7,7 @@ import {
   ScrollView,
   TextInput,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -23,162 +24,60 @@ import Animated, {
   FadeIn,
   FadeOut,
 } from "react-native-reanimated";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
 
-interface Position {
-  name: string;
-  amount: string;
-}
+// --- Types ---
 
-interface AngebotData {
-  type: "angebot";
-  id: string;
-  title: string;
-  projectCode: string;
-  projectAddress: string;
-  client: string;
-  trade: string;
-  status: string;
-  submittedAgo: string;
-  netto: string;
-  brutto: string;
-  positionCount: number;
-  roomCount: number;
-  marginPercent: number;
-  marginAmount: string;
-  marginStatus: "green" | "yellow" | "red";
-  hasComparison: boolean;
-  comparisonChanges?: { label: string; amount: string; positive: boolean }[];
-  comparisonDiff?: string;
-  topPositions: Position[];
-  remainingCount: number;
-}
+type ApprovalUiType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung";
 
-interface MaterialData {
-  type: "material";
-  id: string;
-  title: string;
-  projectCode: string;
-  projectAddress: string;
-  client: string;
-  trade: string;
-  status: string;
-  submittedAgo: string;
-  supplierName: string;
-  customerNumber: string;
-  supplierPhone: string;
-  positions: { name: string; qty: string; amount: string }[];
-  summeNetto: string;
-  budgetTotal: string;
-  budgetUsed: string;
-  thisOrder: string;
-  budgetRemaining: string;
-  budgetStatus: "green" | "yellow" | "red";
-}
-
-interface NachtragData {
-  type: "nachtrag";
-  id: string;
-  title: string;
-  projectCode: string;
-  projectAddress: string;
-  client: string;
-  trade: string;
-  status: string;
-  submittedAgo: string;
-  reason: string;
-  discoveredAt: string;
-  photoCount: number;
-  positions: Position[];
-  summeNetto: string;
-  vobReference: string;
-  vobDetail: string;
-}
-
-type ApprovalData = AngebotData | MaterialData | NachtragData;
-
-const APPROVALS: Record<string, ApprovalData> = {
-  "1": {
-    type: "angebot",
-    id: "1",
-    title: "Angebot freigeben",
-    projectCode: "BL-2026-003",
-    projectAddress: "Schwentnerring 13c EG Links",
-    client: "SAGA GWG",
-    trade: "Maler+Boden",
-    status: "Wartet auf Freigabe",
-    submittedAgo: "vor 2 Stunden",
-    netto: "12.400,00",
-    brutto: "14.756,00",
-    positionCount: 47,
-    roomCount: 6,
-    marginPercent: 24,
-    marginAmount: "2.976",
-    marginStatus: "green",
-    hasComparison: true,
-    comparisonChanges: [
-      { label: "Nachtrag Bad", amount: "1.200", positive: true },
-      { label: "Position gestrichen", amount: "400", positive: false },
-    ],
-    comparisonDiff: "+800",
-    topPositions: [
-      { name: "Badezimmer komplett", amount: "2.840" },
-      { name: "Wohnzimmer Boden", amount: "1.960" },
-      { name: "Kuche Wand+Boden", amount: "1.800" },
-      { name: "Schlafzimmer Maler", amount: "1.400" },
-      { name: "Flur", amount: "980" },
-    ],
-    remainingCount: 42,
-  },
-  "2": {
-    type: "material",
-    id: "2",
-    title: "Material bestellen",
-    projectCode: "BL-2026-007",
-    projectAddress: "Industrieweg 8, Basel",
-    client: "Gewerbepark Basel AG",
-    trade: "Maler+Boden",
-    status: "Wartet auf Freigabe",
-    submittedAgo: "vor 5 Stunden",
-    supplierName: "MEGA eG",
-    customerNumber: "48291",
-    supplierPhone: "040-123456",
-    positions: [
-      { name: "Vliesraufaser Erfurt 52", qty: "12x", amount: "226,80" },
-      { name: "Vlieskleber 16kg", qty: "12x", amount: "311,40" },
-      { name: "Dispersionsfarbe 10L", qty: "4x", amount: "171,60" },
-    ],
-    summeNetto: "709,80",
-    budgetTotal: "4.200",
-    budgetUsed: "2.840",
-    thisOrder: "710",
-    budgetRemaining: "650",
-    budgetStatus: "yellow",
-  },
-  "3": {
-    type: "nachtrag",
-    id: "3",
-    title: "Nachtrag genehmigen",
-    projectCode: "BL-2026-001",
-    projectAddress: "Seestrasse 42, Zurich",
-    client: "Privat Immobilien AG",
-    trade: "Maler+Boden",
-    status: "Wartet auf Freigabe",
-    submittedAgo: "vor 1 Tag",
-    reason: "Wasserschaden Decke Badezimmer",
-    discoveredAt: "Entdeckt bei Zwischenbegehung am 08.02.",
-    photoCount: 3,
-    positions: [
-      { name: "Trocknung (3 Tage)", amount: "280" },
-      { name: "Decke neu spachteln", amount: "140" },
-    ],
-    summeNetto: "420",
-    vobReference: "\u00A72 Abs. 6 VOB/B — Zusatzliche Leistung",
-    vobDetail: "Nicht im ursprunglichen LV enthalten",
-  },
+const APPROVAL_TYPE_MAP: Record<string, ApprovalUiType> = {
+  PROJECT_START: "auftrag",
+  INVOICE: "rechnung",
+  MATERIAL_ORDER: "material",
+  SUBCONTRACTOR_ORDER: "material",
+  INSPECTION_ASSIGN: "angebot",
+  SCHEDULE: "angebot",
+  COMPLETION: "angebot",
+  INSPECTION: "angebot",
 };
+
+interface ApprovalDetail {
+  id: string;
+  uiType: ApprovalUiType;
+  dbType: string;
+  projectId: string;
+  projectCode: string;
+  projectAddress: string;
+  clientName: string;
+  status: string;
+  submittedAgo: string;
+  summary: string;
+  requestData: any;
+  // Project fields for auftrag editing
+  projectName: string;
+  plannedStart: string | null;
+  plannedEnd: string | null;
+  budgetNet: number | null;
+  source: string | null;
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "gerade eben";
+  if (diffMin < 60) return `vor ${diffMin} Min`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `vor ${diffH} Stunde${diffH > 1 ? "n" : ""}`;
+  const diffD = Math.floor(diffH / 24);
+  return `vor ${diffD} Tag${diffD > 1 ? "en" : ""}`;
+}
+
+// --- Components ---
 
 function StatusBadge({ status, color }: { status: string; color: string }) {
   return (
@@ -218,293 +117,103 @@ function SectionLabel({ label }: { label: string }) {
   return <Text style={s.sectionLabel}>{label}</Text>;
 }
 
-function MarginIndicator({ percent, status }: { percent: number; status: "green" | "yellow" | "red" }) {
-  const color =
-    status === "green"
-      ? Colors.raw.emerald500
-      : status === "yellow"
-      ? Colors.raw.amber500
-      : Colors.raw.rose500;
+function InfoRow({ label, value, icon }: { label: string; value: string; icon?: string }) {
   return (
-    <View style={[marginStyles.container, { backgroundColor: color + "18" }]}>
-      <Text style={[marginStyles.text, { color }]}>{percent}%</Text>
+    <View style={s.infoRow}>
+      {icon && <Ionicons name={icon as any} size={16} color={Colors.raw.zinc500} />}
+      <Text style={s.infoLabel}>{label}</Text>
+      <Text style={s.infoValue}>{value}</Text>
     </View>
   );
 }
 
-const marginStyles = StyleSheet.create({
-  container: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  text: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 14,
-  },
-});
-
-function BudgetIndicator({ status }: { status: "green" | "yellow" | "red" }) {
-  const color =
-    status === "green"
-      ? Colors.raw.emerald500
-      : status === "yellow"
-      ? Colors.raw.amber500
-      : Colors.raw.rose500;
+function AuftragContent({ data }: { data: ApprovalDetail }) {
+  const rd = data.requestData || {};
   return (
-    <View style={[budgetStyles.dot, { backgroundColor: color }]} />
+    <>
+      <SectionLabel label="PROJEKT-DATEN" />
+      <Card>
+        <InfoRow label="Projekt" value={data.projectName || data.projectCode} icon="clipboard" />
+        <InfoRow label="Adresse" value={data.projectAddress} icon="location" />
+        <InfoRow label="Auftraggeber" value={data.clientName || "–"} icon="business" />
+        {data.budgetNet != null && (
+          <InfoRow label="Budget netto" value={`€${data.budgetNet.toLocaleString("de-DE")}`} icon="cash" />
+        )}
+        {data.plannedStart && (
+          <InfoRow label="Geplanter Start" value={new Date(data.plannedStart).toLocaleDateString("de-DE")} icon="calendar" />
+        )}
+        {data.plannedEnd && (
+          <InfoRow label="Geplantes Ende" value={new Date(data.plannedEnd).toLocaleDateString("de-DE")} icon="calendar-outline" />
+        )}
+        {data.source && (
+          <InfoRow label="Quelle" value={data.source} icon="mail" />
+        )}
+      </Card>
+
+      {rd.trades && rd.trades.length > 0 && (
+        <>
+          <SectionLabel label="GEWERKE" />
+          <Card>
+            {rd.trades.map((t: string, i: number) => (
+              <View key={i} style={s.tradeChip}>
+                <MaterialCommunityIcons name="hammer-wrench" size={14} color={Colors.raw.amber500} />
+                <Text style={s.tradeText}>{t}</Text>
+              </View>
+            ))}
+          </Card>
+        </>
+      )}
+
+      {data.summary ? (
+        <>
+          <SectionLabel label="ZUSAMMENFASSUNG" />
+          <Card>
+            <Text style={s.summaryText}>{data.summary}</Text>
+          </Card>
+        </>
+      ) : null}
+    </>
   );
 }
 
-const budgetStyles = StyleSheet.create({
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-});
-
-function AngebotContent({ data }: { data: AngebotData }) {
+function GenericContent({ data }: { data: ApprovalDetail }) {
+  const rd = data.requestData || {};
   return (
     <>
-      <Card>
-        <View style={s.amountRow}>
-          <View>
-            <Text style={s.amountLabel}>Netto</Text>
-            <Text style={s.amountBig}>{"\u20AC"}{data.netto}</Text>
-          </View>
-          <View style={s.amountDivider} />
-          <View>
-            <Text style={s.amountLabel}>Brutto</Text>
-            <Text style={s.amountMedium}>{"\u20AC"}{data.brutto}</Text>
-          </View>
-        </View>
-        <View style={s.metaRow}>
-          <Text style={s.metaText}>{data.positionCount} Positionen</Text>
-          <View style={s.metaDot} />
-          <Text style={s.metaText}>{data.roomCount} Raume</Text>
-        </View>
-        <View style={s.marginRow}>
-          <Text style={s.marginLabel}>Marge:</Text>
-          <MarginIndicator percent={data.marginPercent} status={data.marginStatus} />
-          <Text style={s.marginAmount}>({"\u20AC"}{data.marginAmount})</Text>
-        </View>
-      </Card>
-
-      {data.hasComparison && data.comparisonChanges && (
+      {data.summary ? (
         <>
-          <SectionLabel label="VERGLEICH" />
+          <SectionLabel label="DETAILS" />
           <Card>
-            <Text style={s.comparisonTitle}>vs. Version 1:</Text>
-            {data.comparisonChanges.map((change, i) => (
-              <View key={i} style={s.comparisonRow}>
-                <Text
-                  style={[
-                    s.comparisonAmount,
-                    { color: change.positive ? Colors.raw.emerald500 : Colors.raw.rose400 },
-                  ]}
-                >
-                  {change.positive ? "+" : "-"} {"\u20AC"}{change.amount}
-                </Text>
-                <Text style={s.comparisonLabel}>({change.label})</Text>
-              </View>
-            ))}
-            <View style={s.comparisonDivider} />
-            <View style={s.comparisonRow}>
-              <Text style={s.comparisonDiffAmount}>= {data.comparisonDiff && (data.comparisonDiff.startsWith("+") ? "" : "")}{"\u20AC"}{data.comparisonDiff} Differenz</Text>
+            <Text style={s.summaryText}>{data.summary}</Text>
+          </Card>
+        </>
+      ) : null}
+
+      {rd.amount && (
+        <>
+          <SectionLabel label="BETRAG" />
+          <Card>
+            <View style={s.amountRow}>
+              <Ionicons name="cash" size={20} color={Colors.raw.amber500} />
+              <Text style={s.amountBig}>€{rd.amount}</Text>
             </View>
           </Card>
         </>
       )}
 
-      <SectionLabel label="TOP POSITIONEN" />
-      <Card>
-        {data.topPositions.map((pos, i) => (
-          <View key={i} style={[s.posRow, i < data.topPositions.length - 1 && s.posRowBorder]}>
-            <Text style={s.posName} numberOfLines={1}>{pos.name}</Text>
-            <Text style={s.posAmount}>{"\u20AC"}{pos.amount}</Text>
-          </View>
-        ))}
-        {data.remainingCount > 0 && (
-          <Pressable
-            style={({ pressed }) => [s.moreButton, { opacity: pressed ? 0.7 : 1 }]}
-            testID="view-all-positions"
-          >
-            <Text style={s.moreButtonText}>
-              ... {data.remainingCount} weitere Positionen
-            </Text>
-            <Ionicons name="arrow-forward" size={16} color={Colors.raw.amber500} />
-          </Pressable>
-        )}
-      </Card>
-
-      <SectionLabel label="DOKUMENT" />
-      <Card>
-        <View style={s.pdfPreview}>
-          <View style={s.pdfPlaceholder}>
-            <Ionicons name="document-text" size={40} color={Colors.raw.zinc600} />
-            <Text style={s.pdfTitle}>Angebot_BL-2026-003_v2.pdf</Text>
-            <Text style={s.pdfMeta}>12 Seiten</Text>
-          </View>
-        </View>
-        <Pressable
-          style={({ pressed }) => [s.pdfFullButton, { opacity: pressed ? 0.7 : 1 }]}
-          testID="view-pdf"
-        >
-          <Ionicons name="expand" size={16} color={Colors.raw.amber500} />
-          <Text style={s.pdfFullText}>PDF Vollbild</Text>
-        </Pressable>
-      </Card>
-    </>
-  );
-}
-
-function MaterialContent({ data }: { data: MaterialData }) {
-  return (
-    <>
-      <SectionLabel label="LIEFERANT" />
-      <Card>
-        <View style={s.supplierHeader}>
-          <View style={s.supplierIcon}>
-            <MaterialCommunityIcons name="store" size={22} color={Colors.raw.amber500} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.supplierName}>{data.supplierName}</Text>
-            <Text style={s.supplierMeta}>Kd.Nr: {data.customerNumber}</Text>
-          </View>
-          <Pressable
-            style={({ pressed }) => [s.phoneButton, { opacity: pressed ? 0.7 : 1 }]}
-            testID="call-supplier"
-          >
-            <Feather name="phone" size={18} color={Colors.raw.emerald500} />
-          </Pressable>
-        </View>
-      </Card>
-
-      <SectionLabel label="POSITIONEN" />
-      <Card>
-        {data.positions.map((pos, i) => (
-          <View key={i} style={[s.matPosRow, i < data.positions.length - 1 && s.posRowBorder]}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.matPosQty}>{pos.qty}</Text>
-              <Text style={s.matPosName}>{pos.name}</Text>
-            </View>
-            <Text style={s.matPosAmount}>{"\u20AC"}{pos.amount}</Text>
-          </View>
-        ))}
-        <View style={s.matSumDivider} />
-        <View style={s.matSumRow}>
-          <Text style={s.matSumLabel}>Summe netto:</Text>
-          <Text style={s.matSumAmount}>{"\u20AC"}{data.summeNetto}</Text>
-        </View>
-      </Card>
-
-      <SectionLabel label="BUDGET CHECK" />
-      <Card>
-        <View style={s.budgetRow}>
-          <Text style={s.budgetLabel}>Material-Budget:</Text>
-          <Text style={s.budgetValue}>{"\u20AC"}{data.budgetTotal}</Text>
-        </View>
-        <View style={s.budgetRow}>
-          <Text style={s.budgetLabel}>Bereits bestellt:</Text>
-          <Text style={s.budgetValue}>{"\u20AC"}{data.budgetUsed}</Text>
-        </View>
-        <View style={s.budgetRow}>
-          <Text style={s.budgetLabel}>Diese Bestellung:</Text>
-          <Text style={[s.budgetValue, { color: Colors.raw.amber500 }]}>{"\u20AC"}{data.thisOrder}</Text>
-        </View>
-        <View style={s.budgetDivider} />
-        <View style={s.budgetRow}>
-          <Text style={s.budgetResultLabel}>Rest nach Bestellung:</Text>
-          <View style={s.budgetResultRight}>
-            <Text style={s.budgetResultValue}>{"\u20AC"}{data.budgetRemaining}</Text>
-            <BudgetIndicator status={data.budgetStatus} />
-          </View>
-        </View>
-
-        <View style={s.budgetBar}>
-          <View
-            style={[
-              s.budgetBarUsed,
-              { width: `${(parseFloat(data.budgetUsed.replace(".", "")) / parseFloat(data.budgetTotal.replace(".", ""))) * 100}%` },
-            ]}
-          />
-          <View
-            style={[
-              s.budgetBarThis,
-              {
-                width: `${(parseFloat(data.thisOrder.replace(".", "")) / parseFloat(data.budgetTotal.replace(".", ""))) * 100}%`,
-              },
-            ]}
-          />
-        </View>
-        <View style={s.budgetBarLegend}>
-          <View style={s.legendItem}>
-            <View style={[s.legendDot, { backgroundColor: Colors.raw.zinc500 }]} />
-            <Text style={s.legendText}>Bestellt</Text>
-          </View>
-          <View style={s.legendItem}>
-            <View style={[s.legendDot, { backgroundColor: Colors.raw.amber500 }]} />
-            <Text style={s.legendText}>Diese Bestellung</Text>
-          </View>
-        </View>
-      </Card>
-    </>
-  );
-}
-
-function NachtragContent({ data }: { data: NachtragData }) {
-  return (
-    <>
-      <SectionLabel label="GRUND" />
-      <Card>
-        <View style={s.reasonHeader}>
-          <Ionicons name="warning" size={20} color={Colors.raw.amber500} />
-          <Text style={s.reasonTitle}>{data.reason}</Text>
-        </View>
-        <Text style={s.reasonDetail}>{data.discoveredAt}</Text>
-      </Card>
-
-      <SectionLabel label="FOTOS" />
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.photosContainer}
-        style={s.photosScroll}
-      >
-        {Array.from({ length: data.photoCount }).map((_, i) => (
-          <View key={i} style={s.photoCard}>
-            <View style={s.photoPlaceholder}>
-              <Ionicons name="image" size={32} color={Colors.raw.zinc600} />
-              <Text style={s.photoLabel}>Foto {i + 1}</Text>
-            </View>
-          </View>
-        ))}
-      </ScrollView>
-
-      <SectionLabel label="KALKULATION" />
-      <Card>
-        {data.positions.map((pos, i) => (
-          <View key={i} style={[s.posRow, i < data.positions.length - 1 && s.posRowBorder]}>
-            <Text style={s.posName}>{pos.name}</Text>
-            <Text style={s.posAmount}>{"\u20AC"}{pos.amount}</Text>
-          </View>
-        ))}
-        <View style={s.matSumDivider} />
-        <View style={s.matSumRow}>
-          <Text style={s.matSumLabel}>Nachtrag:</Text>
-          <Text style={s.matSumAmount}>{"\u20AC"}{data.summeNetto} netto</Text>
-        </View>
-      </Card>
-
-      <SectionLabel label="VOB REFERENZ" />
-      <Card>
-        <View style={s.vobRow}>
-          <Feather name="book-open" size={16} color={Colors.raw.zinc500} />
-          <Text style={s.vobText}>{data.vobReference}</Text>
-        </View>
-        <Text style={s.vobDetail}>{data.vobDetail}</Text>
-      </Card>
+      {rd.positions && rd.positions.length > 0 && (
+        <>
+          <SectionLabel label="POSITIONEN" />
+          <Card>
+            {rd.positions.map((pos: any, i: number) => (
+              <View key={i} style={[s.posRow, i < rd.positions.length - 1 && s.posRowBorder]}>
+                <Text style={s.posName} numberOfLines={1}>{pos.name}</Text>
+                {pos.amount && <Text style={s.posAmount}>€{pos.amount}</Text>}
+              </View>
+            ))}
+          </Card>
+        </>
+      )}
     </>
   );
 }
@@ -538,10 +247,10 @@ function RejectionSheet({
         <Pressable style={rejStyles.dismissArea} onPress={onClose} />
         <View style={[rejStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <View style={rejStyles.handle} />
-          <Text style={rejStyles.title}>Grund fur Ablehnung</Text>
+          <Text style={rejStyles.title}>Grund für Ablehnung</Text>
           <TextInput
             style={rejStyles.input}
-            placeholder="Begrundung eingeben..."
+            placeholder="Begründung eingeben..."
             placeholderTextColor={Colors.raw.zinc600}
             multiline
             numberOfLines={4}
@@ -677,9 +386,12 @@ export default function FreigabeDetailScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const [data, setData] = useState<ApprovalDetail | null>(null);
+  const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState("");
   const [rejectionVisible, setRejectionVisible] = useState(false);
   const [showToast, setShowToast] = useState(false);
+  const [acting, setActing] = useState(false);
 
   const approveFlash = useSharedValue(0);
 
@@ -687,7 +399,55 @@ export default function FreigabeDetailScreen() {
     opacity: approveFlash.value,
   }));
 
-  const handleApprove = useCallback(() => {
+  // Fetch approval data
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchDetail = async () => {
+      const { data: row, error } = await supabase
+        .from("approvals")
+        .select("*, projects(id, project_number, name, display_name, object_street, object_city, object_zip, budget_net, planned_start, planned_end, source, client_id, clients(company_name, first_name, last_name))")
+        .eq("id", id)
+        .single();
+
+      if (error || !row) {
+        console.error("Approval detail laden:", error);
+        setLoading(false);
+        return;
+      }
+
+      const project = row.projects as any;
+      const client = project?.clients;
+      const clientName = client?.company_name || [client?.first_name, client?.last_name].filter(Boolean).join(" ") || "";
+
+      setData({
+        id: row.id,
+        uiType: APPROVAL_TYPE_MAP[row.approval_type] || "angebot",
+        dbType: row.approval_type,
+        projectId: row.project_id,
+        projectCode: project?.project_number || "–",
+        projectAddress: [project?.object_street, project?.object_city].filter(Boolean).join(", ") || "–",
+        clientName,
+        status: "Wartet auf Freigabe",
+        submittedAgo: formatTimeAgo(row.requested_at),
+        summary: row.request_summary || "",
+        requestData: row.request_data || {},
+        projectName: project?.display_name || project?.name || "",
+        plannedStart: project?.planned_start,
+        plannedEnd: project?.planned_end,
+        budgetNet: project?.budget_net,
+        source: project?.source,
+      });
+      setLoading(false);
+    };
+
+    fetchDetail();
+  }, [id]);
+
+  const handleApprove = useCallback(async () => {
+    if (!data || acting) return;
+    setActing(true);
+
     if (Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
@@ -695,48 +455,119 @@ export default function FreigabeDetailScreen() {
       withTiming(0.4, { duration: 150 }),
       withTiming(0, { duration: 400 })
     );
-    setShowToast(true);
-    setTimeout(() => {
-      router.back();
-    }, 1200);
-  }, [router, approveFlash]);
+
+    try {
+      const { data: result, error } = await supabase.rpc("fn_approve_intake", { p_approval_id: data.id });
+      if (error) {
+        console.error("Approve failed:", error);
+        if (Platform.OS === "web") alert("Fehler: " + error.message);
+        setActing(false);
+        return;
+      }
+      if (result && !result.success) {
+        console.error("Approve failed:", result.error);
+        if (Platform.OS === "web") alert("Fehler: " + result.error);
+        setActing(false);
+        return;
+      }
+
+      setShowToast(true);
+      setTimeout(() => {
+        router.back();
+      }, 1200);
+    } catch (e) {
+      console.error("Approve error:", e);
+      setActing(false);
+    }
+  }, [data, acting, router, approveFlash]);
 
   const handleReject = useCallback(() => {
+    if (acting) return;
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     setRejectionVisible(true);
-  }, []);
+  }, [acting]);
 
   const handleRejectionSubmit = useCallback(
-    (_reason: string) => {
+    async (reason: string) => {
+      if (!data || acting) return;
+      setActing(true);
       setRejectionVisible(false);
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+      try {
+        const { data: result, error } = await supabase.rpc("fn_reject_intake", {
+          p_approval_id: data.id,
+          p_reason: reason,
+        });
+        if (error) {
+          console.error("Reject failed:", error);
+          if (Platform.OS === "web") alert("Fehler: " + error.message);
+          setActing(false);
+          return;
+        }
+        if (result && !result.success) {
+          console.error("Reject failed:", result.error);
+          if (Platform.OS === "web") alert("Fehler: " + result.error);
+          setActing(false);
+          return;
+        }
+
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+        setTimeout(() => {
+          router.back();
+        }, 300);
+      } catch (e) {
+        console.error("Reject error:", e);
+        setActing(false);
       }
-      setTimeout(() => {
-        router.back();
-      }, 300);
     },
-    [router]
+    [data, acting, router]
   );
 
-  const data = APPROVALS[id || "1"];
-  if (!data) return null;
+  if (loading) {
+    return (
+      <View style={[s.container, { justifyContent: "center", alignItems: "center" }]}>
+        <ActivityIndicator size="large" color={Colors.raw.amber500} />
+      </View>
+    );
+  }
+
+  if (!data) {
+    return (
+      <View style={[s.container, { justifyContent: "center", alignItems: "center" }]}>
+        <Ionicons name="alert-circle" size={48} color={Colors.raw.zinc600} />
+        <Text style={{ color: Colors.raw.zinc400, marginTop: 12, fontFamily: "Inter_500Medium", fontSize: 16 }}>
+          Freigabe nicht gefunden
+        </Text>
+        <Pressable onPress={() => router.back()} style={{ marginTop: 20 }}>
+          <Text style={{ color: Colors.raw.amber500, fontFamily: "Inter_600SemiBold", fontSize: 15 }}>Zurück</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   const typeTitle =
-    data.type === "angebot"
-      ? "Angebot freigeben"
-      : data.type === "material"
+    data.uiType === "auftrag"
+      ? "Auftrag freigeben"
+      : data.uiType === "material"
       ? "Material bestellen"
-      : "Nachtrag genehmigen";
+      : data.uiType === "nachtrag"
+      ? "Nachtrag genehmigen"
+      : data.uiType === "rechnung"
+      ? "Rechnung freigeben"
+      : "Angebot freigeben";
 
   const approveLabel =
-    data.type === "angebot"
+    data.uiType === "auftrag"
       ? "FREIGEBEN"
-      : data.type === "material"
+      : data.uiType === "material"
       ? "BESTELLEN"
-      : "GENEHMIGEN";
+      : data.uiType === "nachtrag"
+      ? "GENEHMIGEN"
+      : "FREIGEBEN";
 
   return (
     <View style={s.container}>
@@ -786,7 +617,7 @@ export default function FreigabeDetailScreen() {
                   {data.projectCode} {"\u2022"} {data.projectAddress}
                 </Text>
                 <Text style={s.projectClientText}>
-                  {data.client} {"\u2022"} {data.trade}
+                  {data.clientName || "–"}
                 </Text>
               </View>
             </View>
@@ -794,9 +625,11 @@ export default function FreigabeDetailScreen() {
           </Pressable>
         </Card>
 
-        {data.type === "angebot" && <AngebotContent data={data} />}
-        {data.type === "material" && <MaterialContent data={data} />}
-        {data.type === "nachtrag" && <NachtragContent data={data} />}
+        {data.uiType === "auftrag" ? (
+          <AuftragContent data={data} />
+        ) : (
+          <GenericContent data={data} />
+        )}
       </ScrollView>
 
       <View style={[s.stickyBottom, { paddingBottom: Math.max(bottomInset, 20) }]}>
@@ -811,9 +644,10 @@ export default function FreigabeDetailScreen() {
         <View style={s.actionButtons}>
           <Pressable
             onPress={handleReject}
+            disabled={acting}
             style={({ pressed }) => [
               s.rejectButton,
-              { opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+              { opacity: acting ? 0.4 : pressed ? 0.8 : 1, transform: [{ scale: pressed && !acting ? 0.97 : 1 }] },
             ]}
             testID="detail-reject-button"
           >
@@ -822,14 +656,21 @@ export default function FreigabeDetailScreen() {
           </Pressable>
           <Pressable
             onPress={handleApprove}
+            disabled={acting}
             style={({ pressed }) => [
               s.approveButton,
-              { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+              { opacity: acting ? 0.4 : pressed ? 0.9 : 1, transform: [{ scale: pressed && !acting ? 0.97 : 1 }] },
             ]}
             testID="detail-approve-button"
           >
-            <Ionicons name="checkmark" size={24} color="#fff" />
-            <Text style={s.approveText}>{approveLabel}</Text>
+            {acting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="checkmark" size={24} color="#fff" />
+                <Text style={s.approveText}>{approveLabel}</Text>
+              </>
+            )}
           </Pressable>
         </View>
       </View>
@@ -937,96 +778,58 @@ const s = StyleSheet.create({
     marginBottom: 10,
     marginTop: 8,
   },
+  // Info rows for auftrag
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  infoLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.zinc400,
+    minWidth: 100,
+  },
+  infoValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.zinc200,
+    flex: 1,
+    textAlign: "right",
+  },
+  tradeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Colors.raw.amber500 + "18",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+    marginBottom: 6,
+  },
+  tradeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.amber500,
+  },
+  summaryText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.raw.zinc300,
+    lineHeight: 22,
+  },
   amountRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 24,
-    marginBottom: 16,
-  },
-  amountLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: Colors.raw.zinc500,
-    marginBottom: 4,
-    textTransform: "uppercase" as const,
-    letterSpacing: 0.5,
+    alignItems: "center",
+    gap: 12,
   },
   amountBig: {
     fontFamily: "Inter_800ExtraBold",
     fontSize: 32,
-    color: Colors.raw.white,
-  },
-  amountMedium: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: Colors.raw.zinc400,
-  },
-  amountDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: Colors.raw.zinc800,
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-  },
-  metaText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: Colors.raw.zinc400,
-  },
-  metaDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.raw.zinc600,
-  },
-  marginRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  marginLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.zinc400,
-  },
-  marginAmount: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: Colors.raw.zinc500,
-  },
-  comparisonTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.zinc400,
-    marginBottom: 12,
-  },
-  comparisonRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 6,
-  },
-  comparisonAmount: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 15,
-  },
-  comparisonLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: Colors.raw.zinc500,
-  },
-  comparisonDivider: {
-    height: 1,
-    backgroundColor: Colors.raw.zinc800,
-    marginVertical: 10,
-  },
-  comparisonDiffAmount: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 15,
     color: Colors.raw.white,
   },
   posRow: {
@@ -1050,269 +853,6 @@ const s = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 15,
     color: Colors.raw.white,
-  },
-  moreButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: Colors.raw.zinc800,
-    marginTop: 4,
-  },
-  moreButtonText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.amber500,
-  },
-  pdfPreview: {
-    height: 200,
-    borderRadius: 12,
-    backgroundColor: Colors.raw.zinc800,
-    marginBottom: 14,
-    overflow: "hidden",
-  },
-  pdfPlaceholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  pdfTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    color: Colors.raw.zinc400,
-  },
-  pdfMeta: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.raw.zinc600,
-  },
-  pdfFullButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.raw.zinc800,
-  },
-  pdfFullText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.amber500,
-  },
-  supplierHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  supplierIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: Colors.raw.amber500 + "18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  supplierName: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 17,
-    color: Colors.raw.white,
-    marginBottom: 2,
-  },
-  supplierMeta: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.raw.zinc500,
-  },
-  phoneButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: Colors.raw.emerald500 + "18",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  matPosRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-  },
-  matPosQty: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 13,
-    color: Colors.raw.amber500,
-    marginBottom: 2,
-  },
-  matPosName: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 15,
-    color: Colors.raw.zinc300,
-  },
-  matPosAmount: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 15,
-    color: Colors.raw.white,
-  },
-  matSumDivider: {
-    height: 1,
-    backgroundColor: Colors.raw.zinc700,
-    marginVertical: 10,
-    marginHorizontal: -4,
-  },
-  matSumRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  matSumLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: Colors.raw.zinc400,
-  },
-  matSumAmount: {
-    fontFamily: "Inter_800ExtraBold",
-    fontSize: 18,
-    color: Colors.raw.white,
-  },
-  budgetRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  budgetLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: Colors.raw.zinc400,
-  },
-  budgetValue: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.zinc300,
-  },
-  budgetDivider: {
-    height: 1,
-    backgroundColor: Colors.raw.zinc700,
-    marginVertical: 10,
-  },
-  budgetResultLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: Colors.raw.white,
-  },
-  budgetResultRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  budgetResultValue: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 17,
-    color: Colors.raw.white,
-  },
-  budgetBar: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.raw.zinc800,
-    flexDirection: "row",
-    overflow: "hidden",
-    marginTop: 16,
-    marginBottom: 10,
-  },
-  budgetBarUsed: {
-    height: 8,
-    backgroundColor: Colors.raw.zinc500,
-  },
-  budgetBarThis: {
-    height: 8,
-    backgroundColor: Colors.raw.amber500,
-  },
-  budgetBarLegend: {
-    flexDirection: "row",
-    gap: 16,
-  },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  legendText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.raw.zinc500,
-  },
-  reasonHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-  },
-  reasonTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: Colors.raw.white,
-    flex: 1,
-  },
-  reasonDetail: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: Colors.raw.zinc400,
-  },
-  photosScroll: {
-    marginHorizontal: -20,
-    marginBottom: 16,
-  },
-  photosContainer: {
-    paddingHorizontal: 20,
-    gap: 12,
-    flexDirection: "row",
-  },
-  photoCard: {
-    width: 160,
-    height: 120,
-    borderRadius: 14,
-    backgroundColor: Colors.raw.zinc900,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    overflow: "hidden",
-  },
-  photoPlaceholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  photoLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: Colors.raw.zinc600,
-  },
-  vobRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    marginBottom: 8,
-  },
-  vobText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.zinc300,
-    flex: 1,
-  },
-  vobDetail: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.raw.zinc500,
-    marginLeft: 26,
   },
   stickyBottom: {
     position: "absolute",

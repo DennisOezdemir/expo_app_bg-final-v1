@@ -3,18 +3,46 @@ import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View, Text, Pressable } from "react-native";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Colors from "@/constants/colors";
 import { FAB, AssistantOverlay } from "@/components/BGAssistant";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
 import { DebugConsole } from "@/components/DebugConsole";
 import { DebugLogSeeder } from "@/components/DebugLogSeeder";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { supabase } from "@/lib/supabase";
 
 function FreigabenBadge() {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    const fetchCount = async () => {
+      const { count: c, error } = await supabase
+        .from("approvals")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "PENDING");
+      if (!error && c !== null) setCount(c);
+    };
+
+    fetchCount();
+
+    const channel = supabase
+      .channel("approvals_badge")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "approvals" },
+        () => { fetchCount(); }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  if (count === 0) return null;
+
   return (
     <View style={badgeStyles.container}>
-      <Text style={badgeStyles.text}>3</Text>
+      <Text style={badgeStyles.text}>{count > 99 ? "99+" : count}</Text>
     </View>
   );
 }

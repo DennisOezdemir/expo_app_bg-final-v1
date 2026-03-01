@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   useWindowDimensions,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -25,15 +26,18 @@ import {
   Gesture,
   GestureDetector,
 } from "react-native-gesture-handler";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
 import { useOffline } from "@/contexts/OfflineContext";
 import { OfflineBlockedHint } from "@/components/OfflineBanner";
+import { supabase } from "@/lib/supabase";
 
-type ApprovalType = "angebot" | "material" | "nachtrag" | "rechnung";
+// --- Types ---
+
+type ApprovalType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung";
 
 interface Approval {
   id: string;
@@ -52,65 +56,69 @@ const TYPE_CONFIG: Record<
   ApprovalType,
   { label: string; icon: string; iconSet: "ionicons" | "material" | "feather"; color: string }
 > = {
-  angebot: { label: "Angebot freigeben", icon: "document-text", iconSet: "ionicons", color: Colors.raw.amber500 },
+  auftrag: { label: "Auftrag freigeben", icon: "briefcase", iconSet: "ionicons", color: Colors.raw.amber500 },
+  angebot: { label: "Angebot freigeben", icon: "document-text", iconSet: "ionicons", color: Colors.raw.amber400 },
   material: { label: "Material bestellen", icon: "package-variant", iconSet: "material", color: Colors.raw.emerald500 },
   nachtrag: { label: "Nachtrag genehmigen", icon: "git-pull-request", iconSet: "feather", color: Colors.raw.amber400 },
   rechnung: { label: "Rechnung freigeben", icon: "receipt", iconSet: "ionicons", color: Colors.raw.zinc400 },
 };
 
-const APPROVALS: Approval[] = [
-  {
-    id: "1",
-    type: "angebot",
-    title: "Angebot freigeben",
-    projectCode: "BL-2026-003",
-    projectAddress: "Schwentnerring 13c EG Links",
-    amount: "\u20AC12.400",
-    detail: "47 Positionen \u2022 Maler+Boden",
-    createdAgo: "vor 2 Stunden",
-  },
-  {
-    id: "2",
-    type: "material",
-    title: "Material bestellen",
-    projectCode: "BL-2026-007",
-    projectAddress: "Industrieweg 8, Basel",
-    amount: "\u20AC3.890",
-    detail: "Vliesraufaser \u2022 12 Rollen",
-    supplier: "Baustoff Weber AG",
-    createdAgo: "vor 5 Stunden",
-  },
-  {
-    id: "3",
-    type: "nachtrag",
-    title: "Nachtrag genehmigen",
-    projectCode: "BL-2026-001",
-    projectAddress: "Seestrasse 42, Zürich",
-    amount: "\u20AC1.850",
-    detail: "Zusätzliche Malerarbeiten",
-    reason: "Schimmelbefall hinter Verkleidung",
-    createdAgo: "vor 1 Tag",
-  },
-  {
-    id: "4",
-    type: "rechnung",
-    title: "Rechnung freigeben",
-    projectCode: "BL-2026-012",
-    projectAddress: "Gartenweg 3, Luzern",
-    amount: "\u20AC6.200",
-    detail: "Abschlagsrechnung #3",
-    supplier: "Schreinerei Müller",
-    createdAgo: "vor 2 Tagen",
-  },
-];
+const APPROVAL_TYPE_MAP: Record<string, ApprovalType> = {
+  PROJECT_START: "auftrag",
+  INVOICE: "rechnung",
+  MATERIAL_ORDER: "material",
+  SUBCONTRACTOR_ORDER: "material",
+  INSPECTION_ASSIGN: "angebot",
+  SCHEDULE: "angebot",
+  COMPLETION: "angebot",
+  INSPECTION: "angebot",
+};
 
-type FilterKey = "alle" | "angebot" | "material" | "nachtrag";
+type FilterKey = "alle" | "auftrag" | "angebot" | "material" | "nachtrag";
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "alle", label: "Alle" },
+  { key: "auftrag", label: "Aufträge" },
   { key: "angebot", label: "Angebote" },
   { key: "material", label: "Material" },
   { key: "nachtrag", label: "Nachträge" },
 ];
+
+// --- Helpers ---
+
+function formatTimeAgo(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "gerade eben";
+  if (diffMin < 60) return `vor ${diffMin} Min`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `vor ${diffH} Stunde${diffH > 1 ? "n" : ""}`;
+  const diffD = Math.floor(diffH / 24);
+  return `vor ${diffD} Tag${diffD > 1 ? "en" : ""}`;
+}
+
+function mapDbApproval(row: any): Approval {
+  const uiType = APPROVAL_TYPE_MAP[row.approval_type] || "angebot";
+  const project = row.projects;
+  const summary = row.request_summary || "";
+  const data = row.request_data || {};
+
+  return {
+    id: row.id,
+    type: uiType,
+    title: TYPE_CONFIG[uiType]?.label || "Freigabe",
+    projectCode: project?.project_number || "–",
+    projectAddress: [project?.object_street, project?.object_city].filter(Boolean).join(", ") || "–",
+    amount: data.amount ? `€${data.amount}` : "",
+    detail: summary || data.detail || "",
+    createdAgo: formatTimeAgo(row.requested_at),
+    supplier: data.supplier,
+    reason: row.feedback_reason || data.reason,
+  };
+}
+
+// --- Components ---
 
 function TypeIcon({ type, size }: { type: ApprovalType; size: number }) {
   const cfg = TYPE_CONFIG[type];
@@ -246,12 +254,16 @@ function SwipeableCard({
             <Text style={cardStyles.projectAddress}>{approval.projectAddress}</Text>
           </View>
 
-          <View style={cardStyles.amountSection}>
-            <Ionicons name="cash" size={20} color={Colors.raw.amber500} />
-            <Text style={cardStyles.amountText}>{approval.amount} netto</Text>
-          </View>
+          {approval.amount ? (
+            <View style={cardStyles.amountSection}>
+              <Ionicons name="cash" size={20} color={Colors.raw.amber500} />
+              <Text style={cardStyles.amountText}>{approval.amount} netto</Text>
+            </View>
+          ) : null}
 
-          <Text style={cardStyles.detail}>{approval.detail}</Text>
+          {approval.detail ? (
+            <Text style={cardStyles.detail}>{approval.detail}</Text>
+          ) : null}
 
           {approval.supplier && (
             <View style={cardStyles.supplierRow}>
@@ -506,20 +518,90 @@ export default function FreigabenScreen() {
   const router = useRouter();
   const { isOnline, getCacheAge: _getCacheAge } = useOffline();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionInFlight, setActionInFlight] = useState<string | null>(null);
 
-  const allFiltered = useMemo(() => {
-    if (activeFilter === "alle") return APPROVALS;
-    return APPROVALS.filter((a) => a.type === activeFilter || (activeFilter === "nachtrag" && a.type === "nachtrag"));
-  }, [activeFilter]);
+  const fetchApprovals = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("approvals")
+      .select("*, projects(project_number, name, object_street, object_city, budget_net)")
+      .eq("status", "PENDING")
+      .order("requested_at", { ascending: false });
 
-  const visible = useMemo(
-    () => allFiltered.filter((a) => !dismissed.has(a.id)),
-    [allFiltered, dismissed],
-  );
+    if (error) {
+      console.error("Freigaben laden:", error);
+      return;
+    }
 
-  const handleDismiss = useCallback((id: string) => {
-    setDismissed((prev) => new Set(prev).add(id));
+    setApprovals((data || []).map(mapDbApproval));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchApprovals();
+  }, [fetchApprovals]);
+
+  // Realtime subscription
+  useEffect(() => {
+    const channel = supabase
+      .channel("approvals_changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "approvals" },
+        () => {
+          fetchApprovals();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchApprovals]);
+
+  const filtered = useMemo(() => {
+    if (activeFilter === "alle") return approvals;
+    return approvals.filter((a) => a.type === activeFilter);
+  }, [activeFilter, approvals]);
+
+  const handleApprove = useCallback(async (id: string) => {
+    setActionInFlight(id);
+    try {
+      const { data, error } = await supabase.rpc("fn_approve_intake", { p_approval_id: id });
+      if (error) {
+        console.error("Approve failed:", error);
+        if (Platform.OS === "web") alert("Fehler: " + error.message);
+      } else if (data && !data.success) {
+        console.error("Approve failed:", data.error);
+        if (Platform.OS === "web") alert("Fehler: " + data.error);
+      }
+    } catch (e) {
+      console.error("Approve error:", e);
+    } finally {
+      // Remove from local state immediately for snappy UX
+      setApprovals((prev) => prev.filter((a) => a.id !== id));
+      setActionInFlight(null);
+    }
+  }, []);
+
+  const handleReject = useCallback(async (id: string) => {
+    setActionInFlight(id);
+    try {
+      const { data, error } = await supabase.rpc("fn_reject_intake", { p_approval_id: id });
+      if (error) {
+        console.error("Reject failed:", error);
+        if (Platform.OS === "web") alert("Fehler: " + error.message);
+      } else if (data && !data.success) {
+        console.error("Reject failed:", data.error);
+        if (Platform.OS === "web") alert("Fehler: " + data.error);
+      }
+    } catch (e) {
+      console.error("Reject error:", e);
+    } finally {
+      setApprovals((prev) => prev.filter((a) => a.id !== id));
+      setActionInFlight(null);
+    }
   }, []);
 
   const handleFilter = useCallback((key: FilterKey) => {
@@ -528,8 +610,6 @@ export default function FreigabenScreen() {
     }
     setActiveFilter(key);
   }, []);
-
-  const openCount = APPROVALS.filter((a) => !dismissed.has(a.id)).length;
 
   return (
     <View style={styles.container}>
@@ -540,7 +620,7 @@ export default function FreigabenScreen() {
           <View>
             <Text style={styles.headerTitle}>Freigaben</Text>
             <Text style={styles.headerSubtitle}>
-              <Text style={{ color: Colors.raw.amber500 }}>{openCount} offen</Text>
+              <Text style={{ color: Colors.raw.amber500 }}>{approvals.length} offen</Text>
             </Text>
           </View>
         </View>
@@ -579,10 +659,14 @@ export default function FreigabenScreen() {
             <OfflineBlockedHint message="Freigaben nur online möglich" />
           </View>
         )}
-        {visible.length === 0 ? (
+        {loading ? (
+          <View style={emptyStyles.container}>
+            <ActivityIndicator size="large" color={Colors.raw.amber500} />
+          </View>
+        ) : filtered.length === 0 ? (
           <EmptyState />
         ) : (
-          visible
+          filtered
             .slice(0, 3)
             .reverse()
             .map((approval, i, arr) => {
@@ -593,9 +677,9 @@ export default function FreigabenScreen() {
                   approval={approval}
                   isTop={stackIndex === 0}
                   stackIndex={stackIndex}
-                  disabled={!isOnline}
-                  onApprove={() => handleDismiss(approval.id)}
-                  onReject={() => handleDismiss(approval.id)}
+                  disabled={!isOnline || actionInFlight !== null}
+                  onApprove={() => handleApprove(approval.id)}
+                  onReject={() => handleReject(approval.id)}
                   onViewDetails={() => router.push(`/freigabe/${approval.id}` as any)}
                 />
               );
