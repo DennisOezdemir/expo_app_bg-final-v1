@@ -166,7 +166,11 @@ export default function ProfilScreen() {
   });
 
   const fetchCompanySettings = useCallback(async () => {
-    const { data } = await supabase.from("company_settings").select("key, value").in("key", ["company_name", "company_since"]);
+    const { data, error } = await supabase.from("company_settings").select("key, value").in("key", ["company_name", "company_since"]);
+    if (error) {
+      console.error("Firmeneinstellungen laden:", error);
+      return;
+    }
     const map = new Map((data ?? []).map((r) => [r.key, r.value ?? ""]));
     setCompanyName(map.get("company_name") || DEFAULT_COMPANY_NAME);
     setCompanySince(map.get("company_since") || DEFAULT_COMPANY_SINCE);

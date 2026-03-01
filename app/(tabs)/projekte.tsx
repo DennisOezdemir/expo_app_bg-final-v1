@@ -179,7 +179,7 @@ export default function ProjekteScreen() {
       return;
     }
 
-    const mapped: Project[] = (data ?? []).map((p) => ({
+    const mapped: Project[] = (data ?? []).map((p: any) => ({
       id: p.id,
       code: p.project_number ?? "—",
       name: p.display_name || p.name || "Unbenannt",
@@ -188,7 +188,7 @@ export default function ProjekteScreen() {
       progress: p.progress_percent ?? 0,
       budget: formatBudget(p.budget_net),
       deadline: formatDeadline(p.planned_end),
-      team: 0,
+      team: typeof p.assigned_team === "number" ? p.assigned_team : 0,
       phase: "",
     }));
 

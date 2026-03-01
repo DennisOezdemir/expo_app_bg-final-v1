@@ -38,6 +38,7 @@ yarn-error.*
 *.tsbuildinfo
 .vercel
 
+# Secrets – never commit (Supabase URL/keys etc.)
 .env
 
 # local dev state
