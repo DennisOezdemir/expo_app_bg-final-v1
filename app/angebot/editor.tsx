@@ -9,6 +9,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   FlatList,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -16,6 +17,7 @@ import { Ionicons, Feather } from "@expo/vector-icons";
 import { useState, useCallback, useMemo, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
 
 interface Project {
   id: string;
@@ -25,47 +27,16 @@ interface Project {
   client: string;
 }
 
-const PROJECTS: Project[] = [
-  { id: "1", code: "BL-2026-003", name: "Schwentnerring", address: "Schwentnerring 13c, 22045 Hamburg", client: "SAGA GWG" },
-  { id: "2", code: "BL-2026-007", name: "Haferweg", address: "Haferweg 44, 22769 Hamburg", client: "SAGA GWG" },
-  { id: "3", code: "BL-2026-001", name: "Bramfelder Str.", address: "Bramfelder Str. 140, 22305 Hamburg", client: "Privat" },
-  { id: "4", code: "BL-2026-005", name: "Billhorner Deich", address: "Billhorner Deich 72, 20539 Hamburg", client: "GWG" },
-];
 
 interface CatalogPosition {
+  id: string;
   nr: string;
   title: string;
   desc: string;
   price: number;
   unit: string;
   trade: string;
-  useCount?: number;
 }
-
-const CATALOG: CatalogPosition[] = [
-  { nr: "01.01", title: "Wandfl\u00E4chen grundieren", desc: "Wandfl\u00E4chen fachgerecht grundieren mit Tiefengrund LF. Untergrund muss trocken, sauber und tragf\u00E4hig sein.", price: 3.2, unit: "m\u00B2", trade: "Maler", useCount: 5 },
-  { nr: "01.02", title: "Wandfl\u00E4chen streichen", desc: "Wandfl\u00E4chen streichen mit Dispersionsfarbe, deckend in einem Anstrich. Farbton nach Absprache.", price: 4.8, unit: "m\u00B2", trade: "Maler", useCount: 9 },
-  { nr: "01.03", title: "Raufaser tapezieren", desc: "Raufasertapete Typ mittel auf vorbereiteten Untergrund tapezieren inkl. Kleister und Zuschnitt.", price: 8.4, unit: "m\u00B2", trade: "Maler", useCount: 12 },
-  { nr: "01.04", title: "Vliestapete tapezieren", desc: "Malervlies glatt auf vorbereiteten Untergrund tapezieren inkl. Spezialkleber.", price: 9.6, unit: "m\u00B2", trade: "Maler", useCount: 4 },
-  { nr: "01.05", title: "Decke streichen", desc: "Deckenfl\u00E4chen mit Dispersionsfarbe streichen, deckend. Abkleben und Abdeckarbeiten inklusive.", price: 5.2, unit: "m\u00B2", trade: "Maler", useCount: 6 },
-  { nr: "01.06", title: "Lackarbeiten T\u00FCrzargen", desc: "T\u00FCrzargen schleifen, grundieren und zweimal lackieren mit Acryllack seidenmatt.", price: 28, unit: "Stk", trade: "Maler", useCount: 3 },
-  { nr: "01.07", title: "Lackarbeiten Fenster", desc: "Fensterrahmen innen schleifen, grundieren und zweimal lackieren mit Acryllack seidenmatt.", price: 32, unit: "Stk", trade: "Maler", useCount: 2 },
-  { nr: "01.08", title: "Spachtelarbeiten Q3", desc: "Spachtelarbeiten Qualit\u00E4tsstufe Q3 auf Gipskartonplatten inkl. Fugen und Schraubenk\u00F6pfe.", price: 6.8, unit: "m\u00B2", trade: "Maler", useCount: 1 },
-  { nr: "03.01", title: "Laminat verlegen", desc: "Laminat Nutzungsklasse 32 schwimmend verlegen inkl. Trittschalld\u00E4mmung und Randleisten.", price: 24.5, unit: "m\u00B2", trade: "Boden", useCount: 7 },
-  { nr: "03.02", title: "PVC-Belag verlegen", desc: "PVC-Belag vollfl\u00E4chig verkleben. Untergrund muss eben und sauber sein.", price: 18, unit: "m\u00B2", trade: "Boden", useCount: 3 },
-  { nr: "03.03", title: "Sockelleisten montieren", desc: "Sockelleisten aus MDF montieren inkl. D\u00FCbel, Schrauben und Eckst\u00FCcke.", price: 12.5, unit: "lfm", trade: "Boden", useCount: 4 },
-  { nr: "03.04", title: "Parkettboden schleifen", desc: "Parkettboden maschinell schleifen und 2x versiegeln mit Parkettlack seidenmatt.", price: 38, unit: "m\u00B2", trade: "Boden", useCount: 2 },
-  { nr: "05.01", title: "Waschtisch montieren", desc: "Waschtisch inkl. Einhandmischer und Siphon montieren, Anschl\u00FCsse herstellen.", price: 180, unit: "Stk", trade: "Sanit\u00E4r", useCount: 3 },
-  { nr: "05.02", title: "WC montieren", desc: "Wand-WC inkl. Bet\u00E4tigungsplatte und Anschluss montieren.", price: 220, unit: "Stk", trade: "Sanit\u00E4r", useCount: 2 },
-  { nr: "05.03", title: "Thermostat tauschen", desc: "Heizk\u00F6rperthermostat austauschen inkl. Material und Entl\u00FCftung.", price: 38.4, unit: "Stk", trade: "Sanit\u00E4r", useCount: 7 },
-  { nr: "07.01", title: "Wandfliesen verlegen", desc: "Wandfliesen im D\u00FCnnbett verlegen inkl. Grundierung, Kleber und Verfugung.", price: 54.4, unit: "m\u00B2", trade: "Fliesen", useCount: 5 },
-  { nr: "07.02", title: "Bodenfliesen verlegen", desc: "Bodenfliesen im D\u00FCnnbett verlegen inkl. Grundierung, Kleber und Verfugung.", price: 70, unit: "m\u00B2", trade: "Fliesen", useCount: 4 },
-  { nr: "07.12", title: "Heizk\u00F6rper lackieren", desc: "Heizk\u00F6rper bis 10 Glieder reinigen, grundieren und 2x Lackieren.", price: 38.4, unit: "Stk", trade: "Maler", useCount: 3 },
-  { nr: "09.01", title: "Steckdose setzen", desc: "Unterputz-Steckdose setzen inkl. Schlitz, Dose und Verdrahtung.", price: 45, unit: "Stk", trade: "Elektro", useCount: 2 },
-  { nr: "09.02", title: "Lichtschalter setzen", desc: "Unterputz-Lichtschalter setzen inkl. Schlitz, Dose und Verdrahtung.", price: 42, unit: "Stk", trade: "Elektro", useCount: 1 },
-];
-
-const TRADE_FILTERS = ["Alle", "Maler", "Boden", "Sanit\u00E4r", "Fliesen", "Elektro"];
 
 interface CatalogSource {
   id: string;
@@ -73,13 +44,6 @@ interface CatalogSource {
   icon: string;
   desc: string;
 }
-
-const CATALOG_SOURCES: CatalogSource[] = [
-  { id: "wabs", label: "WABS Katalog", icon: "layers", desc: "Standardleistungsverzeichnis" },
-  { id: "stlb", label: "StLB-Bau", icon: "library", desc: "Standardleistungsbuch Bau" },
-  { id: "eigen", label: "Eigenleistungen", icon: "construct", desc: "Eigene Leistungspositionen" },
-  { id: "firma", label: "Firmenpreise", icon: "business", desc: "Interne Preisliste" },
-];
 
 interface JumboTemplate {
   id: string;
@@ -200,6 +164,7 @@ interface OfferPosition {
   basePrice: number;
   markup: number;
   catalogNr?: string;
+  catalogPositionId?: string;
 }
 
 interface Room {
@@ -234,27 +199,49 @@ function ProjectSelector({ onSelect }: { onSelect: (p: Project) => void }) {
   const [newName, setNewName] = useState("");
   const [newAddress, setNewAddress] = useState("");
   const [newClient, setNewClient] = useState("");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = search
-    ? PROJECTS.filter((p) =>
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.code.toLowerCase().includes(search.toLowerCase()) ||
-        p.client.toLowerCase().includes(search.toLowerCase())
-      )
-    : PROJECTS;
+  useEffect(() => {
+    supabase
+      .from("projects")
+      .select("id, project_number, name, object_street, object_zip, object_city, client_id, clients(company_name)")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        setProjects(
+          (data ?? []).map((p: any) => ({
+            id: p.id,
+            code: p.project_number ?? "",
+            name: p.name ?? "",
+            address: [p.object_street, `${p.object_zip ?? ""} ${p.object_city ?? ""}`.trim()].filter(Boolean).join(", "),
+            client: p.clients?.company_name ?? "\u2014",
+          }))
+        );
+        setLoading(false);
+      });
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!search) return projects;
+    const q = search.toLowerCase();
+    return projects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.code.toLowerCase().includes(q) ||
+        p.client.toLowerCase().includes(q)
+    );
+  }, [search, projects]);
 
   const handleCreateProject = () => {
     if (!newName.trim()) return;
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const nextNr = String(PROJECTS.length + 1).padStart(3, "0");
     const newProject: Project = {
       id: genId(),
-      code: `BL-2026-${nextNr}`,
+      code: "",
       name: newName.trim(),
       address: newAddress.trim() || "Adresse ausstehend",
       client: newClient.trim() || "Kunde ausstehend",
     };
-    PROJECTS.push(newProject);
     onSelect(newProject);
   };
 
@@ -343,7 +330,8 @@ function ProjectSelector({ onSelect }: { onSelect: (p: Project) => void }) {
             </Pressable>
           )}
         </View>
-        <Text style={ps.recentLabel}>Zuletzt verwendet</Text>
+        <Text style={ps.recentLabel}>{loading ? "Projekte laden..." : "Zuletzt verwendet"}</Text>
+        {loading && <ActivityIndicator color={Colors.raw.amber500} style={{ marginVertical: 20 }} />}
         {filtered.map((p) => (
           <Pressable
             key={p.id}
@@ -420,7 +408,7 @@ function AddPositionSheet({
   const [qty, setQty] = useState("");
   const [priceOverride, setPriceOverride] = useState("");
   const [markup, setMarkup] = useState("15");
-  const [selectedCatalog, setSelectedCatalog] = useState<string>("wabs");
+  const [selectedCatalog, setSelectedCatalog] = useState<string>("");
   const [showCatalogPicker, setShowCatalogPicker] = useState(false);
   const [selectedJumbo, setSelectedJumbo] = useState<JumboTemplate | null>(null);
 
@@ -431,26 +419,87 @@ function AddPositionSheet({
   const [freiQty, setFreiQty] = useState("");
   const [freiPrice, setFreiPrice] = useState("");
 
+  // Kataloge aus Supabase
+  const [catalogSources, setCatalogSources] = useState<CatalogSource[]>([]);
+  useEffect(() => {
+    supabase
+      .from("catalogs")
+      .select("id, code, name")
+      .eq("is_active", true)
+      .order("name")
+      .then(({ data }) => {
+        const sources = (data ?? []).map((c: any) => ({
+          id: c.id,
+          label: c.name,
+          icon: "layers",
+          desc: c.code,
+        }));
+        setCatalogSources(sources);
+        if (data?.[0] && !selectedCatalog) setSelectedCatalog(data[0].id);
+      });
+  }, []);
+
+  // Katalog-Positionen laden wenn Katalog wechselt
+  const [catalogItems, setCatalogItems] = useState<CatalogPosition[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  useEffect(() => {
+    if (!selectedCatalog) return;
+    setCatalogLoading(true);
+    supabase
+      .from("catalog_positions_v2")
+      .select("id, position_code, title, title_secondary, description, trade, unit, base_price_eur")
+      .eq("catalog_id", selectedCatalog)
+      .eq("is_active", true)
+      .order("position_code")
+      .then(({ data }) => {
+        setCatalogItems(
+          (data ?? []).map((p: any) => ({
+            id: p.id,
+            nr: p.position_code ?? "",
+            title: p.title ?? "",
+            desc: p.description ?? p.title_secondary ?? "",
+            price: Number(p.base_price_eur) || 0,
+            unit: p.unit ?? "Stk",
+            trade: p.trade ?? "Sonstiges",
+          }))
+        );
+        setCatalogLoading(false);
+      });
+  }, [selectedCatalog]);
+
+  // Trade-Filter aus Supabase
+  const [tradeFilters, setTradeFilters] = useState<string[]>(["Alle"]);
+  useEffect(() => {
+    supabase
+      .from("trades")
+      .select("name")
+      .eq("is_active", true)
+      .order("sort_order")
+      .then(({ data }) => {
+        setTradeFilters(["Alle", ...(data ?? []).map((t: any) => t.name)]);
+      });
+  }, []);
+
   const filteredCatalog = useMemo(() => {
-    let items = CATALOG;
+    let items = catalogItems;
     if (tradeFilter !== "Alle") {
       items = items.filter((c) => c.trade === tradeFilter);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
       items = items.filter((c) =>
-        c.nr.includes(q) ||
+        c.nr.toLowerCase().includes(q) ||
         c.title.toLowerCase().includes(q) ||
         c.desc.toLowerCase().includes(q) ||
         c.trade.toLowerCase().includes(q)
       );
     }
     return items;
-  }, [search, tradeFilter]);
+  }, [search, tradeFilter, catalogItems]);
 
   const recentItems = useMemo(() => {
-    return [...CATALOG].sort((a, b) => (b.useCount ?? 0) - (a.useCount ?? 0)).slice(0, 8);
-  }, []);
+    return catalogItems.slice(0, 8);
+  }, [catalogItems]);
 
   const handleAddCatalog = useCallback((item: CatalogPosition) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -476,6 +525,7 @@ function AddPositionSheet({
       basePrice: priceNum,
       markup: markupNum,
       catalogNr: addedItem.nr,
+      catalogPositionId: addedItem.id,
     });
     setAddedItem(null);
     onClose();
@@ -572,13 +622,13 @@ function AddPositionSheet({
                       style={({ pressed }) => [apStyles.catalogSelector, { opacity: pressed ? 0.85 : 1 }]}
                       testID="catalog-source-picker"
                     >
-                      <Ionicons name={(CATALOG_SOURCES.find(c => c.id === selectedCatalog)?.icon || "layers") as any} size={16} color={Colors.raw.amber500} />
-                      <Text style={apStyles.catalogSelectorText}>{CATALOG_SOURCES.find(c => c.id === selectedCatalog)?.label}</Text>
+                      <Ionicons name={(catalogSources.find(c => c.id === selectedCatalog)?.icon || "layers") as any} size={16} color={Colors.raw.amber500} />
+                      <Text style={apStyles.catalogSelectorText}>{catalogSources.find(c => c.id === selectedCatalog)?.label}</Text>
                       <Ionicons name={showCatalogPicker ? "chevron-up" : "chevron-down"} size={14} color={Colors.raw.zinc500} />
                     </Pressable>
                     {showCatalogPicker && (
                       <View style={apStyles.catalogPickerList}>
-                        {CATALOG_SOURCES.map((cs) => (
+                        {catalogSources.map((cs) => (
                           <Pressable
                             key={cs.id}
                             onPress={() => {
@@ -606,15 +656,16 @@ function AddPositionSheet({
                       {search.length > 0 && <Pressable onPress={() => setSearch("")}><Ionicons name="close-circle" size={16} color={Colors.raw.zinc500} /></Pressable>}
                     </View>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 12 }}>
-                      {TRADE_FILTERS.map((tf) => (
+                      {tradeFilters.map((tf) => (
                         <Pressable key={tf} onPress={() => setTradeFilter(tf)} style={[apStyles.filterChip, tradeFilter === tf && apStyles.filterChipActive]}>
                           <Text style={[apStyles.filterChipText, tradeFilter === tf && apStyles.filterChipTextActive]}>{tf}</Text>
                         </Pressable>
                       ))}
                     </ScrollView>
+                    {catalogLoading && <ActivityIndicator color={Colors.raw.amber500} style={{ marginVertical: 20 }} />}
                     <FlatList
                       data={filteredCatalog}
-                      keyExtractor={(item) => item.nr}
+                      keyExtractor={(item) => item.id}
                       showsVerticalScrollIndicator={false}
                       style={{ flex: 1 }}
                       renderItem={({ item }) => (
@@ -644,7 +695,7 @@ function AddPositionSheet({
                   <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
                     <Text style={apStyles.sectionLabel}>Zuletzt verwendet</Text>
                     {recentItems.map((item) => (
-                      <View key={item.nr} style={apStyles.catalogItem}>
+                      <View key={item.id} style={apStyles.catalogItem}>
                         <View style={{ flex: 1 }}>
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
                             <Text style={apStyles.catalogNr}>{item.nr}</Text>
@@ -652,7 +703,7 @@ function AddPositionSheet({
                           </View>
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                             <Text style={apStyles.catalogPrice}>{formatEuro(item.price)}/{item.unit}</Text>
-                            <Text style={apStyles.useCount}>{item.useCount}x verwendet</Text>
+                            <View style={apStyles.tradeBadge}><Text style={apStyles.tradeText}>{item.trade}</Text></View>
                           </View>
                         </View>
                         <Pressable onPress={() => handleAddCatalog(item)} style={({ pressed }) => [apStyles.addBtn, { opacity: pressed ? 0.8 : 1 }]}>
@@ -940,10 +991,11 @@ function EditPositionSheet({
                 multiline
                 placeholderTextColor={Colors.raw.zinc600}
               />
-              {position.catalogNr && (
+              {position.catalogNr && position.catalogPositionId && (
                 <Pressable onPress={() => {
-                  const orig = CATALOG.find((c) => c.nr === position.catalogNr);
-                  if (orig) setDesc(orig.desc);
+                  supabase.from("catalog_positions_v2").select("description, title_secondary").eq("id", position.catalogPositionId!).single().then(({ data }) => {
+                    if (data) setDesc(data.description ?? data.title_secondary ?? "");
+                  });
                 }} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, marginTop: 6, marginBottom: 8 })}>
                   <Text style={epStyles.restoreText}>Originaltext wiederherstellen</Text>
                 </Pressable>
@@ -965,7 +1017,7 @@ function EditPositionSheet({
                 </View>
               </View>
               {position.catalogNr && (
-                <Text style={epStyles.catalogRef}>Katalogpreis: {formatEuro(CATALOG.find((c) => c.nr === position.catalogNr)?.price ?? 0)}</Text>
+                <Text style={epStyles.catalogRef}>Katalog-Pos: {position.catalogNr}</Text>
               )}
               <Text style={apStyles.fieldLabel}>Aufschlag</Text>
               <View style={apStyles.fieldRow}>
@@ -1127,11 +1179,31 @@ export default function OfferEditorScreen() {
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
   const isEditing = !!params.offerId;
-  const preselectedProject = params.projectId ? PROJECTS.find((p) => p.id === params.projectId) : null;
 
-  const [project, setProject] = useState<Project | null>(
-    preselectedProject || (isEditing ? PROJECTS[0] : null)
-  );
+  const [project, setProject] = useState<Project | null>(null);
+
+  // Projekt per projectId URL-Param aus Supabase laden
+  useEffect(() => {
+    if (params.projectId) {
+      supabase
+        .from("projects")
+        .select("id, project_number, name, object_street, object_zip, object_city, clients(company_name)")
+        .eq("id", params.projectId)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            const p = data as any;
+            setProject({
+              id: p.id,
+              code: p.project_number ?? "",
+              name: p.name ?? "",
+              address: [p.object_street, `${p.object_zip ?? ""} ${p.object_city ?? ""}`.trim()].filter(Boolean).join(", "),
+              client: p.clients?.company_name ?? "\u2014",
+            });
+          }
+        });
+    }
+  }, [params.projectId]);
   const [rooms, setRooms] = useState<Room[]>(
     isEditing
       ? [
