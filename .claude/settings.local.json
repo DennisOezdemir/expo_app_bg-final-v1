@@ -19,7 +19,28 @@
       "mcp__claude_ai_n8n_2__get_workflow_details",
       "mcp__claude_ai_Supabase__apply_migration",
       "mcp__ide__getDiagnostics",
-      "mcp__claude_ai_Supabase__get_advisors"
+      "mcp__claude_ai_Supabase__get_advisors",
+      "Bash(open:*)",
+      "Bash(screencapture:*)",
+      "Bash(lsof:*)",
+      "mcp__claude_ai_n8n_2__search_workflows",
+      "Bash(cursor:*)",
+      "Bash(kill 954:*)",
+      "Bash(npm run:*)",
+      "Bash(CI=false npx expo:*)",
+      "Bash(do if:*)",
+      "Bash(npx expo:*)",
+      "Bash(ipconfig getifaddr:*)",
+      "Bash(vercel dist:*)",
+      "Bash(vercel deploy:*)",
+      "Bash(npx vercel:*)",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__get_logs",
+      "WebSearch",
+      "WebFetch(domain:developers.lexoffice.io)",
+      "WebFetch(domain:developers.lexware.io)",
+      "WebFetch(domain:docs.superchat.com)",
+      "Bash(xxd:*)"
     ]
   }
 }
