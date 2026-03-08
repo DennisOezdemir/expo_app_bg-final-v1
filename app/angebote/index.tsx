@@ -6,6 +6,8 @@ import {
   Platform,
   Pressable,
   FlatList,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -15,9 +17,10 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -76,7 +79,26 @@ const STATUS_CONFIG: Record<
   },
 };
 
-const OFFERS: Offer[] = [
+const DB_STATUS_MAP: Record<string, OfferStatus> = {
+  DRAFT: "entwurf",
+  SENT: "versendet",
+  ACCEPTED: "beauftragt",
+  REJECTED: "abgelehnt",
+  EXPIRED: "abgelehnt",
+};
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `vor ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `vor ${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `vor ${days}T`;
+  return new Date(dateStr).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+}
+
+const _DUMMY_OFFERS: Offer[] = [
   {
     id: "ang-003-02",
     nr: "ANG-2026-003-02",
@@ -584,14 +606,68 @@ export default function AngeboteListScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterType>("alle");
   const [activeSort, setActiveSort] = useState<SortType>("neueste");
+
+  useEffect(() => {
+    loadOffers();
+  }, []);
+
+  const loadOffers = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("offers")
+      .select(`
+        id, offer_number, version, status, total_net, created_at, sent_at,
+        projects(name, object_street, object_city, clients(company_name))
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Offers laden fehlgeschlagen:", error);
+      setLoading(false);
+      return;
+    }
+
+    const mapped: Offer[] = (data ?? []).map((o: any) => {
+      const p = o.projects;
+      const street = p?.object_street || "";
+      const city = p?.object_city || "";
+      const clientName = p?.clients?.company_name || "Privat";
+      const net = parseFloat(o.total_net) || 0;
+      const status = DB_STATUS_MAP[o.status] || "entwurf";
+      // Wenn SENT aber kein responded_at → "offen"
+      const displayStatus = o.status === "SENT" ? "offen" : status;
+      const dateSrc = o.sent_at || o.created_at;
+
+      return {
+        id: o.id,
+        nr: o.offer_number,
+        address: street,
+        addressDetail: city,
+        client: clientName,
+        trades: "",
+        amountNetto: net,
+        amountStr: net.toLocaleString("de-DE", { maximumFractionDigits: 0 }),
+        positionen: 0,
+        margin: 0,
+        version: o.version || 1,
+        status: displayStatus,
+        dateLabel: timeAgo(dateSrc),
+      } as Offer;
+    });
+
+    setOffers(mapped);
+    setLoading(false);
+  };
 
   const filtered = useMemo(() => {
     let result =
       activeFilter === "alle"
-        ? [...OFFERS]
-        : OFFERS.filter((o) => o.status === activeFilter);
+        ? [...offers]
+        : offers.filter((o) => o.status === activeFilter);
 
     switch (activeSort) {
       case "summe":
@@ -607,25 +683,25 @@ export default function AngeboteListScreen() {
         break;
     }
     return result;
-  }, [activeFilter, activeSort]);
+  }, [activeFilter, activeSort, offers]);
 
-  const offenCount = OFFERS.filter(
+  const offenCount = offers.filter(
     (o) => o.status === "offen" || o.status === "versendet" || o.status === "entwurf"
   ).length;
 
-  const offenSum = OFFERS.filter(
+  const offenSum = offers.filter(
     (o) => o.status === "offen" || o.status === "versendet"
   ).reduce((s, o) => s + o.amountNetto, 0);
 
-  const beauftragtSum = OFFERS.filter((o) => o.status === "beauftragt").reduce(
+  const beauftragtSum = offers.filter((o) => o.status === "beauftragt").reduce(
     (s, o) => s + o.amountNetto,
     0
   );
 
   const totalDecided =
-    OFFERS.filter((o) => o.status === "beauftragt").length +
-    OFFERS.filter((o) => o.status === "abgelehnt").length;
-  const beauftragtCount = OFFERS.filter((o) => o.status === "beauftragt").length;
+    offers.filter((o) => o.status === "beauftragt").length +
+    offers.filter((o) => o.status === "abgelehnt").length;
+  const beauftragtCount = offers.filter((o) => o.status === "beauftragt").length;
   const quote = totalDecided > 0 ? Math.round((beauftragtCount / totalDecided) * 100) : 0;
   const quoteColor =
     quote >= 60
@@ -641,7 +717,7 @@ export default function AngeboteListScreen() {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    router.push(`/angebot/${offer.id}` as any);
+    router.push({ pathname: "/angebot/editor", params: { offerId: offer.id } });
   }, []);
 
   return (
@@ -669,6 +745,9 @@ export default function AngeboteListScreen() {
         data={filtered}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={loadOffers} tintColor={Colors.raw.zinc500} />
+        }
         contentContainerStyle={[
           s.listContent,
           { paddingTop: topInset + 64, paddingBottom: bottomInset + 20 },
@@ -677,7 +756,7 @@ export default function AngeboteListScreen() {
           <>
             <Text style={s.pageTitle}>Angebote</Text>
             <Text style={s.pageSubtitle}>
-              {offenCount} offen {"\u2022"} {OFFERS.length} gesamt
+              {offenCount} offen {"\u2022"} {offers.length} gesamt
             </Text>
 
             <View style={s.statsBar}>
@@ -790,23 +869,31 @@ export default function AngeboteListScreen() {
           <OfferCard offer={item} onPress={() => handleCardPress(item)} />
         )}
         ListEmptyComponent={
-          <View style={s.emptyState}>
-            <Ionicons
-              name="document-text-outline"
-              size={40}
-              color={Colors.raw.zinc700}
-            />
-            <Text style={s.emptyTitle}>Noch keine Angebote</Text>
-            <Pressable
-              style={({ pressed }) => [
-                s.emptyBtn,
-                { opacity: pressed ? 0.8 : 1 },
-              ]}
-            >
-              <Ionicons name="add" size={18} color="#000" />
-              <Text style={s.emptyBtnText}>Erstes Angebot erstellen</Text>
-            </Pressable>
-          </View>
+          loading ? (
+            <View style={s.emptyState}>
+              <ActivityIndicator size="large" color={Colors.raw.amber500} />
+              <Text style={s.emptyTitle}>Angebote laden…</Text>
+            </View>
+          ) : (
+            <View style={s.emptyState}>
+              <Ionicons
+                name="document-text-outline"
+                size={40}
+                color={Colors.raw.zinc700}
+              />
+              <Text style={s.emptyTitle}>Noch keine Angebote</Text>
+              <Pressable
+                onPress={() => router.push("/angebot/editor")}
+                style={({ pressed }) => [
+                  s.emptyBtn,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Ionicons name="add" size={18} color="#000" />
+                <Text style={s.emptyBtnText}>Erstes Angebot erstellen</Text>
+              </Pressable>
+            </View>
+          )
         }
       />
     </View>

@@ -66,6 +66,16 @@ interface InspectionData {
   pdf_storage_path: string | null;
 }
 
+interface SagaOrderData {
+  id: string;
+  external_ref: string | null;
+  address: string | null;
+  pdf_url: string | null;
+  pdf_file_url: string | null;
+  status: string | null;
+  created_at: string;
+}
+
 interface MessageData {
   id: string;
   message_type: string;
@@ -368,20 +378,26 @@ function DocumentRow({
   name,
   subtitle,
   storagePath,
+  externalUrl,
   icon,
 }: {
   name: string;
   subtitle?: string;
-  storagePath: string | null;
+  storagePath?: string | null;
+  externalUrl?: string | null;
   icon?: string;
 }) {
-  const hasPdf = !!storagePath;
+  const hasPdf = !!storagePath || !!externalUrl;
 
   const handlePress = async () => {
-    if (!storagePath) return;
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
+    if (externalUrl) {
+      Linking.openURL(externalUrl);
+      return;
+    }
+    if (!storagePath) return;
     const { data } = await supabase.storage
       .from("project-files")
       .createSignedUrl(storagePath, 300);
@@ -471,12 +487,14 @@ function DocumentManagerModal({
   onClose,
   offers,
   inspections,
+  sagaOrders,
 }: {
   projectId: string;
   visible: boolean;
   onClose: () => void;
   offers: OfferData[];
   inspections: InspectionData[];
+  sagaOrders: SagaOrderData[];
 }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 20 : insets.top;
@@ -487,6 +505,40 @@ function DocumentManagerModal({
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  // Drag & Drop Upload (Web)
+  const handleDrop = useCallback(async (files: File[]) => {
+    if (!files.length) return;
+    setUploading(true);
+    setDragOver(false);
+    try {
+      for (const file of files) {
+        const ts = Date.now();
+        const storagePath = `documents/${projectId}/${ts}_${file.name}`;
+        const { error: uploadErr } = await supabase.storage
+          .from("project-files")
+          .upload(storagePath, file, { contentType: file.type || "application/octet-stream" });
+        if (uploadErr) { Alert.alert("Upload-Fehler", uploadErr.message); continue; }
+
+        const fileType = file.type?.startsWith("image/") ? "photo" : file.type === "application/pdf" ? "pdf" : "document";
+        await supabase.from("project_files").insert({
+          project_id: projectId,
+          file_type: fileType,
+          file_name: file.name,
+          mime_type: file.type,
+          file_size_bytes: file.size,
+          storage_path: storagePath,
+          folder_id: activeFolder,
+        });
+      }
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      fetchData();
+    } catch (err: any) {
+      Alert.alert("Fehler", err.message || "Upload fehlgeschlagen");
+    }
+    setUploading(false);
+  }, [projectId, activeFolder]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -715,11 +767,29 @@ function DocumentManagerModal({
     ? files.filter((f) => f.folder_id === activeFolder)
     : files;
 
-  const autoDocCount = offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length;
+  const autoDocCount = sagaOrders.length + offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={dmStyles.container}>
+      <View
+        style={[dmStyles.container, dragOver && dmStyles.dragOverContainer]}
+        {...(Platform.OS === "web" ? {
+          onDragOver: (e: any) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); },
+          onDragLeave: (e: any) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); },
+          onDrop: (e: any) => {
+            e.preventDefault(); e.stopPropagation();
+            const dt = e.dataTransfer || e.nativeEvent?.dataTransfer;
+            if (dt?.files?.length) handleDrop(Array.from(dt.files));
+          },
+        } : {})}
+      >
+        {dragOver && (
+          <View style={dmStyles.dragOverlay}>
+            <Ionicons name="cloud-upload-outline" size={48} color={Colors.raw.amber500} />
+            <Text style={dmStyles.dragOverlayText}>Dateien hier ablegen</Text>
+            <Text style={dmStyles.dragOverlayHint}>PDF, Bilder, Aufmaß, Pläne...</Text>
+          </View>
+        )}
         <View style={[dmStyles.header, { paddingTop: topInset + 8 }]}>
           <Pressable onPress={onClose} style={dmStyles.headerBtn}>
             <Ionicons name="close" size={24} color={Colors.raw.white} />
@@ -757,6 +827,15 @@ function DocumentManagerModal({
             {autoDocCount > 0 && (
               <View style={dmStyles.section}>
                 <Text style={dmStyles.sectionTitle}>Automatische Dokumente</Text>
+                {sagaOrders.map((order) => (
+                  <DocumentRow
+                    key={`order-${order.id}`}
+                    name={`Auftrag ${order.external_ref || "—"}`}
+                    subtitle={order.address || undefined}
+                    externalUrl={order.pdf_file_url || order.pdf_url}
+                    icon="briefcase"
+                  />
+                ))}
                 {offers.map((offer) => (
                   <DocumentRow
                     key={offer.offer_number}
@@ -851,9 +930,15 @@ function DocumentManagerModal({
                 {activeFolder ? folders.find((f) => f.id === activeFolder)?.name || "Dateien" : "Alle Dateien"} ({visibleFiles.length})
               </Text>
               {visibleFiles.length === 0 ? (
-                <Text style={dmStyles.emptyText}>
-                  {activeFolder ? "Ordner ist leer" : "Keine Dateien vorhanden"}
-                </Text>
+                <View style={dmStyles.emptyDropZone}>
+                  <Ionicons name="cloud-upload-outline" size={32} color={Colors.raw.zinc700} />
+                  <Text style={dmStyles.emptyText}>
+                    {activeFolder ? "Ordner ist leer" : "Keine Dateien vorhanden"}
+                  </Text>
+                  {Platform.OS === "web" && (
+                    <Text style={dmStyles.dropHint}>Dateien per Drag & Drop hierher ziehen</Text>
+                  )}
+                </View>
               ) : (
                 visibleFiles.map((file) => (
                   <Pressable
@@ -890,6 +975,26 @@ function DocumentManagerModal({
 
 const dmStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.raw.zinc950 },
+  dragOverContainer: { borderWidth: 3, borderColor: Colors.raw.amber500, borderStyle: "dashed" as any },
+  dragOverlay: {
+    position: "absolute",
+    top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 100,
+    backgroundColor: Colors.raw.zinc950 + "F0",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  dragOverlayText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    color: Colors.raw.amber500,
+  },
+  dragOverlayHint: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.zinc400,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -964,7 +1069,18 @@ const dmStyles = StyleSheet.create({
   folderActive: { backgroundColor: Colors.raw.amber500 + "10" },
   folderName: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc300 },
   folderCount: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc600 },
-  emptyText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc600, paddingVertical: 20, textAlign: "center" },
+  emptyDropZone: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+    borderWidth: 2,
+    borderColor: Colors.raw.zinc800,
+    borderStyle: "dashed" as any,
+    borderRadius: 16,
+    gap: 8,
+  },
+  emptyText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc600, textAlign: "center" },
+  dropHint: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc700, textAlign: "center" },
   fileRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -990,6 +1106,7 @@ export default function ProjectDetailScreen() {
   const [clientName, setClientName] = useState<string>("—");
   const [offers, setOffers] = useState<OfferData[]>([]);
   const [inspections, setInspections] = useState<InspectionData[]>([]);
+  const [sagaOrders, setSagaOrders] = useState<SagaOrderData[]>([]);
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [totalCosts, setTotalCosts] = useState<number>(0);
   const [photoCount, setPhotoCount] = useState(0);
@@ -1024,7 +1141,7 @@ export default function ProjectDetailScreen() {
     setLoading(true);
     setError(null);
 
-    const [projectRes, offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes] = await Promise.all([
+    const [projectRes, offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes, sagaOrdersRes] = await Promise.all([
       supabase
         .from("projects")
         .select("id, project_number, name, display_name, object_street, object_zip, object_city, object_floor, status, budget_net, progress_percent, planned_start, planned_end, client_id")
@@ -1053,6 +1170,10 @@ export default function ProjectDetailScreen() {
         .from("inspection_photos")
         .select("id", { count: "exact", head: true })
         .eq("project_id", id),
+      supabase
+        .from("saga_orders")
+        .select("id, external_ref, address, pdf_url, pdf_file_url, status, created_at")
+        .eq("project_id", id),
     ]);
 
     if (projectRes.error) {
@@ -1065,6 +1186,7 @@ export default function ProjectDetailScreen() {
     setOffers(offersRes.data ?? []);
     setMessages(messagesRes.data ?? []);
     setInspections(inspectionsRes.data ?? []);
+    setSagaOrders(sagaOrdersRes.data ?? []);
     setPhotoCount(photosCountRes.count ?? 0);
 
     const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
@@ -1254,6 +1376,11 @@ export default function ProjectDetailScreen() {
           contentContainerStyle={styles.qaRow}
           style={styles.qaScroll}
         >
+          <QuickAction
+            icon={<Ionicons name="document-text" size={24} color={Colors.raw.amber500} />}
+            label="Angebot"
+            onPress={() => router.push({ pathname: "/angebot/editor", params: { projectId: id || "" } })}
+          />
           <QuickAction
             icon={<Ionicons name="clipboard" size={24} color={Colors.raw.amber500} />}
             label="Auftrag"
@@ -1520,6 +1647,7 @@ export default function ProjectDetailScreen() {
           onClose={() => setShowDocManager(false)}
           offers={offers}
           inspections={inspections}
+          sagaOrders={sagaOrders}
         />
       )}
     </View>
