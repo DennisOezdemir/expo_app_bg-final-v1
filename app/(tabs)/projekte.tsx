@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, ScrollView, Platform, Pressable, FlatList, ActivityIndicator } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Platform, Pressable, FlatList, ActivityIndicator, Modal, TextInput, Alert, KeyboardAvoidingView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
@@ -9,6 +9,287 @@ import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
 import { supabase } from "@/lib/supabase";
 import { mapDbStatus, type ProjectStatus } from "@/lib/status";
+
+// --- Create Project Modal ---
+
+interface ClientOption {
+  id: string;
+  company_name: string;
+}
+
+function CreateProjectModal({
+  visible,
+  onClose,
+  onCreated,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === "web" ? 20 : insets.top;
+  const [name, setName] = useState("");
+  const [street, setStreet] = useState("");
+  const [zip, setZip] = useState("");
+  const [city, setCity] = useState("");
+  const [floor, setFloor] = useState("");
+  const [notes, setNotes] = useState("");
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [showClientPicker, setShowClientPicker] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    (async () => {
+      const { data } = await supabase
+        .from("clients")
+        .select("id, company_name")
+        .order("company_name");
+      if (data) setClients(data);
+    })();
+  }, [visible]);
+
+  const reset = () => {
+    setName("");
+    setStreet("");
+    setZip("");
+    setCity("");
+    setFloor("");
+    setNotes("");
+    setClientId(null);
+  };
+
+  const handleSave = async () => {
+    if (!name.trim() || !street.trim() || !zip.trim() || !city.trim()) {
+      Alert.alert("Pflichtfelder", "Bitte Name, Straße, PLZ und Stadt ausfüllen.");
+      return;
+    }
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("projects")
+      .insert({
+        name: name.trim(),
+        object_street: street.trim(),
+        object_zip: zip.trim(),
+        object_city: city.trim(),
+        object_floor: floor.trim() || null,
+        notes: notes.trim() || null,
+        client_id: clientId,
+        status: "DRAFT",
+        source: "MANUAL",
+      })
+      .select("id, project_number")
+      .single();
+
+    setSaving(false);
+    if (error) {
+      Alert.alert("Fehler", error.message);
+      return;
+    }
+    if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    reset();
+    onClose();
+    onCreated();
+    // Navigate to the new project
+    if (data?.id) {
+      setTimeout(() => router.push({ pathname: "/project/[id]", params: { id: data.id } }), 300);
+    }
+  };
+
+  const selectedClient = clients.find((c) => c.id === clientId);
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={cpStyles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={[cpStyles.header, { paddingTop: topInset + 8 }]}>
+          <Pressable onPress={() => { reset(); onClose(); }} style={cpStyles.headerBtn}>
+            <Ionicons name="close" size={24} color={Colors.raw.white} />
+          </Pressable>
+          <Text style={cpStyles.headerTitle}>Neues Projekt</Text>
+          <Pressable
+            onPress={handleSave}
+            disabled={saving}
+            style={({ pressed }) => [cpStyles.saveBtn, { opacity: pressed || saving ? 0.6 : 1 }]}
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : (
+              <Text style={cpStyles.saveBtnText}>Speichern</Text>
+            )}
+          </Pressable>
+        </View>
+
+        <ScrollView style={cpStyles.scroll} contentContainerStyle={cpStyles.scrollContent} keyboardShouldPersistTaps="handled">
+          <Text style={cpStyles.label}>Projektname *</Text>
+          <TextInput
+            style={cpStyles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="z.B. Sanierung Musterstraße 5"
+            placeholderTextColor={Colors.raw.zinc600}
+          />
+
+          <Text style={cpStyles.label}>Straße *</Text>
+          <TextInput
+            style={cpStyles.input}
+            value={street}
+            onChangeText={setStreet}
+            placeholder="Musterstraße 5"
+            placeholderTextColor={Colors.raw.zinc600}
+          />
+
+          <View style={cpStyles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={cpStyles.label}>PLZ *</Text>
+              <TextInput
+                style={cpStyles.input}
+                value={zip}
+                onChangeText={setZip}
+                placeholder="22761"
+                placeholderTextColor={Colors.raw.zinc600}
+                keyboardType="number-pad"
+                maxLength={5}
+              />
+            </View>
+            <View style={{ flex: 2 }}>
+              <Text style={cpStyles.label}>Stadt *</Text>
+              <TextInput
+                style={cpStyles.input}
+                value={city}
+                onChangeText={setCity}
+                placeholder="Hamburg"
+                placeholderTextColor={Colors.raw.zinc600}
+              />
+            </View>
+          </View>
+
+          <Text style={cpStyles.label}>Etage / Wohnung</Text>
+          <TextInput
+            style={cpStyles.input}
+            value={floor}
+            onChangeText={setFloor}
+            placeholder="z.B. 3. OG links"
+            placeholderTextColor={Colors.raw.zinc600}
+          />
+
+          <Text style={cpStyles.label}>Auftraggeber</Text>
+          <Pressable
+            onPress={() => setShowClientPicker(!showClientPicker)}
+            style={({ pressed }) => [cpStyles.input, cpStyles.picker, { opacity: pressed ? 0.8 : 1 }]}
+          >
+            <Text style={selectedClient ? cpStyles.pickerText : cpStyles.pickerPlaceholder}>
+              {selectedClient?.company_name || "Auftraggeber wählen..."}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color={Colors.raw.zinc500} />
+          </Pressable>
+          {showClientPicker && (
+            <View style={cpStyles.clientList}>
+              <Pressable
+                onPress={() => { setClientId(null); setShowClientPicker(false); }}
+                style={cpStyles.clientOption}
+              >
+                <Text style={[cpStyles.clientText, { color: Colors.raw.zinc500 }]}>— Kein AG —</Text>
+              </Pressable>
+              {clients.map((c) => (
+                <Pressable
+                  key={c.id}
+                  onPress={() => { setClientId(c.id); setShowClientPicker(false); }}
+                  style={[cpStyles.clientOption, c.id === clientId && cpStyles.clientSelected]}
+                >
+                  <Text style={cpStyles.clientText}>{c.company_name}</Text>
+                  {c.id === clientId && <Ionicons name="checkmark" size={18} color={Colors.raw.amber500} />}
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          <Text style={cpStyles.label}>Notizen</Text>
+          <TextInput
+            style={[cpStyles.input, cpStyles.textArea]}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Freitext..."
+            placeholderTextColor={Colors.raw.zinc600}
+            multiline
+            numberOfLines={3}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const cpStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.raw.zinc950 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  headerBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  headerTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.raw.white },
+  saveBtn: {
+    backgroundColor: Colors.raw.amber500,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
+    minWidth: 100,
+    alignItems: "center",
+  },
+  saveBtnText: { fontFamily: "Inter_700Bold", fontSize: 14, color: "#000" },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 60, gap: 4 },
+  label: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.zinc400,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: Colors.raw.zinc900,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontFamily: "Inter_500Medium",
+    fontSize: 15,
+    color: Colors.raw.white,
+  },
+  textArea: { minHeight: 80, textAlignVertical: "top" },
+  row: { flexDirection: "row", gap: 12 },
+  picker: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  pickerText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.white },
+  pickerPlaceholder: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.zinc600 },
+  clientList: {
+    backgroundColor: Colors.raw.zinc900,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    borderRadius: 12,
+    marginTop: 4,
+    overflow: "hidden",
+  },
+  clientOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  clientSelected: { backgroundColor: Colors.raw.amber500 + "10" },
+  clientText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.white },
+});
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -164,6 +445,7 @@ export default function ProjekteScreen() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -227,11 +509,22 @@ export default function ProjekteScreen() {
               <Text style={{ color: Colors.raw.rose400 }}>{kritischCount} überfällig</Text>
             </Text>
           </View>
-          <Pressable
-            style={({ pressed }) => [styles.searchButton, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <Feather name="search" size={22} color={Colors.raw.zinc400} />
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable
+              style={({ pressed }) => [styles.searchButton, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Feather name="search" size={22} color={Colors.raw.zinc400} />
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setShowCreate(true);
+              }}
+              style={({ pressed }) => [styles.addButton, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Ionicons name="add" size={24} color="#000" />
+            </Pressable>
+          </View>
         </View>
 
         <ScrollView
@@ -284,6 +577,12 @@ export default function ProjekteScreen() {
           }
         />
       )}
+
+      <CreateProjectModal
+        visible={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={fetchProjects}
+      />
     </View>
   );
 }
@@ -322,6 +621,14 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.raw.zinc800,
+  },
+  addButton: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 14,
   },
   chipsScroll: {
     marginBottom: 20,

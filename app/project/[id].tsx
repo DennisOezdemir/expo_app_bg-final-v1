@@ -9,6 +9,8 @@ import {
   Modal,
   Image,
   useWindowDimensions,
+  TextInput,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router, useFocusEffect } from "expo-router";
@@ -445,6 +447,537 @@ const docStyles = StyleSheet.create({
   },
 });
 
+// --- Document Manager Modal ---
+
+interface FolderData {
+  id: string;
+  name: string;
+  file_count: number;
+}
+
+interface FileData {
+  id: string;
+  file_name: string;
+  mime_type: string | null;
+  file_size_bytes: number | null;
+  storage_path: string;
+  folder_id: string | null;
+  created_at: string;
+}
+
+function DocumentManagerModal({
+  projectId,
+  visible,
+  onClose,
+  offers,
+  inspections,
+}: {
+  projectId: string;
+  visible: boolean;
+  onClose: () => void;
+  offers: OfferData[];
+  inspections: InspectionData[];
+}) {
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === "web" ? 20 : insets.top;
+  const [folders, setFolders] = useState<FolderData[]>([]);
+  const [files, setFiles] = useState<FileData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    const [foldersRes, filesRes] = await Promise.all([
+      supabase
+        .from("project_folders")
+        .select("id, name")
+        .eq("project_id", projectId)
+        .order("sort_order")
+        .order("name"),
+      supabase
+        .from("project_files")
+        .select("id, file_name, mime_type, file_size_bytes, storage_path, folder_id, created_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    const allFiles = filesRes.data || [];
+    const foldersWithCount = (foldersRes.data || []).map((f: any) => ({
+      ...f,
+      file_count: allFiles.filter((file: any) => file.folder_id === f.id).length,
+    }));
+
+    setFolders(foldersWithCount);
+    setFiles(allFiles);
+    setLoading(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (visible) fetchData();
+  }, [visible, fetchData]);
+
+  const createFolder = async () => {
+    const trimmed = newFolderName.trim();
+    if (!trimmed) return;
+    const { error } = await supabase
+      .from("project_folders")
+      .insert({ project_id: projectId, name: trimmed });
+    if (error) {
+      Alert.alert("Fehler", error.message.includes("unique") ? "Ordnername existiert bereits" : error.message);
+      return;
+    }
+    if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setNewFolderName("");
+    setShowNewFolder(false);
+    fetchData();
+  };
+
+  const deleteFolder = (folderId: string, folderName: string) => {
+    Alert.alert(
+      "Ordner löschen",
+      `"${folderName}" wirklich löschen? Dateien werden nicht gelöscht.`,
+      [
+        { text: "Abbrechen", style: "cancel" },
+        {
+          text: "Löschen",
+          style: "destructive",
+          onPress: async () => {
+            await supabase.from("project_folders").delete().eq("id", folderId);
+            if (activeFolder === folderId) setActiveFolder(null);
+            fetchData();
+          },
+        },
+      ]
+    );
+  };
+
+  const pickAndUploadFile = async () => {
+    setUploading(true);
+    try {
+      if (Platform.OS === "web") {
+        const file = await new Promise<File | null>((resolve) => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "image/*,application/pdf,.dwg,.dxf";
+          input.style.display = "none";
+          document.body.appendChild(input);
+          input.addEventListener("change", () => {
+            resolve(input.files?.[0] || null);
+            document.body.removeChild(input);
+          });
+          input.addEventListener("cancel", () => {
+            resolve(null);
+            document.body.removeChild(input);
+          });
+          input.click();
+        });
+        if (!file) { setUploading(false); return; }
+
+        const ts = Date.now();
+        const ext = file.name.split(".").pop() || "bin";
+        const storagePath = `documents/${projectId}/${ts}_${file.name}`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from("project-files")
+          .upload(storagePath, file, { contentType: file.type || "application/octet-stream" });
+        if (uploadErr) { Alert.alert("Upload-Fehler", uploadErr.message); setUploading(false); return; }
+
+        const fileType = file.type?.startsWith("image/") ? "photo" : file.type === "application/pdf" ? "pdf" : "document";
+        await supabase.from("project_files").insert({
+          project_id: projectId,
+          file_type: fileType,
+          file_name: file.name,
+          mime_type: file.type,
+          file_size_bytes: file.size,
+          storage_path: storagePath,
+          folder_id: activeFolder,
+        });
+      } else {
+        const ImagePicker = require("expo-image-picker");
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          quality: 0.8,
+          base64: true,
+        });
+        if (result.canceled || !result.assets?.length) { setUploading(false); return; }
+
+        const asset = result.assets[0];
+        const fileName = asset.fileName || `photo_${Date.now()}.jpg`;
+        const storagePath = `documents/${projectId}/${Date.now()}_${fileName}`;
+        const base64 = asset.base64;
+        if (!base64) { setUploading(false); return; }
+
+        const { decode } = require("base64-arraybuffer");
+        const { error: uploadErr } = await supabase.storage
+          .from("project-files")
+          .upload(storagePath, decode(base64), { contentType: "image/jpeg" });
+        if (uploadErr) { Alert.alert("Upload-Fehler", uploadErr.message); setUploading(false); return; }
+
+        await supabase.from("project_files").insert({
+          project_id: projectId,
+          file_type: "photo",
+          file_name: fileName,
+          mime_type: "image/jpeg",
+          file_size_bytes: Math.round(base64.length * 0.75),
+          storage_path: storagePath,
+          folder_id: activeFolder,
+        });
+      }
+
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      fetchData();
+    } catch (err: any) {
+      Alert.alert("Fehler", err.message || "Upload fehlgeschlagen");
+    }
+    setUploading(false);
+  };
+
+  const capturePhoto = async () => {
+    setUploading(true);
+    try {
+      let storagePath: string;
+      let fileName: string;
+      let fileSize = 0;
+
+      if (Platform.OS === "web") {
+        const file = await new Promise<File | null>((resolve) => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "image/*";
+          input.capture = "environment";
+          input.style.display = "none";
+          document.body.appendChild(input);
+          input.addEventListener("change", () => { resolve(input.files?.[0] || null); document.body.removeChild(input); });
+          input.addEventListener("cancel", () => { resolve(null); document.body.removeChild(input); });
+          input.click();
+        });
+        if (!file) { setUploading(false); return; }
+        fileName = file.name || `foto_${Date.now()}.jpg`;
+        storagePath = `documents/${projectId}/${Date.now()}_${fileName}`;
+        fileSize = file.size;
+        const { error: uploadErr } = await supabase.storage
+          .from("project-files")
+          .upload(storagePath, file, { contentType: file.type || "image/jpeg" });
+        if (uploadErr) { Alert.alert("Fehler", uploadErr.message); setUploading(false); return; }
+      } else {
+        const ImagePicker = require("expo-image-picker");
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== "granted") { Alert.alert("Kamera-Zugriff benötigt"); setUploading(false); return; }
+        const result = await ImagePicker.launchCameraAsync({ quality: 0.7, base64: true });
+        if (result.canceled || !result.assets?.length) { setUploading(false); return; }
+        const base64 = result.assets[0].base64;
+        if (!base64) { setUploading(false); return; }
+        fileName = `foto_${Date.now()}.jpg`;
+        storagePath = `documents/${projectId}/${Date.now()}_${fileName}`;
+        fileSize = Math.round(base64.length * 0.75);
+        const { decode } = require("base64-arraybuffer");
+        const { error: uploadErr } = await supabase.storage
+          .from("project-files")
+          .upload(storagePath, decode(base64), { contentType: "image/jpeg" });
+        if (uploadErr) { Alert.alert("Fehler", uploadErr.message); setUploading(false); return; }
+      }
+
+      await supabase.from("project_files").insert({
+        project_id: projectId,
+        file_type: "photo",
+        file_name: fileName,
+        mime_type: "image/jpeg",
+        file_size_bytes: fileSize,
+        storage_path: storagePath,
+        folder_id: activeFolder,
+      });
+
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      fetchData();
+    } catch (err: any) {
+      Alert.alert("Fehler", err.message);
+    }
+    setUploading(false);
+  };
+
+  const openFile = async (file: FileData) => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const { data } = await supabase.storage.from("project-files").createSignedUrl(file.storage_path, 300);
+    if (data?.signedUrl) Linking.openURL(data.signedUrl);
+  };
+
+  const formatSize = (bytes: number | null) => {
+    if (!bytes) return "";
+    if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+    if (bytes >= 1_000) return `${Math.round(bytes / 1_000)} KB`;
+    return `${bytes} B`;
+  };
+
+  const visibleFiles = activeFolder
+    ? files.filter((f) => f.folder_id === activeFolder)
+    : files;
+
+  const autoDocCount = offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length;
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={dmStyles.container}>
+        <View style={[dmStyles.header, { paddingTop: topInset + 8 }]}>
+          <Pressable onPress={onClose} style={dmStyles.headerBtn}>
+            <Ionicons name="close" size={24} color={Colors.raw.white} />
+          </Pressable>
+          <Text style={dmStyles.headerTitle}>Dokumente</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable
+              onPress={capturePhoto}
+              disabled={uploading}
+              style={({ pressed }) => [dmStyles.headerAction, { opacity: pressed || uploading ? 0.6 : 1 }]}
+            >
+              <Ionicons name="camera" size={20} color={Colors.raw.amber500} />
+            </Pressable>
+            <Pressable
+              onPress={pickAndUploadFile}
+              disabled={uploading}
+              style={({ pressed }) => [dmStyles.headerAction, { opacity: pressed || uploading ? 0.6 : 1 }]}
+            >
+              {uploading ? (
+                <ActivityIndicator size="small" color={Colors.raw.amber500} />
+              ) : (
+                <Ionicons name="cloud-upload" size={20} color={Colors.raw.amber500} />
+              )}
+            </Pressable>
+          </View>
+        </View>
+
+        {loading ? (
+          <View style={dmStyles.loadingWrap}>
+            <ActivityIndicator size="small" color={Colors.raw.amber500} />
+          </View>
+        ) : (
+          <ScrollView style={dmStyles.scroll} contentContainerStyle={dmStyles.scrollContent}>
+            {/* Auto-generated docs */}
+            {autoDocCount > 0 && (
+              <View style={dmStyles.section}>
+                <Text style={dmStyles.sectionTitle}>Automatische Dokumente</Text>
+                {offers.map((offer) => (
+                  <DocumentRow
+                    key={offer.offer_number}
+                    name={`Angebot ${offer.offer_number}`}
+                    subtitle={offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? undefined}
+                    storagePath={offer.pdf_storage_path}
+                    icon="document-text"
+                  />
+                ))}
+                {inspections
+                  .filter((i) => i.finalized_at || i.status === "completed")
+                  .map((ins) => (
+                    <DocumentRow
+                      key={`proto-${ins.id}`}
+                      name={`Protokoll ${ins.protocol_type}`}
+                      subtitle={ins.finalized_at ? new Date(ins.finalized_at).toLocaleDateString("de-DE") : undefined}
+                      storagePath={ins.pdf_storage_path}
+                      icon="clipboard"
+                    />
+                  ))}
+              </View>
+            )}
+
+            {/* Folders */}
+            <View style={dmStyles.section}>
+              <View style={dmStyles.sectionHeader}>
+                <Text style={dmStyles.sectionTitle}>Ordner</Text>
+                <Pressable
+                  onPress={() => setShowNewFolder(true)}
+                  style={({ pressed }) => [dmStyles.addFolderBtn, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Ionicons name="add" size={18} color={Colors.raw.amber500} />
+                  <Text style={dmStyles.addFolderText}>Neuer Ordner</Text>
+                </Pressable>
+              </View>
+
+              {showNewFolder && (
+                <View style={dmStyles.newFolderRow}>
+                  <TextInput
+                    style={dmStyles.newFolderInput}
+                    value={newFolderName}
+                    onChangeText={setNewFolderName}
+                    placeholder="Ordnername..."
+                    placeholderTextColor={Colors.raw.zinc600}
+                    autoFocus
+                    onSubmitEditing={createFolder}
+                  />
+                  <Pressable onPress={createFolder} style={dmStyles.newFolderSave}>
+                    <Ionicons name="checkmark" size={20} color="#000" />
+                  </Pressable>
+                  <Pressable onPress={() => { setShowNewFolder(false); setNewFolderName(""); }} style={dmStyles.newFolderCancel}>
+                    <Ionicons name="close" size={20} color={Colors.raw.zinc400} />
+                  </Pressable>
+                </View>
+              )}
+
+              {/* "Alle" option */}
+              <Pressable
+                onPress={() => setActiveFolder(null)}
+                style={[dmStyles.folderRow, !activeFolder && dmStyles.folderActive]}
+              >
+                <Ionicons name="folder-open" size={20} color={!activeFolder ? Colors.raw.amber500 : Colors.raw.zinc500} />
+                <Text style={[dmStyles.folderName, !activeFolder && { color: Colors.raw.amber500 }]}>
+                  Alle Dateien
+                </Text>
+                <Text style={dmStyles.folderCount}>{files.length}</Text>
+              </Pressable>
+
+              {folders.map((folder) => (
+                <Pressable
+                  key={folder.id}
+                  onPress={() => setActiveFolder(folder.id)}
+                  onLongPress={() => deleteFolder(folder.id, folder.name)}
+                  style={[dmStyles.folderRow, activeFolder === folder.id && dmStyles.folderActive]}
+                >
+                  <Ionicons
+                    name="folder"
+                    size={20}
+                    color={activeFolder === folder.id ? Colors.raw.amber500 : Colors.raw.zinc500}
+                  />
+                  <Text style={[dmStyles.folderName, activeFolder === folder.id && { color: Colors.raw.amber500 }]}>
+                    {folder.name}
+                  </Text>
+                  <Text style={dmStyles.folderCount}>{folder.file_count}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Files */}
+            <View style={dmStyles.section}>
+              <Text style={dmStyles.sectionTitle}>
+                {activeFolder ? folders.find((f) => f.id === activeFolder)?.name || "Dateien" : "Alle Dateien"} ({visibleFiles.length})
+              </Text>
+              {visibleFiles.length === 0 ? (
+                <Text style={dmStyles.emptyText}>
+                  {activeFolder ? "Ordner ist leer" : "Keine Dateien vorhanden"}
+                </Text>
+              ) : (
+                visibleFiles.map((file) => (
+                  <Pressable
+                    key={file.id}
+                    onPress={() => openFile(file)}
+                    style={({ pressed }) => [dmStyles.fileRow, { opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <Ionicons
+                      name={
+                        file.mime_type?.startsWith("image/") ? "image" :
+                        file.mime_type === "application/pdf" ? "document-text" : "document"
+                      }
+                      size={20}
+                      color={Colors.raw.amber500}
+                    />
+                    <View style={dmStyles.fileInfo}>
+                      <Text style={dmStyles.fileName} numberOfLines={1}>{file.file_name}</Text>
+                      <Text style={dmStyles.fileMeta}>
+                        {formatSize(file.file_size_bytes)}
+                        {file.created_at ? ` · ${new Date(file.created_at).toLocaleDateString("de-DE")}` : ""}
+                      </Text>
+                    </View>
+                    <Feather name="download" size={16} color={Colors.raw.zinc500} />
+                  </Pressable>
+                ))
+              )}
+            </View>
+          </ScrollView>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+const dmStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.raw.zinc950 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  headerBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  headerTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.raw.white },
+  headerAction: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.raw.amber500 + "18",
+    borderRadius: 10,
+  },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 40 },
+  section: { marginBottom: 28 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  sectionTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.raw.zinc300,
+    marginBottom: 12,
+  },
+  addFolderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: Colors.raw.amber500 + "18",
+    borderRadius: 8,
+  },
+  addFolderText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.amber500 },
+  newFolderRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  newFolderInput: {
+    flex: 1,
+    backgroundColor: Colors.raw.zinc900,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.white,
+  },
+  newFolderSave: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 10,
+  },
+  newFolderCancel: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  folderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  folderActive: { backgroundColor: Colors.raw.amber500 + "10" },
+  folderName: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc300 },
+  folderCount: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc600 },
+  emptyText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc600, paddingVertical: 20, textAlign: "center" },
+  fileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  fileInfo: { flex: 1 },
+  fileName: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc300 },
+  fileMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc600, marginTop: 2 },
+});
+
 // --- Main Screen ---
 
 export default function ProjectDetailScreen() {
@@ -465,6 +998,7 @@ export default function ProjectDetailScreen() {
   const [showBegehungPicker, setShowBegehungPicker] = useState(false);
   const [showPhotoGallery, setShowPhotoGallery] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [showDocManager, setShowDocManager] = useState(false);
 
   const handleCapturePhoto = useCallback(async () => {
     if (!id || photoUploading) return;
@@ -913,6 +1447,16 @@ export default function ProjectDetailScreen() {
           {offers.length === 0 && inspections.filter((i) => i.finalized_at || i.status === "completed").length === 0 && (
             <Text style={styles.emptySection}>Keine Dokumente</Text>
           )}
+          <Pressable
+            onPress={() => {
+              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowDocManager(true);
+            }}
+            style={({ pressed }) => [styles.allMessagesBtn, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Text style={styles.allMessagesText}>Alle Dokumente verwalten</Text>
+            <Ionicons name="arrow-forward" size={16} color={Colors.raw.amber500} />
+          </Pressable>
         </SectionCard>
       </ScrollView>
 
@@ -966,6 +1510,16 @@ export default function ProjectDetailScreen() {
           projectId={id!}
           visible={showPhotoGallery}
           onClose={() => setShowPhotoGallery(false)}
+        />
+      )}
+
+      {showDocManager && (
+        <DocumentManagerModal
+          projectId={id!}
+          visible={showDocManager}
+          onClose={() => setShowDocManager(false)}
+          offers={offers}
+          inspections={inspections}
         />
       )}
     </View>
