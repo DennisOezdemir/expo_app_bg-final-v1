@@ -15,6 +15,7 @@ import { mapDbStatus, type ProjectStatus } from "@/lib/status";
 interface ClientOption {
   id: string;
   company_name: string;
+  customer_number: string | null;
 }
 
 function CreateProjectModal({
@@ -38,7 +39,17 @@ function CreateProjectModal({
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showNewClient, setShowNewClient] = useState(false);
-  const [newClientName, setNewClientName] = useState("");
+  const [newClientType, setNewClientType] = useState<"PRIVATE" | "COMMERCIAL">("COMMERCIAL");
+  const [newClientCompany, setNewClientCompany] = useState("");
+  const [newClientSalutation, setNewClientSalutation] = useState("");
+  const [newClientFirstName, setNewClientFirstName] = useState("");
+  const [newClientLastName, setNewClientLastName] = useState("");
+  const [newClientEmail, setNewClientEmail] = useState("");
+  const [newClientPhone, setNewClientPhone] = useState("");
+  const [newClientStreet, setNewClientStreet] = useState("");
+  const [newClientZip, setNewClientZip] = useState("");
+  const [newClientCity, setNewClientCity] = useState("");
+  const [newClientVatId, setNewClientVatId] = useState("");
   const [savingClient, setSavingClient] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -47,7 +58,7 @@ function CreateProjectModal({
     (async () => {
       const { data } = await supabase
         .from("clients")
-        .select("id, company_name")
+        .select("id, company_name, customer_number")
         .order("company_name");
       if (data) setClients(data);
     })();
@@ -62,19 +73,53 @@ function CreateProjectModal({
     setNotes("");
     setClientId(null);
     setShowNewClient(false);
-    setNewClientName("");
+    resetNewClient();
+  };
+
+  const resetNewClient = () => {
+    setNewClientType("COMMERCIAL");
+    setNewClientCompany("");
+    setNewClientSalutation("");
+    setNewClientFirstName("");
+    setNewClientLastName("");
+    setNewClientEmail("");
+    setNewClientPhone("");
+    setNewClientStreet("");
+    setNewClientZip("");
+    setNewClientCity("");
+    setNewClientVatId("");
   };
 
   const handleCreateClient = async () => {
-    if (!newClientName.trim()) {
+    const isCommercial = newClientType === "COMMERCIAL";
+    if (isCommercial && !newClientCompany.trim()) {
       Alert.alert("Pflichtfeld", "Bitte Firmennamen eingeben.");
       return;
     }
+    if (!isCommercial && !newClientLastName.trim()) {
+      Alert.alert("Pflichtfeld", "Bitte Nachnamen eingeben.");
+      return;
+    }
     setSavingClient(true);
+    const displayName = isCommercial
+      ? newClientCompany.trim()
+      : `${newClientFirstName.trim()} ${newClientLastName.trim()}`.trim();
     const { data, error } = await supabase
       .from("clients")
-      .insert({ company_name: newClientName.trim() })
-      .select("id, company_name")
+      .insert({
+        client_type: newClientType,
+        company_name: isCommercial ? newClientCompany.trim() : displayName,
+        salutation: newClientSalutation || null,
+        first_name: newClientFirstName.trim() || null,
+        last_name: newClientLastName.trim() || null,
+        email: newClientEmail.trim() || null,
+        phone: newClientPhone.trim() || null,
+        street: newClientStreet.trim() || null,
+        zip_code: newClientZip.trim() || null,
+        city: newClientCity.trim() || null,
+        vat_id: (isCommercial && newClientVatId.trim()) ? newClientVatId.trim() : null,
+      })
+      .select("id, company_name, customer_number")
       .single();
     setSavingClient(false);
     if (error) {
@@ -82,9 +127,9 @@ function CreateProjectModal({
       return;
     }
     if (data) {
-      setClients((prev) => [...prev, data].sort((a, b) => a.company_name.localeCompare(b.company_name)));
+      setClients((prev) => [...prev, data].sort((a, b) => (a.company_name || "").localeCompare(b.company_name || "")));
       setClientId(data.id);
-      setNewClientName("");
+      resetNewClient();
       setShowNewClient(false);
       setShowClientPicker(false);
     }
@@ -224,7 +269,9 @@ function CreateProjectModal({
             style={({ pressed }) => [cpStyles.input, cpStyles.picker, { opacity: pressed ? 0.8 : 1 }]}
           >
             <Text style={selectedClient ? cpStyles.pickerText : cpStyles.pickerPlaceholder}>
-              {selectedClient?.company_name || "Auftraggeber wählen..."}
+              {selectedClient
+                ? `${selectedClient.company_name}${selectedClient.customer_number ? ` (${selectedClient.customer_number})` : ""}`
+                : "Auftraggeber wählen..."}
             </Text>
             <Ionicons name="chevron-down" size={18} color={Colors.raw.zinc500} />
           </Pressable>
@@ -242,7 +289,12 @@ function CreateProjectModal({
                   onPress={() => { setClientId(c.id); setShowClientPicker(false); setShowNewClient(false); }}
                   style={[cpStyles.clientOption, c.id === clientId && cpStyles.clientSelected]}
                 >
-                  <Text style={cpStyles.clientText}>{c.company_name}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={cpStyles.clientText}>{c.company_name}</Text>
+                    {c.customer_number && (
+                      <Text style={{ fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.raw.zinc500, marginTop: 2 }}>{c.customer_number}</Text>
+                    )}
+                  </View>
                   {c.id === clientId && <Ionicons name="checkmark" size={18} color={Colors.raw.amber500} />}
                 </Pressable>
               ))}
@@ -257,15 +309,130 @@ function CreateProjectModal({
                 </View>
               </Pressable>
               {showNewClient && (
-                <View style={{ padding: 12, gap: 8 }}>
+                <View style={{ padding: 12, gap: 10 }}>
+                  {/* Kundentyp Toggle */}
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      onPress={() => setNewClientType("COMMERCIAL")}
+                      style={[ncStyles.typeBtn, newClientType === "COMMERCIAL" && ncStyles.typeBtnActive]}
+                    >
+                      <Ionicons name="business" size={16} color={newClientType === "COMMERCIAL" ? "#000" : Colors.raw.zinc400} />
+                      <Text style={[ncStyles.typeBtnText, newClientType === "COMMERCIAL" && ncStyles.typeBtnTextActive]}>Geschäftskunde</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setNewClientType("PRIVATE")}
+                      style={[ncStyles.typeBtn, newClientType === "PRIVATE" && ncStyles.typeBtnActive]}
+                    >
+                      <Ionicons name="person" size={16} color={newClientType === "PRIVATE" ? "#000" : Colors.raw.zinc400} />
+                      <Text style={[ncStyles.typeBtnText, newClientType === "PRIVATE" && ncStyles.typeBtnTextActive]}>Privatkunde</Text>
+                    </Pressable>
+                  </View>
+
+                  {/* Firmenname - nur bei Geschäftskunde */}
+                  {newClientType === "COMMERCIAL" && (
+                    <TextInput
+                      style={cpStyles.input}
+                      value={newClientCompany}
+                      onChangeText={setNewClientCompany}
+                      placeholder="Firmenname *"
+                      placeholderTextColor={Colors.raw.zinc600}
+                      autoFocus
+                    />
+                  )}
+
+                  {/* Anrede */}
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {["Herr", "Frau"].map((s) => (
+                      <Pressable
+                        key={s}
+                        onPress={() => setNewClientSalutation(newClientSalutation === s ? "" : s)}
+                        style={[ncStyles.salutationBtn, newClientSalutation === s && ncStyles.salutationBtnActive]}
+                      >
+                        <Text style={[ncStyles.salutationText, newClientSalutation === s && ncStyles.salutationTextActive]}>{s}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {/* Name */}
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={[cpStyles.input, { flex: 1 }]}
+                      value={newClientFirstName}
+                      onChangeText={setNewClientFirstName}
+                      placeholder="Vorname"
+                      placeholderTextColor={Colors.raw.zinc600}
+                      autoFocus={newClientType === "PRIVATE"}
+                    />
+                    <TextInput
+                      style={[cpStyles.input, { flex: 1 }]}
+                      value={newClientLastName}
+                      onChangeText={setNewClientLastName}
+                      placeholder={newClientType === "PRIVATE" ? "Nachname *" : "Nachname"}
+                      placeholderTextColor={Colors.raw.zinc600}
+                    />
+                  </View>
+
+                  {/* Kontakt */}
                   <TextInput
                     style={cpStyles.input}
-                    value={newClientName}
-                    onChangeText={setNewClientName}
-                    placeholder="Firmenname eingeben..."
+                    value={newClientEmail}
+                    onChangeText={setNewClientEmail}
+                    placeholder="E-Mail"
                     placeholderTextColor={Colors.raw.zinc600}
-                    autoFocus
+                    keyboardType="email-address"
+                    autoCapitalize="none"
                   />
+                  <TextInput
+                    style={cpStyles.input}
+                    value={newClientPhone}
+                    onChangeText={setNewClientPhone}
+                    placeholder="Telefon"
+                    placeholderTextColor={Colors.raw.zinc600}
+                    keyboardType="phone-pad"
+                  />
+
+                  {/* Adresse */}
+                  <View style={{ marginTop: 4 }}>
+                    <Text style={[cpStyles.label, { marginTop: 0, marginBottom: 8 }]}>Adresse</Text>
+                    <TextInput
+                      style={cpStyles.input}
+                      value={newClientStreet}
+                      onChangeText={setNewClientStreet}
+                      placeholder="Straße + Hausnr."
+                      placeholderTextColor={Colors.raw.zinc600}
+                    />
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                      <TextInput
+                        style={[cpStyles.input, { flex: 1 }]}
+                        value={newClientZip}
+                        onChangeText={setNewClientZip}
+                        placeholder="PLZ"
+                        placeholderTextColor={Colors.raw.zinc600}
+                        keyboardType="number-pad"
+                        maxLength={5}
+                      />
+                      <TextInput
+                        style={[cpStyles.input, { flex: 2 }]}
+                        value={newClientCity}
+                        onChangeText={setNewClientCity}
+                        placeholder="Stadt"
+                        placeholderTextColor={Colors.raw.zinc600}
+                      />
+                    </View>
+                  </View>
+
+                  {/* USt-ID nur bei Geschäftskunde */}
+                  {newClientType === "COMMERCIAL" && (
+                    <TextInput
+                      style={cpStyles.input}
+                      value={newClientVatId}
+                      onChangeText={setNewClientVatId}
+                      placeholder="USt-IdNr. (z.B. DE123456789)"
+                      placeholderTextColor={Colors.raw.zinc600}
+                      autoCapitalize="characters"
+                    />
+                  )}
+
                   <Pressable
                     onPress={handleCreateClient}
                     disabled={savingClient}
@@ -367,6 +534,41 @@ const cpStyles = StyleSheet.create({
   },
   clientSelected: { backgroundColor: Colors.raw.amber500 + "10" },
   clientText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.white },
+});
+
+const ncStyles = StyleSheet.create({
+  typeBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+    backgroundColor: Colors.raw.zinc800,
+  },
+  typeBtnActive: {
+    backgroundColor: Colors.raw.amber500,
+    borderColor: Colors.raw.amber500,
+  },
+  typeBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc400 },
+  typeBtnTextActive: { color: "#000" },
+  salutationBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+    backgroundColor: Colors.raw.zinc800,
+  },
+  salutationBtnActive: {
+    backgroundColor: Colors.raw.amber500 + "20",
+    borderColor: Colors.raw.amber500,
+  },
+  salutationText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc400 },
+  salutationTextActive: { color: Colors.raw.amber500 },
 });
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
