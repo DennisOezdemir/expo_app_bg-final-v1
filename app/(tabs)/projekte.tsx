@@ -37,6 +37,9 @@ function CreateProjectModal({
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [showClientPicker, setShowClientPicker] = useState(false);
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [savingClient, setSavingClient] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -58,6 +61,33 @@ function CreateProjectModal({
     setFloor("");
     setNotes("");
     setClientId(null);
+    setShowNewClient(false);
+    setNewClientName("");
+  };
+
+  const handleCreateClient = async () => {
+    if (!newClientName.trim()) {
+      Alert.alert("Pflichtfeld", "Bitte Firmennamen eingeben.");
+      return;
+    }
+    setSavingClient(true);
+    const { data, error } = await supabase
+      .from("clients")
+      .insert({ company_name: newClientName.trim() })
+      .select("id, company_name")
+      .single();
+    setSavingClient(false);
+    if (error) {
+      Alert.alert("Fehler", error.message);
+      return;
+    }
+    if (data) {
+      setClients((prev) => [...prev, data].sort((a, b) => a.company_name.localeCompare(b.company_name)));
+      setClientId(data.id);
+      setNewClientName("");
+      setShowNewClient(false);
+      setShowClientPicker(false);
+    }
   };
 
   const handleSave = async () => {
@@ -87,6 +117,18 @@ function CreateProjectModal({
       Alert.alert("Fehler", error.message);
       return;
     }
+
+    // Fire PROJECT_CREATED event → MX_00 routes it (Drive, Telegram, etc.)
+    if (data?.id) {
+      await supabase.from("events").insert({
+        event_type: "PROJECT_CREATED",
+        project_id: data.id,
+        source_system: "app",
+        source_flow: "manual_create",
+        payload: { source: "MANUAL", project_number: data.project_number },
+      });
+    }
+
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     reset();
     onClose();
@@ -197,13 +239,49 @@ function CreateProjectModal({
               {clients.map((c) => (
                 <Pressable
                   key={c.id}
-                  onPress={() => { setClientId(c.id); setShowClientPicker(false); }}
+                  onPress={() => { setClientId(c.id); setShowClientPicker(false); setShowNewClient(false); }}
                   style={[cpStyles.clientOption, c.id === clientId && cpStyles.clientSelected]}
                 >
                   <Text style={cpStyles.clientText}>{c.company_name}</Text>
                   {c.id === clientId && <Ionicons name="checkmark" size={18} color={Colors.raw.amber500} />}
                 </Pressable>
               ))}
+              {/* + Neuer Auftraggeber */}
+              <Pressable
+                onPress={() => setShowNewClient(!showNewClient)}
+                style={[cpStyles.clientOption, { borderBottomWidth: showNewClient ? 1 : 0 }]}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Ionicons name="add-circle" size={20} color={Colors.raw.amber500} />
+                  <Text style={[cpStyles.clientText, { color: Colors.raw.amber500 }]}>Neuer Auftraggeber</Text>
+                </View>
+              </Pressable>
+              {showNewClient && (
+                <View style={{ padding: 12, gap: 8 }}>
+                  <TextInput
+                    style={cpStyles.input}
+                    value={newClientName}
+                    onChangeText={setNewClientName}
+                    placeholder="Firmenname eingeben..."
+                    placeholderTextColor={Colors.raw.zinc600}
+                    autoFocus
+                  />
+                  <Pressable
+                    onPress={handleCreateClient}
+                    disabled={savingClient}
+                    style={({ pressed }) => [
+                      cpStyles.saveBtn,
+                      { opacity: pressed || savingClient ? 0.6 : 1, alignSelf: "flex-end" },
+                    ]}
+                  >
+                    {savingClient ? (
+                      <ActivityIndicator size="small" color="#000" />
+                    ) : (
+                      <Text style={cpStyles.saveBtnText}>Anlegen</Text>
+                    )}
+                  </Pressable>
+                </View>
+              )}
             </View>
           )}
 
