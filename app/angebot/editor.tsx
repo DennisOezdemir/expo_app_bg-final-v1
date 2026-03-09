@@ -1256,7 +1256,7 @@ export default function OfferEditorScreen() {
       // 1. Neuestes bearbeitbares Angebot suchen (DRAFT oder SENT)
       const { data: existing } = await supabase
         .from("offers")
-        .select("id, offer_number, version, status")
+        .select("id, offer_number, version, status, is_lump_sum, lump_sum_amount, hide_position_prices")
         .eq("project_id", project.id)
         .in("status", ["DRAFT", "SENT"])
         .order("created_at", { ascending: false })
@@ -1269,6 +1269,9 @@ export default function OfferEditorScreen() {
         setOfferId(existing.id);
         setOfferNumber(existing.offer_number);
         setOfferVersion(existing.version ?? 1);
+        setIsLumpSum(existing.is_lump_sum ?? false);
+        setLumpSumAmount(existing.lump_sum_amount ? String(existing.lump_sum_amount) : "");
+        setHidePositionPrices(existing.hide_position_prices ?? false);
       } else {
         // 2. Neues Angebot erstellen (offer_number wird vom DB-Trigger generiert: A-YYYY-NNN)
         const { data: newOffer } = await supabase
@@ -1345,6 +1348,15 @@ export default function OfferEditorScreen() {
   const [betreffText, setBetreffText] = useState("");
   const [showTextbausteine, setShowTextbausteine] = useState(false);
 
+  // Pauschale & Preise ausblenden
+  const [isLumpSum, setIsLumpSum] = useState(false);
+  const [lumpSumAmount, setLumpSumAmount] = useState("");
+  const [hidePositionPrices, setHidePositionPrices] = useState(false);
+
+  // PDF Export Modus
+  type PdfExportMode = "full" | "lump_sum" | "title_sums" | "total_only";
+  const [pdfExportMode, setPdfExportMode] = useState<PdfExportMode>("full");
+
   // Variablen für Textbausteine auflösen
   const resolveVars = useCallback((tpl: string) => {
     const vars: Record<string, string> = {
@@ -1407,7 +1419,7 @@ export default function OfferEditorScreen() {
 
   const totalPositions = useMemo(() => rooms.reduce((s, r) => s + r.positions.length, 0), [rooms]);
 
-  const totalNetto = useMemo(() => {
+  const calculatedNetto = useMemo(() => {
     return rooms.reduce((s, r) => {
       return s + r.positions.reduce((ps, p) => {
         const ep = p.basePrice * (1 + p.markup / 100);
@@ -1415,6 +1427,8 @@ export default function OfferEditorScreen() {
       }, 0);
     }, 0);
   }, [rooms]);
+
+  const totalNetto = isLumpSum && lumpSumAmount ? parseFloat(lumpSumAmount.replace(",", ".")) || 0 : calculatedNetto;
 
   const estimatedCost = totalNetto * 0.66;
   const margin = totalNetto > 0 ? ((totalNetto - estimatedCost) / totalNetto) * 100 : 0;
@@ -1624,13 +1638,20 @@ export default function OfferEditorScreen() {
     const totalVat = totalNet * (vatRate / 100);
     const totalGross = totalNet + totalVat;
 
+    const finalNet = isLumpSum && lumpSumAmount ? parseFloat(lumpSumAmount.replace(",", ".")) || totalNet : totalNet;
+    const finalVat = finalNet * (vatRate / 100);
+    const finalGross = finalNet + finalVat;
+
     await supabase
       .from("offers")
       .update({
-        total_net: totalNet,
-        total_vat: totalVat,
-        total_gross: totalGross,
+        total_net: finalNet,
+        total_vat: finalVat,
+        total_gross: finalGross,
         status: mode === "approval" ? "SENT" : "DRAFT",
+        is_lump_sum: isLumpSum,
+        lump_sum_amount: isLumpSum && lumpSumAmount ? parseFloat(lumpSumAmount.replace(",", ".")) : null,
+        hide_position_prices: hidePositionPrices,
         updated_at: new Date().toISOString(),
       })
       .eq("id", offerId);
@@ -1660,25 +1681,42 @@ export default function OfferEditorScreen() {
     const validUntil = new Date(Date.now() + 30 * 86400000).toLocaleDateString("de-DE");
     const fmtEuro = (n: number) => n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
-    // Positionen-HTML generieren
+    // Positionen-HTML generieren (abhängig von pdfExportMode)
+    // full:       Pos | Menge | Einheit | Leistung | EP | GP + Titelsummen
+    // lump_sum:   Pos | Leistung | GP (kein EP, keine Menge) + Titelsummen
+    // title_sums: Pos | Leistung (keine Preise, keine Menge) + Titelsummen
+    // total_only: Pos | Menge | Einheit | Leistung (keine Preise, keine Titelsummen) + nur Gesamtsumme
     let posHtml = "";
+
+    const showMenge = pdfExportMode === "full";
+    const showEP = pdfExportMode === "full";
+    const showGP = pdfExportMode === "full" || pdfExportMode === "lump_sum";
+    const showTitelSumme = pdfExportMode !== "total_only";
+
+    // Anzahl sichtbarer Spalten für colspan
+    const colCount = 2 + (showMenge ? 2 : 0) + (showEP ? 1 : 0) + (showGP ? 1 : 0);
+
     rooms.forEach((room, ri) => {
       const rNr = String(ri + 1).padStart(2, "0");
       const roomTotal = room.positions.reduce((s, p) => s + p.basePrice * (1 + p.markup / 100) * p.qty, 0);
-      posHtml += `<tr class="section"><td colspan="6"><strong>${rNr} ${room.name}</strong></td></tr>`;
+      posHtml += `<tr class="section"><td colspan="${colCount}"><strong>${rNr} ${room.name}</strong></td></tr>`;
+
       room.positions.forEach((pos, pi) => {
         const ep = pos.basePrice * (1 + pos.markup / 100);
         const total = ep * pos.qty;
         posHtml += `<tr>
           <td class="nr">${rNr}.${String(pi + 1).padStart(2, "0")}</td>
           <td class="desc"><strong>${pos.title}</strong><br><span class="sub">${pos.desc}</span></td>
-          <td class="r">${pos.qty.toString().replace(".", ",")}</td>
-          <td>${pos.unit}</td>
-          <td class="r">${fmtEuro(ep)}</td>
-          <td class="r">${fmtEuro(total)}</td>
+          ${showMenge ? `<td class="r">${pos.qty.toString().replace(".", ",")}</td><td>${pos.unit}</td>` : ""}
+          ${showEP ? `<td class="r">${fmtEuro(ep)}</td>` : ""}
+          ${showGP ? `<td class="r">${fmtEuro(total)}</td>` : ""}
         </tr>`;
       });
-      posHtml += `<tr class="section-sum"><td colspan="5" class="r"><em>Summe ${room.name}</em></td><td class="r sec-total">${fmtEuro(roomTotal)} \u20AC</td></tr>`;
+
+      if (showTitelSumme) {
+        const sumColSpan = colCount - 1;
+        posHtml += `<tr class="section-sum"><td colspan="${sumColSpan}" class="r"><em>Summe ${room.name}</em></td><td class="r sec-total">${fmtEuro(roomTotal)} \u20AC</td></tr>`;
+      }
     });
 
     const mwstVal = totalNetto * 0.19;
@@ -1789,6 +1827,9 @@ export default function OfferEditorScreen() {
   }
   table.totals .grand .r { color: #1a1a1a; }
 
+  /* ── Summen + Abschluss zusammenhalten ── */
+  .closing-block { page-break-inside: avoid; }
+
   /* ── Abschlusstext ── */
   .closing { font-size: 9pt; color: #444; line-height: 1.7; margin-bottom: 6mm; }
 
@@ -1876,12 +1917,13 @@ export default function OfferEditorScreen() {
   <!-- Positionen -->
   <table class="positions">
     <thead><tr>
-      <th>Pos.</th><th>Bezeichnung</th><th class="r">Menge</th><th>Einheit</th><th class="r">EP</th><th class="r">GP</th>
+      <th>Pos.</th><th>Bezeichnung</th>${showMenge ? `<th class="r">Menge</th><th>Einheit</th>` : ""}${showEP ? `<th class="r">EP</th>` : ""}${showGP ? `<th class="r">GP</th>` : ""}
     </tr></thead>
     <tbody>${posHtml}</tbody>
   </table>
 
-  <!-- Summen -->
+  <!-- Summen + Abschluss (zusammen auf einer Seite) -->
+  <div class="closing-block">
   <table class="totals">
     <tr><td class="label">Nettobetrag</td><td class="r">${fmtEuro(totalNetto)} \u20AC</td></tr>
     <tr><td class="label">MwSt. 19%</td><td class="r">${fmtEuro(mwstVal)} \u20AC</td></tr>
@@ -1895,6 +1937,7 @@ export default function OfferEditorScreen() {
     <p style="margin-top:2mm;">Wir freuen uns auf Ihren Auftrag und stehen für Rückfragen gerne zur Verfügung.</p>
     <p style="margin-top:6mm;">Mit freundlichen Grüßen</p>
     <p style="margin-top:4mm; font-weight:700;">${cfg.geschaeftsfuehrer || ""}<br><span style="font-weight:400; color:#666;">${cfg.company_name || ""}</span></p>
+  </div>
   </div>
 
 </div>
@@ -2101,7 +2144,7 @@ export default function OfferEditorScreen() {
       setPdfError(outerErr?.message || "Fehler");
       setPdfSaving(false);
     }
-  }, [rooms, totalNetto, offerNumber, offerVersion, betreffText, project, offerId, anredeZeile]);
+  }, [rooms, totalNetto, offerNumber, offerVersion, betreffText, project, offerId, anredeZeile, pdfExportMode]);
 
   if (!project) {
     return <ProjectSelector onSelect={setProject} />;
@@ -2312,7 +2355,7 @@ export default function OfferEditorScreen() {
                   </View>
                   <View style={s.roomHeaderRight}>
                     <Text style={s.roomMeta}>{room.positions.length} Pos.</Text>
-                    <Text style={s.roomTotal}>{formatEuroShort(roomTotal)}</Text>
+                    {!hidePositionPrices && <Text style={s.roomTotal}>{formatEuroShort(roomTotal)}</Text>}
                     <Ionicons name={room.collapsed ? "chevron-down" : "chevron-up"} size={16} color={Colors.raw.zinc500} />
                   </View>
                 </Pressable>
@@ -2332,10 +2375,12 @@ export default function OfferEditorScreen() {
                         <View style={s.posCenter}>
                           <Text style={s.posTitle} numberOfLines={1}>{pos.title}</Text>
                           <Text style={s.posDetail}>
-                            {pos.unit === "Pauschal" ? "Pauschal" : `${pos.qty.toString().replace(".", ",")} ${pos.unit} × ${formatEuro(ep)}/${pos.unit}`}
+                            {hidePositionPrices
+                              ? `${pos.qty.toString().replace(".", ",")} ${pos.unit}`
+                              : pos.unit === "Pauschal" ? "Pauschal" : `${pos.qty.toString().replace(".", ",")} ${pos.unit} × ${formatEuro(ep)}/${pos.unit}`}
                           </Text>
                         </View>
-                        <Text style={s.posTotal}>{formatEuro(total)}</Text>
+                        {!hidePositionPrices && <Text style={s.posTotal}>{formatEuro(total)}</Text>}
                         <View style={s.posActions}>
                           <Pressable
                             onPress={() => {
@@ -2411,6 +2456,35 @@ export default function OfferEditorScreen() {
               <Text style={[s.footerMargin, { color: marginColor }]}>Marge {margin.toFixed(0)}%</Text>
             </View>
           </View>
+        </View>
+        {/* PDF Export Optionen */}
+        <View style={s.pdfExportRow}>
+          <Ionicons name="document-text-outline" size={14} color={Colors.raw.zinc500} />
+          <Text style={s.pdfExportLabel}>PDF Export:</Text>
+          {([
+            { key: "full" as PdfExportMode, label: "Mit Stückliste" },
+            { key: "lump_sum" as PdfExportMode, label: "Positionen pauschal" },
+            { key: "title_sums" as PdfExportMode, label: "Nur Titelsummen" },
+            { key: "total_only" as PdfExportMode, label: "Nur Angebotssumme" },
+          ] as const).map((opt) => (
+            <Pressable
+              key={opt.key}
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setPdfExportMode(opt.key);
+              }}
+              style={({ pressed }) => [
+                s.pdfExportChip,
+                pdfExportMode === opt.key && s.pdfExportChipActive,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <Ionicons name="download-outline" size={12} color={pdfExportMode === opt.key ? Colors.raw.white : Colors.raw.zinc400} />
+              <Text style={[s.pdfExportChipText, pdfExportMode === opt.key && s.pdfExportChipTextActive]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
         <View style={s.footerBtns}>
           <Pressable onPress={() => handlePreview("preview")} style={({ pressed }) => [s.previewBtn, { opacity: pressed ? 0.8 : 1 }]} testID="preview-btn">
@@ -2634,6 +2708,68 @@ const s = StyleSheet.create({
     color: Colors.raw.white,
     width: 54,
     textAlign: "center",
+  },
+
+  // ── PDF Export Optionen ──
+  pdfExportRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 4,
+    marginBottom: 10,
+  },
+  pdfExportLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: Colors.raw.zinc500,
+    marginRight: 2,
+  },
+  pdfExportChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+  },
+  pdfExportChipActive: {
+    backgroundColor: Colors.raw.amber500 + "22",
+    borderColor: Colors.raw.amber500,
+  },
+  pdfExportChipText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: Colors.raw.zinc400,
+  },
+  pdfExportChipTextActive: {
+    color: Colors.raw.amber500,
+  },
+
+  // ── Toggle Switch ──
+  toggleTrack: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.zinc700,
+    justifyContent: "center",
+    paddingHorizontal: 2,
+  },
+  toggleTrackActive: {
+    backgroundColor: Colors.raw.amber500,
+  },
+  toggleThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.raw.zinc400,
+  },
+  toggleThumbActive: {
+    backgroundColor: Colors.raw.white,
+    alignSelf: "flex-end",
   },
 
   // ── Section Header ──

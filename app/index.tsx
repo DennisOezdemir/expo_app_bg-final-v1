@@ -2,26 +2,32 @@ import { useEffect, useRef, useCallback } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import Colors from "@/constants/colors";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function AuthRouter() {
   const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
   const hasNavigated = useRef(false);
 
   const navigate = useCallback(() => {
-    if (hasNavigated.current) return;
+    if (hasNavigated.current || isLoading) return;
     hasNavigated.current = true;
     try {
-      router.replace("/(tabs)" as any);
+      if (isAuthenticated) {
+        router.replace("/(tabs)" as any);
+      } else {
+        router.replace("/login" as any);
+      }
     } catch {
       hasNavigated.current = false;
     }
-  }, [router]);
+  }, [router, isAuthenticated, isLoading]);
 
   useEffect(() => {
-    if (hasNavigated.current) return;
+    if (hasNavigated.current || isLoading) return;
     const timer = setTimeout(navigate, 100);
     return () => clearTimeout(timer);
-  }, [navigate]);
+  }, [navigate, isLoading]);
 
   return (
     <View style={styles.container}>
