@@ -15,6 +15,26 @@ export interface CapturePhotoOptions {
 export interface CapturePhotoResult {
   id: string;
   storagePath: string;
+  queued?: boolean;
+}
+
+export interface QueuedPhotoUploadData {
+  storagePath: string;
+  projectId: string;
+  inspectionType: "erstbegehung" | "zwischenbegehung" | "abnahme";
+  sectionId?: string;
+  positionId?: string;
+  roomName?: string;
+  positionTitle?: string;
+  fileSizeBytes: number;
+  contentType: string;
+  base64Data: string;
+}
+
+interface QueueOfflineUploadInput {
+  label: string;
+  detail: string;
+  data: QueuedPhotoUploadData;
 }
 
 /**
@@ -58,8 +78,86 @@ function pickFileFromWebCamera(): Promise<File | null> {
   });
 }
 
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("Datei konnte nicht gelesen werden"));
+        return;
+      }
+      const [, base64] = reader.result.split(",");
+      if (!base64) {
+        reject(new Error("Keine Bilddaten erhalten"));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("Datei konnte nicht gelesen werden"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function insertInspectionPhotoRecord(data: {
+  projectId: string;
+  sectionId?: string;
+  positionId?: string;
+  inspectionType: "erstbegehung" | "zwischenbegehung" | "abnahme";
+  storagePath: string;
+  roomName?: string;
+  positionTitle?: string;
+  fileSizeBytes: number;
+}): Promise<CapturePhotoResult> {
+  const { data: insertData, error: insertError } = await supabase
+    .from("inspection_photos")
+    .insert({
+      project_id: data.projectId,
+      section_id: data.sectionId || null,
+      position_id: data.positionId || null,
+      inspection_type: data.inspectionType,
+      storage_path: data.storagePath,
+      room_name: data.roomName || null,
+      position_title: data.positionTitle || null,
+      file_size_bytes: data.fileSizeBytes,
+    })
+    .select("id")
+    .single();
+
+  if (insertError) throw insertError;
+
+  return {
+    id: insertData.id,
+    storagePath: data.storagePath,
+  };
+}
+
+export async function uploadQueuedPhoto(data: QueuedPhotoUploadData): Promise<CapturePhotoResult> {
+  const { error: uploadError } = await supabase.storage
+    .from("project-files")
+    .upload(data.storagePath, decode(data.base64Data), {
+      contentType: data.contentType || "image/jpeg",
+      upsert: false,
+    });
+
+  if (uploadError) throw uploadError;
+
+  return insertInspectionPhotoRecord({
+    projectId: data.projectId,
+    sectionId: data.sectionId,
+    positionId: data.positionId,
+    inspectionType: data.inspectionType,
+    storagePath: data.storagePath,
+    roomName: data.roomName,
+    positionTitle: data.positionTitle,
+    fileSizeBytes: data.fileSizeBytes,
+  });
+}
+
 export async function captureAndUploadPhoto(
-  options: CapturePhotoOptions
+  options: CapturePhotoOptions & {
+    isOnline?: boolean;
+    queueOfflineUpload?: (input: QueueOfflineUploadInput) => void;
+  }
 ): Promise<CapturePhotoResult | null> {
   const timestamp = Date.now();
   const sectionPart = options.sectionId || "general";
@@ -75,6 +173,27 @@ export async function captureAndUploadPhoto(
       if (!file) return null;
 
       fileSize = file.size;
+
+       if (options.isOnline === false && options.queueOfflineUpload) {
+        const base64Data = await readFileAsBase64(file);
+        options.queueOfflineUpload({
+          label: "Foto-Upload",
+          detail: options.positionTitle || options.roomName || "Projektfoto",
+          data: {
+            storagePath,
+            projectId: options.projectId,
+            inspectionType: options.inspectionType,
+            sectionId: options.sectionId,
+            positionId: options.positionId,
+            roomName: options.roomName,
+            positionTitle: options.positionTitle,
+            fileSizeBytes: fileSize,
+            contentType: file.type || "image/jpeg",
+            base64Data,
+          },
+        });
+        return { id: `queued-${timestamp}`, storagePath, queued: true };
+      }
 
       const { error: uploadError } = await supabase.storage
         .from("project-files")
@@ -115,6 +234,26 @@ export async function captureAndUploadPhoto(
       }
       fileSize = Math.round(base64.length * 0.75);
 
+      if (options.isOnline === false && options.queueOfflineUpload) {
+        options.queueOfflineUpload({
+          label: "Foto-Upload",
+          detail: options.positionTitle || options.roomName || "Projektfoto",
+          data: {
+            storagePath,
+            projectId: options.projectId,
+            inspectionType: options.inspectionType,
+            sectionId: options.sectionId,
+            positionId: options.positionId,
+            roomName: options.roomName,
+            positionTitle: options.positionTitle,
+            fileSizeBytes: fileSize,
+            contentType: "image/jpeg",
+            base64Data: base64,
+          },
+        });
+        return { id: `queued-${timestamp}`, storagePath, queued: true };
+      }
+
       const { error: uploadError } = await supabase.storage
         .from("project-files")
         .upload(storagePath, decode(base64), {
@@ -132,29 +271,19 @@ export async function captureAndUploadPhoto(
     return null;
   }
 
-  // Insert into inspection_photos
-  const { data: insertData, error: insertError } = await supabase
-    .from("inspection_photos")
-    .insert({
-      project_id: options.projectId,
-      section_id: options.sectionId || null,
-      position_id: options.positionId || null,
-      inspection_type: options.inspectionType,
-      storage_path: storagePath,
-      room_name: options.roomName || null,
-      position_title: options.positionTitle || null,
-      file_size_bytes: fileSize,
-    })
-    .select("id")
-    .single();
-
-  if (insertError) {
-    Alert.alert("Speichern fehlgeschlagen", insertError.message);
+  try {
+    return await insertInspectionPhotoRecord({
+      projectId: options.projectId,
+      sectionId: options.sectionId,
+      positionId: options.positionId,
+      inspectionType: options.inspectionType,
+      storagePath,
+      roomName: options.roomName,
+      positionTitle: options.positionTitle,
+      fileSizeBytes: fileSize,
+    });
+  } catch (err: any) {
+    Alert.alert("Speichern fehlgeschlagen", err.message || "Unbekannter Fehler");
     return null;
   }
-
-  return {
-    id: insertData.id,
-    storagePath,
-  };
 }

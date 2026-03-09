@@ -24,30 +24,16 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
+import { ScreenState } from "@/components/ScreenState";
 import { supabase } from "@/lib/supabase";
 import { mapDbStatus, type ProjectStatus } from "@/lib/status";
 import { captureAndUploadPhoto } from "@/lib/photo-capture";
+import { useOffline } from "@/contexts/OfflineContext";
+import { useProjectDetail } from "@/hooks/queries/useProjectDetail";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // --- Types ---
-
-interface ProjectData {
-  id: string;
-  project_number: string;
-  name: string;
-  display_name: string | null;
-  object_street: string;
-  object_zip: string;
-  object_city: string;
-  object_floor: string | null;
-  status: string | null;
-  budget_net: number | null;
-  progress_percent: number | null;
-  planned_start: string | null;
-  planned_end: string | null;
-  client_id: string | null;
-}
 
 interface OfferData {
   offer_number: string;
@@ -1102,7 +1088,12 @@ export default function ProjectDetailScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [project, setProject] = useState<ProjectData | null>(null);
+  const {
+    data: project,
+    isLoading: projectLoading,
+    error: projectError,
+    refetch: refetchProject,
+  } = useProjectDetail(id);
   const [clientName, setClientName] = useState<string>("—");
   const [offers, setOffers] = useState<OfferData[]>([]);
   const [inspections, setInspections] = useState<InspectionData[]>([]);
@@ -1116,6 +1107,7 @@ export default function ProjectDetailScreen() {
   const [showPhotoGallery, setShowPhotoGallery] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showDocManager, setShowDocManager] = useState(false);
+  const { isOnline, addToSyncQueue } = useOffline();
 
   const handleCapturePhoto = useCallback(async () => {
     if (!id || photoUploading) return;
@@ -1124,29 +1116,28 @@ export default function ProjectDetailScreen() {
       const result = await captureAndUploadPhoto({
         projectId: id,
         inspectionType: "erstbegehung",
+        isOnline,
+        queueOfflineUpload: ({ label, detail, data }) => {
+          addToSyncQueue({ type: "photo", label, detail, data });
+        },
       });
       if (result) {
         setPhotoCount((c) => c + 1);
         if (Platform.OS === "web") {
-          window.alert("Foto erfolgreich hochgeladen!");
+          window.alert(result.queued ? "Foto offline gespeichert. Upload folgt automatisch." : "Foto erfolgreich hochgeladen!");
         }
       }
     } finally {
       setPhotoUploading(false);
     }
-  }, [id, photoUploading]);
+  }, [id, photoUploading, isOnline, addToSyncQueue]);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setError(null);
 
-    const [projectRes, offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes, sagaOrdersRes] = await Promise.all([
-      supabase
-        .from("projects")
-        .select("id, project_number, name, display_name, object_street, object_zip, object_city, object_floor, status, budget_net, progress_percent, planned_start, planned_end, client_id")
-        .eq("id", id)
-        .single(),
+    const [offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes, sagaOrdersRes] = await Promise.all([
       supabase
         .from("offers")
         .select("offer_number, total_net, status, pdf_storage_path")
@@ -1176,13 +1167,6 @@ export default function ProjectDetailScreen() {
         .eq("project_id", id),
     ]);
 
-    if (projectRes.error) {
-      setError(projectRes.error.message);
-      setLoading(false);
-      return;
-    }
-
-    setProject(projectRes.data);
     setOffers(offersRes.data ?? []);
     setMessages(messagesRes.data ?? []);
     setInspections(inspectionsRes.data ?? []);
@@ -1191,48 +1175,61 @@ export default function ProjectDetailScreen() {
 
     const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
     setTotalCosts(costs);
-
-    // Fetch client name if client_id exists
-    if (projectRes.data.client_id) {
-      const { data: clientData } = await supabase
-        .from("clients")
-        .select("company_name")
-        .eq("id", projectRes.data.client_id)
-        .single();
-      if (clientData?.company_name) {
-        setClientName(clientData.company_name);
-      }
-    }
-
     setLoading(false);
   }, [id]);
 
+  useEffect(() => {
+    const loadClientName = async () => {
+      if (!project?.client_id) {
+        setClientName("—");
+        return;
+      }
+
+      const { data } = await supabase
+        .from("clients")
+        .select("company_name")
+        .eq("id", project.client_id)
+        .single();
+
+      setClientName(data?.company_name || "—");
+    };
+
+    void loadClientName();
+  }, [project?.client_id]);
+
   useFocusEffect(
     useCallback(() => {
-      fetchData();
-    }, [fetchData])
+      void refetchProject();
+      void fetchData();
+    }, [fetchData, refetchProject])
   );
 
-  if (loading) {
+  useEffect(() => {
+    if (projectError) {
+      setError(projectError instanceof Error ? projectError.message : "Projekt konnte nicht geladen werden.");
+      setLoading(false);
+    }
+  }, [projectError]);
+
+  if (loading || projectLoading) {
     return (
-      <View style={[styles.container, styles.centerState]}>
-        <ActivityIndicator size="large" color={Colors.raw.amber500} />
+      <View style={styles.container}>
+        <ScreenState kind="loading" />
       </View>
     );
   }
 
   if (error || !project) {
     return (
-      <View style={[styles.container, styles.centerState]}>
-        <Ionicons name="cloud-offline-outline" size={48} color={Colors.raw.zinc700} />
-        <Text style={styles.errorText}>Fehler beim Laden</Text>
-        {error && <Text style={styles.errorDetail}>{error}</Text>}
-        <Pressable
-          onPress={fetchData}
-          style={({ pressed }) => [styles.retryButton, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Text style={styles.retryText}>Erneut versuchen</Text>
-        </Pressable>
+      <View style={styles.container}>
+        <ScreenState
+          kind="error"
+          detail={error ?? "Projekt konnte nicht geladen werden"}
+          onRetry={() => {
+            void refetchProject();
+            void fetchData();
+          }}
+        />
       </View>
     );
   }
@@ -1909,33 +1906,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.raw.zinc950,
-  },
-  centerState: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  errorText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 16,
-    color: Colors.raw.zinc600,
-  },
-  errorDetail: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.raw.zinc600,
-  },
-  retryButton: {
-    marginTop: 8,
-    backgroundColor: Colors.raw.amber500,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  retryText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: "#000",
   },
   backRow: {
     position: "absolute",

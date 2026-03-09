@@ -6,7 +6,6 @@ import {
   Pressable,
   ScrollView,
   useWindowDimensions,
-  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -26,14 +25,17 @@ import {
   Gesture,
   GestureDetector,
 } from "react-native-gesture-handler";
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
+import { ScreenState } from "@/components/ScreenState";
 import { useOffline } from "@/contexts/OfflineContext";
 import { OfflineBlockedHint } from "@/components/OfflineBanner";
-import { supabase } from "@/lib/supabase";
+import { useApprovals } from "@/hooks/queries/useApprovals";
+import { useApproveApproval, useRejectApproval } from "@/hooks/mutations/useApprovalDecision";
+import type { ApprovalRow } from "@/lib/api/approvals";
 
 // --- Types ---
 
@@ -100,11 +102,14 @@ function formatTimeAgo(dateStr: string): string {
   return `vor ${diffD} Tag${diffD > 1 ? "en" : ""}`;
 }
 
-function mapDbApproval(row: any): Approval {
+function mapDbApproval(row: ApprovalRow): Approval {
   const uiType = APPROVAL_TYPE_MAP[row.approval_type] || "angebot";
-  const project = row.projects;
+  const project = Array.isArray(row.projects) ? row.projects[0] : row.projects;
   const summary = row.request_summary || "";
-  const data = row.request_data || {};
+  const data = (row.request_data || {}) as Record<string, string | number | null | undefined>;
+  const supplier = typeof data.supplier === "string" ? data.supplier : undefined;
+  const reasonFromData = typeof data.reason === "string" ? data.reason : undefined;
+  const detailFromData = typeof data.detail === "string" ? data.detail : "";
 
   return {
     id: row.id,
@@ -113,10 +118,10 @@ function mapDbApproval(row: any): Approval {
     projectCode: project?.project_number || "–",
     projectAddress: [project?.object_street, project?.object_city].filter(Boolean).join(", ") || "–",
     amount: data.amount ? `€${data.amount}` : "",
-    detail: summary || data.detail || "",
+    detail: summary || detailFromData,
     createdAgo: formatTimeAgo(row.requested_at),
-    supplier: data.supplier,
-    reason: row.feedback_reason || data.reason,
+    supplier,
+    reason: row.feedback_reason || reasonFromData,
   };
 }
 
@@ -473,94 +478,17 @@ const cardStyles = StyleSheet.create({
   },
 });
 
-function EmptyState() {
-  return (
-    <View style={emptyStyles.container}>
-      <View style={emptyStyles.checkCircle}>
-        <Ionicons name="checkmark" size={48} color={Colors.raw.emerald500} />
-      </View>
-      <Text style={emptyStyles.title}>Alles erledigt</Text>
-      <Text style={emptyStyles.subtitle}>Keine offenen Freigaben</Text>
-    </View>
-  );
-}
-
-const emptyStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingBottom: 80,
-  },
-  checkCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: "rgba(16, 185, 129, 0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
-  },
-  title: {
-    fontFamily: "Inter_800ExtraBold",
-    fontSize: 24,
-    color: Colors.raw.white,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 16,
-    color: Colors.raw.zinc500,
-  },
-});
-
 export default function FreigabenScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const router = useRouter();
   const { isOnline, getCacheAge: _getCacheAge } = useOffline();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [loading, setLoading] = useState(true);
   const [actionInFlight, setActionInFlight] = useState<string | null>(null);
-
-  const fetchApprovals = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("approvals")
-      .select("*, projects(project_number, name, object_street, object_city, budget_net)")
-      .eq("status", "PENDING")
-      .order("requested_at", { ascending: false });
-
-    if (error) {
-      console.error("Freigaben laden:", error);
-      return;
-    }
-
-    setApprovals((data || []).map(mapDbApproval));
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    fetchApprovals();
-  }, [fetchApprovals]);
-
-  // Realtime subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel("approvals_changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "approvals" },
-        () => {
-          fetchApprovals();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchApprovals]);
+  const { data, isLoading: loading } = useApprovals();
+  const approveMutation = useApproveApproval();
+  const rejectMutation = useRejectApproval();
+  const approvals = useMemo(() => (data ?? []).map(mapDbApproval), [data]);
 
   const filtered = useMemo(() => {
     if (activeFilter === "alle") return approvals;
@@ -570,41 +498,26 @@ export default function FreigabenScreen() {
   const handleApprove = useCallback(async (id: string) => {
     setActionInFlight(id);
     try {
-      const { data, error } = await supabase.rpc("fn_approve_intake", { p_approval_id: id });
-      if (error) {
-        console.error("Approve failed:", error);
-        if (Platform.OS === "web") alert("Fehler: " + error.message);
-      } else if (data && !data.success) {
-        console.error("Approve failed:", data.error);
-        if (Platform.OS === "web") alert("Fehler: " + data.error);
-      }
+      await approveMutation.mutateAsync(id);
     } catch (e) {
       console.error("Approve error:", e);
+      if (Platform.OS === "web") alert("Fehler: " + (e instanceof Error ? e.message : "Freigabe fehlgeschlagen"));
     } finally {
-      // Remove from local state immediately for snappy UX
-      setApprovals((prev) => prev.filter((a) => a.id !== id));
       setActionInFlight(null);
     }
-  }, []);
+  }, [approveMutation]);
 
   const handleReject = useCallback(async (id: string) => {
     setActionInFlight(id);
     try {
-      const { data, error } = await supabase.rpc("fn_reject_intake", { p_approval_id: id });
-      if (error) {
-        console.error("Reject failed:", error);
-        if (Platform.OS === "web") alert("Fehler: " + error.message);
-      } else if (data && !data.success) {
-        console.error("Reject failed:", data.error);
-        if (Platform.OS === "web") alert("Fehler: " + data.error);
-      }
+      await rejectMutation.mutateAsync(id);
     } catch (e) {
       console.error("Reject error:", e);
+      if (Platform.OS === "web") alert("Fehler: " + (e instanceof Error ? e.message : "Ablehnung fehlgeschlagen"));
     } finally {
-      setApprovals((prev) => prev.filter((a) => a.id !== id));
       setActionInFlight(null);
     }
-  }, []);
+  }, [rejectMutation]);
 
   const handleFilter = useCallback((key: FilterKey) => {
     if (Platform.OS !== "web") {
@@ -662,11 +575,14 @@ export default function FreigabenScreen() {
           </View>
         )}
         {loading ? (
-          <View style={emptyStyles.container}>
-            <ActivityIndicator size="large" color={Colors.raw.amber500} />
-          </View>
+          <ScreenState kind="loading" />
         ) : filtered.length === 0 ? (
-          <EmptyState />
+          <ScreenState
+            kind="empty"
+            title="Alles erledigt"
+            detail="Keine offenen Freigaben"
+            iconName="checkmark-circle"
+          />
         ) : (
           filtered
             .slice(0, 3)

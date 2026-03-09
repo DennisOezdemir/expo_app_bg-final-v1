@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useMemo, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, useMemo, ReactNode, useCallback, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 
 export type UserRole = "gf" | "bauleiter" | "monteur";
 
@@ -8,12 +9,6 @@ interface RoleUser {
   role: UserRole;
   roleLabel: string;
 }
-
-const ROLE_USERS: Record<UserRole, RoleUser> = {
-  gf: { name: "Dennis", email: "dennis@bauloewen.de", role: "gf", roleLabel: "Geschäftsführer" },
-  bauleiter: { name: "Ayse", email: "ayse@bauloewen.de", role: "bauleiter", roleLabel: "Bauleiterin" },
-  monteur: { name: "Mehmet", email: "mehmet@bauloewen.de", role: "monteur", roleLabel: "Monteur" },
-};
 
 interface RoleContextValue {
   role: UserRole;
@@ -55,6 +50,12 @@ type ViewSection =
   | "budget"
   | "all_projects";
 
+const FALLBACK_USERS: Record<UserRole, RoleUser> = {
+  gf: { name: "Dennis", email: "dennis@bauloewen.de", role: "gf", roleLabel: "Geschäftsführer" },
+  bauleiter: { name: "Ayse", email: "ayse@bauloewen.de", role: "bauleiter", roleLabel: "Bauleiterin" },
+  monteur: { name: "Mehmet", email: "mehmet@bauloewen.de", role: "monteur", roleLabel: "Monteur" },
+};
+
 const ROLE_PERMISSIONS: Record<UserRole, Set<RoleAction>> = {
   gf: new Set([
     "approve", "reject", "order_material", "change_prices", "send_invoices",
@@ -85,18 +86,53 @@ const ROLE_VIEWS: Record<UserRole, Set<ViewSection>> = {
 
 const RoleContext = createContext<RoleContextValue | null>(null);
 
-export function RoleProvider({ children }: { children: ReactNode }) {
-  const [role, setRoleState] = useState<UserRole>("gf");
-  const actualRole: UserRole = "gf";
+function normalizeUserRole(role?: string | null): UserRole {
+  const normalized = role?.trim().toLowerCase();
 
-  const isImpersonating = role !== actualRole;
+  switch (normalized) {
+    case "gf":
+    case "geschäftsführer":
+    case "geschaeftsfuehrer":
+      return "gf";
+    case "bauleiter":
+    case "bauleiterin":
+    case "polier":
+      return "bauleiter";
+    case "monteur":
+    case "techniker":
+    case "handwerker":
+      return "monteur";
+    default:
+      return "gf";
+  }
+}
+
+function getRoleLabel(role: UserRole, authRoleLabel?: string | null): string {
+  if (authRoleLabel?.trim()) return authRoleLabel.trim();
+  return FALLBACK_USERS[role].roleLabel;
+}
+
+export function RoleProvider({ children }: { children: ReactNode }) {
+  const { user: authUser, isAuthenticated } = useAuth();
+  const actualRole = useMemo<UserRole>(
+    () => normalizeUserRole(isAuthenticated ? authUser?.role : undefined),
+    [authUser?.role, isAuthenticated]
+  );
+  const [overrideRole, setOverrideRole] = useState<UserRole | null>(null);
+
+  useEffect(() => {
+    setOverrideRole(null);
+  }, [actualRole]);
+
+  const role = overrideRole ?? actualRole;
+  const isImpersonating = overrideRole !== null && overrideRole !== actualRole;
 
   const setRole = useCallback((newRole: UserRole) => {
-    setRoleState(newRole);
-  }, []);
+    setOverrideRole(newRole === actualRole ? null : newRole);
+  }, [actualRole]);
 
   const resetRole = useCallback(() => {
-    setRoleState(actualRole);
+    setOverrideRole(null);
   }, []);
 
   const can = useCallback((action: RoleAction) => {
@@ -107,7 +143,20 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     return ROLE_VIEWS[role].has(section);
   }, [role]);
 
-  const user = ROLE_USERS[role];
+  const fallbackUser = FALLBACK_USERS[role];
+
+  const user = useMemo<RoleUser>(() => {
+    if (!authUser) {
+      return fallbackUser;
+    }
+
+    return {
+      name: authUser.name || fallbackUser.name,
+      email: authUser.email || fallbackUser.email,
+      role,
+      roleLabel: getRoleLabel(role, isImpersonating ? undefined : authUser.roleLabel),
+    };
+  }, [authUser, fallbackUser, role, isImpersonating]);
 
   const value = useMemo(() => ({
     role,
@@ -118,7 +167,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     resetRole,
     can,
     sees,
-  }), [role, user, isImpersonating, setRole, resetRole, can, sees]);
+  }), [role, user, actualRole, isImpersonating, setRole, resetRole, can, sees]);
 
   return (
     <RoleContext.Provider value={value}>

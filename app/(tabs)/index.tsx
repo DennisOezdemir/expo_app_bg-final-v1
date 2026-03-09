@@ -9,6 +9,7 @@ import { TopBar } from "@/components/TopBar";
 import { useRole } from "@/contexts/RoleContext";
 import { useOffline } from "@/contexts/OfflineContext";
 import { OfflineBadge } from "@/components/OfflineBanner";
+import { useDashboardMetrics } from "@/hooks/queries/useDashboardMetrics";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -80,13 +81,25 @@ function ActivityRow({
   );
 }
 
-function GFHome() {
+function formatCompactCurrency(amount: number): string {
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1).replace(".", ",")}M`;
+  if (amount >= 1_000) return `${Math.round(amount / 1_000)}K`;
+  return amount.toLocaleString("de-DE");
+}
+
+function GFHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["data"] }) {
+  const activeProjects = metrics?.activeProjects ?? 0;
+  const criticalProjects = metrics?.criticalProjects ?? 0;
+  const pendingApprovals = metrics?.pendingApprovals ?? 0;
+  const openOffers = metrics?.openOffers ?? 0;
+  const offerVolume = metrics?.totalOfferVolume ?? 0;
+
   return (
     <>
       <Pressable style={({ pressed }) => [styles.alertBanner, { opacity: pressed ? 0.85 : 1 }]}>
         <View style={styles.alertLeft}>
           <Ionicons name="warning" size={18} color={Colors.raw.rose500} />
-          <Text style={styles.alertText}>2 Projekte über Budget</Text>
+          <Text style={styles.alertText}>{criticalProjects} Projekte kritisch</Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color={Colors.raw.rose500} />
       </Pressable>
@@ -116,13 +129,13 @@ function GFHome() {
           <Tile
             icon={<Ionicons name="clipboard" size={28} color={Colors.raw.amber500} />}
             label="Projekte"
-            rightContent={<TileSubtext text="12 aktiv" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${activeProjects} aktiv`} color={Colors.raw.zinc400} />}
             onPress={() => router.navigate("/(tabs)/projekte")}
           />
           <Tile
             icon={<Ionicons name="checkmark-circle" size={28} color={Colors.raw.emerald500} />}
             label="Freigaben"
-            rightContent={<TileBadge count="3" />}
+            rightContent={<TileBadge count={String(pendingApprovals)} />}
             onPress={() => router.navigate("/(tabs)/freigaben")}
           />
         </View>
@@ -130,13 +143,13 @@ function GFHome() {
           <Tile
             icon={<MaterialCommunityIcons name="package-variant" size={28} color={Colors.raw.amber400} />}
             label="Material"
-            rightContent={<TileSubtext text="5 offen" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${criticalProjects} kritisch`} color={Colors.raw.zinc400} />}
             onPress={() => router.navigate("/(tabs)/material")}
           />
           <Tile
             icon={<Ionicons name="calendar" size={28} color="#3b82f6" />}
             label="Planung"
-            rightContent={<TileSubtext text="KW 6" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${metrics?.teamCount ?? 0} aktiv`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/planung")}
           />
         </View>
@@ -144,13 +157,13 @@ function GFHome() {
           <Tile
             icon={<Ionicons name="document-text" size={28} color={Colors.raw.amber500} />}
             label="Angebote"
-            rightContent={<TileSubtext text="4 offen" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${openOffers} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/angebote")}
           />
           <Tile
             icon={<MaterialCommunityIcons name="finance" size={28} color={Colors.raw.emerald500} />}
             label="Finanzen"
-            rightContent={<TileCounter value="24%" color={Colors.raw.emerald500} />}
+            rightContent={<TileCounter value={`${formatCompactCurrency(offerVolume)} €`} color={Colors.raw.emerald500} />}
             onPress={() => router.push("/finanzen")}
           />
         </View>
@@ -160,15 +173,19 @@ function GFHome() {
         <Text style={styles.activityTitle}>Letzte Aktivität</Text>
         <View style={styles.activityList}>
           <ActivityRow dotColor={Colors.raw.emerald500} text="BL-2026-003: Material bestellt" time="vor 2h" />
-          <ActivityRow dotColor={Colors.raw.amber500} text="BL-2026-007: Angebot erstellt" time="vor 5h" />
-          <ActivityRow dotColor={Colors.raw.rose500} text="BL-2026-012: Frist überschritten" time="vor 8h" />
+          <ActivityRow dotColor={Colors.raw.amber500} text={`${openOffers} Angebote offen`} time="live" />
+          <ActivityRow dotColor={Colors.raw.rose500} text={`${pendingApprovals} Freigaben warten`} time="live" />
         </View>
       </View>
     </>
   );
 }
 
-function BauleiterHome() {
+function BauleiterHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["data"] }) {
+  const activeProjects = metrics?.activeProjects ?? 0;
+  const openInspections = metrics?.openInspections ?? 0;
+  const openOffers = metrics?.openOffers ?? 0;
+
   return (
     <>
       <Pressable
@@ -196,13 +213,13 @@ function BauleiterHome() {
           <Tile
             icon={<Ionicons name="clipboard" size={28} color={Colors.raw.amber500} />}
             label="Projekte"
-            rightContent={<TileSubtext text="5 aktiv" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${activeProjects} aktiv`} color={Colors.raw.zinc400} />}
             onPress={() => router.navigate("/(tabs)/projekte")}
           />
           <Tile
             icon={<MaterialCommunityIcons name="package-variant" size={28} color={Colors.raw.amber400} />}
             label="Material"
-            rightContent={<TileSubtext text="3 offen" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${metrics?.teamCount ?? 0} im Team`} color={Colors.raw.zinc400} />}
             onPress={() => router.navigate("/(tabs)/material")}
           />
         </View>
@@ -210,13 +227,13 @@ function BauleiterHome() {
           <Tile
             icon={<Ionicons name="calendar" size={28} color="#3b82f6" />}
             label="Planung"
-            rightContent={<TileSubtext text="KW 6" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${metrics?.teamCount ?? 0} verfügbar`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/planung")}
           />
           <Tile
             icon={<Ionicons name="walk" size={28} color={Colors.raw.emerald500} />}
             label="Begehungen"
-            rightContent={<TileSubtext text="2 offen" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${openInspections} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/begehung/abnahme" as any)}
           />
         </View>
@@ -230,7 +247,7 @@ function BauleiterHome() {
           <Tile
             icon={<Ionicons name="document-text" size={28} color={Colors.raw.amber500} />}
             label="Angebote"
-            rightContent={<TileSubtext text="4 offen" color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${openOffers} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/angebote")}
           />
         </View>
@@ -240,8 +257,8 @@ function BauleiterHome() {
         <Text style={styles.activityTitle}>Letzte Aktivität</Text>
         <View style={styles.activityList}>
           <ActivityRow dotColor={Colors.raw.emerald500} text="BL-2026-003: Material bestellt" time="vor 2h" />
-          <ActivityRow dotColor={Colors.raw.amber500} text="Mehmet: Fotos hochgeladen" time="vor 3h" />
-          <ActivityRow dotColor="#3b82f6" text="Begehung Schwentnerring geplant" time="vor 6h" />
+          <ActivityRow dotColor={Colors.raw.amber500} text={`${activeProjects} Projekte in Arbeit`} time="live" />
+          <ActivityRow dotColor="#3b82f6" text={`${openInspections} Begehungen offen`} time="live" />
         </View>
       </View>
     </>
@@ -320,6 +337,7 @@ export default function StartScreen() {
   const bottomInset = Platform.OS === "web" ? 84 : 90;
   const { role, user, isImpersonating } = useRole();
   const { isOnline, getCacheAge } = useOffline();
+  const { data: metrics } = useDashboardMetrics();
 
   const greetings: Record<string, { greeting: string; subtitle: string }> = {
     gf: { greeting: `Moin ${user.name}`, subtitle: "3 Dinge brauchen dich" },
@@ -352,8 +370,8 @@ export default function StartScreen() {
           <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
 
-        {role === "gf" && <GFHome />}
-        {role === "bauleiter" && <BauleiterHome />}
+        {role === "gf" && <GFHome metrics={metrics} />}
+        {role === "bauleiter" && <BauleiterHome metrics={metrics} />}
         {role === "monteur" && <MonteurHome />}
       </ScrollView>
     </View>

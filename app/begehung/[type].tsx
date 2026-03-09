@@ -17,9 +17,19 @@ import { Ionicons } from "@expo/vector-icons";
 import { useState, useCallback, useMemo, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { supabase } from "@/lib/supabase";
 import { captureAndUploadPhoto } from "@/lib/photo-capture";
+import { useOffline } from "@/contexts/OfflineContext";
+import {
+  createInspectionProtocol,
+  emitInspectionCompletedEvent,
+  fetchLatestInspectionProtocol,
+  insertInspectionProtocolItems,
+  updateInspectionProtocol,
+  updateOfferPositions,
+  updateProjectInspectionState,
+  uploadInspectionSignature,
+} from "@/lib/api/inspections";
 
 type PosCheckStatus = "none" | "confirmed" | "rejected";
 type ZBWorkStatus = "nicht_gestartet" | "geplant" | "in_arbeit";
@@ -236,6 +246,7 @@ function ErstbegehungView({ type, projectId, protocolId }: { type: string; proje
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
   const label = TYPE_LABELS[type] || "Begehung";
+  const { isOnline, addToSyncQueue } = useOffline();
 
   const [rooms, setRooms] = useState<BegehungRoom[]>([]);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
@@ -338,14 +349,21 @@ function ErstbegehungView({ type, projectId, protocolId }: { type: string; proje
       positionId: posId,
       roomName,
       positionTitle: posTitle,
+      isOnline,
+      queueOfflineUpload: ({ label: queueLabel, detail, data }) => {
+        addToSyncQueue({ type: "photo", label: queueLabel, detail, data });
+      },
     });
     if (result) {
       setPosStates((prev) => {
         const current = prev[posId] || { status: "none", photoCount: 0, note: "" };
         return { ...prev, [posId]: { ...current, photoCount: current.photoCount + 1 } };
       });
+      if (result.queued && Platform.OS === "web") {
+        window.alert("Foto offline gespeichert. Upload folgt automatisch.");
+      }
     }
-  }, [finalized, projectId, type]);
+  }, [finalized, projectId, type, isOnline, addToSyncQueue]);
 
   const openCatalogModal = useCallback((roomId: string) => {
     if (finalized) return;
@@ -386,30 +404,21 @@ function ErstbegehungView({ type, projectId, protocolId }: { type: string; proje
       const completedItems = rooms.reduce((sum, r) => sum + r.positions.filter((p) => (posStates[p.id]?.status || "none") !== "none").length, 0);
       const itemsWithIssues = rooms.reduce((sum, r) => sum + r.positions.filter((p) => posStates[p.id]?.status === "rejected").length, 0);
 
-      const { data: protocol, error: protoErr } = await supabase
-        .from("inspection_protocols")
-        .insert({
-          project_id: projectId,
-          protocol_type: type || "erstbegehung",
-          inspection_date: new Date().toISOString().split("T")[0],
-          status: "completed",
-          finalized_at: new Date().toISOString(),
-          total_items: totalItems,
-          completed_items: completedItems,
-          items_with_issues: itemsWithIssues,
-        })
-        .select("id")
-        .single();
-      if (protoErr) throw protoErr;
+      const protocol = await createInspectionProtocol({
+        projectId,
+        protocolType: (type || "erstbegehung") as "erstbegehung",
+        totalItems,
+        completedItems,
+        itemsWithIssues,
+      });
 
-      // 2. Create inspection_protocol_items
       let sortOrder = 0;
-      const items: any[] = [];
+      const items: Record<string, unknown>[] = [];
+      const positionUpdates: { positionId: string; data: Record<string, unknown> }[] = [];
       rooms.forEach((room) => {
         room.positions.forEach((pos) => {
           const ps = posStates[pos.id] || { status: "none", photoCount: 0, note: "" };
           items.push({
-            protocol_id: protocol.id,
             offer_position_id: pos.id,
             sort_order: sortOrder++,
             status: ps.status === "confirmed" ? "ja" : ps.status === "rejected" ? "nein" : "offen",
@@ -417,10 +426,24 @@ function ErstbegehungView({ type, projectId, protocolId }: { type: string; proje
             has_defect: ps.status === "rejected",
             is_additional: false,
           });
+
+          positionUpdates.push({
+            positionId: pos.id,
+            data: {
+              phase: ps.status === "confirmed" ? "zwischenbegehung" : "erstbegehung",
+              inspection_status:
+                ps.status === "confirmed"
+                  ? "confirmed"
+                  : ps.status === "rejected"
+                    ? "pending_correction"
+                    : "pending",
+              last_inspection_id: protocol.id,
+              updated_at: new Date().toISOString(),
+            },
+          });
         });
         (mehrleistungen[room.id] || []).forEach((ml) => {
           items.push({
-            protocol_id: protocol.id,
             sort_order: sortOrder++,
             status: "ja",
             is_additional: true,
@@ -429,10 +452,16 @@ function ErstbegehungView({ type, projectId, protocolId }: { type: string; proje
           });
         });
       });
-      if (items.length > 0) {
-        const { error: itemsErr } = await supabase.from("inspection_protocol_items").insert(items);
-        if (itemsErr) throw itemsErr;
-      }
+      await insertInspectionProtocolItems(protocol.id, items as any[]);
+      await updateOfferPositions(positionUpdates);
+      await updateProjectInspectionState(projectId, { status: "IN_PROGRESS" });
+      await emitInspectionCompletedEvent({
+        projectId,
+        protocolId: protocol.id,
+        protocolType: "erstbegehung",
+        protocolNumber: protocol.protocol_number,
+        payload: { completed_items: completedItems, items_with_issues: itemsWithIssues },
+      });
 
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
@@ -648,6 +677,7 @@ function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; pr
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
   const [loadingPrevious, setLoadingPrevious] = useState(true);
   const [previousBegehungDate, setPreviousBegehungDate] = useState<string | null>(null);
+  const { isOnline, addToSyncQueue } = useOffline();
 
   // Load rooms + project info
   useEffect(() => {
@@ -699,16 +729,13 @@ function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; pr
     let cancelled = false;
     (async () => {
       try {
-        const url = new URL(`/api/begehungen/${projectInfo.projectNumber}/latest/zwischenbegehung`, getApiUrl());
-        const resp = await fetch(url.toString());
-        if (!resp.ok) throw new Error("fetch failed");
-        const data = await resp.json();
-        if (cancelled || !data || !data.positions) { setLoadingPrevious(false); return; }
+        const data = await fetchLatestInspectionProtocol(projectId, "zwischenbegehung");
+        if (cancelled || !data || !data.items) { setLoadingPrevious(false); return; }
         const restored: Record<string, ZBPosState> = {};
-        for (const pos of data.positions) {
-          const parts = (pos.status || "").split(":");
-          const ws = (["nicht_gestartet", "geplant", "in_arbeit"].includes(parts[0]) ? parts[0] : "nicht_gestartet") as ZBWorkStatus;
-          const prog = ([0, 25, 50, 75, 100].includes(Number(parts[1])) ? Number(parts[1]) : 0) as ZBProgress;
+        for (const pos of data.items) {
+          if (!pos.position_id) continue;
+          const prog = ([0, 25, 50, 75, 100].includes(Number(pos.progress_percent)) ? Number(pos.progress_percent) : 0) as ZBProgress;
+          const ws = prog > 0 ? "in_arbeit" : "nicht_gestartet";
           restored[pos.position_id] = { workStatus: ws, progress: prog, photoCount: 0 };
         }
         if (!cancelled) {
@@ -722,7 +749,7 @@ function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; pr
       if (!cancelled) setLoadingPrevious(false);
     })();
     return () => { cancelled = true; };
-  }, [loadingRooms, projectInfo]);
+  }, [loadingRooms, projectId, projectInfo]);
 
   const toggleRoom = useCallback((roomId: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -766,14 +793,21 @@ function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; pr
       positionId: posId,
       roomName,
       positionTitle: posTitle,
+      isOnline,
+      queueOfflineUpload: ({ label: queueLabel, detail, data }) => {
+        addToSyncQueue({ type: "photo", label: queueLabel, detail, data });
+      },
     });
     if (result) {
       setZbStates((prev) => {
         const current = prev[posId] || { workStatus: "nicht_gestartet", progress: 0, photoCount: 0 };
         return { ...prev, [posId]: { ...current, photoCount: current.photoCount + 1 } };
       });
+      if (result.queued && Platform.OS === "web") {
+        window.alert("Foto offline gespeichert. Upload folgt automatisch.");
+      }
     }
-  }, [finalized, projectId]);
+  }, [finalized, projectId, isOnline, addToSyncQueue]);
 
   const overallProgress = useMemo(() => {
     let totalPositions = 0;
@@ -793,28 +827,20 @@ function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; pr
       const totalItems = rooms.reduce((sum, r) => sum + r.positions.length, 0);
       const completedItems = rooms.reduce((sum, r) => sum + r.positions.filter((p) => (zbStates[p.id]?.progress || 0) > 0).length, 0);
 
-      const { data: protocol, error: protoErr } = await supabase
-        .from("inspection_protocols")
-        .insert({
-          project_id: projectId,
-          protocol_type: "zwischenbegehung",
-          inspection_date: new Date().toISOString().split("T")[0],
-          status: "completed",
-          finalized_at: new Date().toISOString(),
-          total_items: totalItems,
-          completed_items: completedItems,
-        })
-        .select("id")
-        .single();
-      if (protoErr) throw protoErr;
+      const protocol = await createInspectionProtocol({
+        projectId,
+        protocolType: "zwischenbegehung",
+        totalItems,
+        completedItems,
+      });
 
       let sortOrder = 0;
-      const items: any[] = [];
+      const items: Record<string, unknown>[] = [];
+      const positionUpdates: { positionId: string; data: Record<string, unknown> }[] = [];
       rooms.forEach((room) => {
         room.positions.forEach((pos) => {
           const zs = zbStates[pos.id] || { workStatus: "nicht_gestartet", progress: 0, photoCount: 0 };
           items.push({
-            protocol_id: protocol.id,
             offer_position_id: pos.id,
             sort_order: sortOrder++,
             status: zs.progress === 100 ? "ja" : zs.progress > 0 ? "teilweise" : "offen",
@@ -822,12 +848,33 @@ function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; pr
             notes: null,
             is_additional: false,
           });
+
+          positionUpdates.push({
+            positionId: pos.id,
+            data: {
+              progress_percent: zs.progress,
+              progress_updated_at: new Date().toISOString(),
+              last_inspection_id: protocol.id,
+              phase: zs.progress === 100 ? "abnahme" : "zwischenbegehung",
+              completed_at: zs.progress === 100 ? new Date().toISOString() : null,
+              updated_at: new Date().toISOString(),
+            },
+          });
         });
       });
-      if (items.length > 0) {
-        const { error: itemsErr } = await supabase.from("inspection_protocol_items").insert(items);
-        if (itemsErr) throw itemsErr;
-      }
+      await insertInspectionProtocolItems(protocol.id, items as any[]);
+      await updateOfferPositions(positionUpdates);
+      await updateProjectInspectionState(projectId, {
+        status: overallProgress === 100 ? "COMPLETION" : "IN_PROGRESS",
+        progress_percent: overallProgress,
+      });
+      await emitInspectionCompletedEvent({
+        projectId,
+        protocolId: protocol.id,
+        protocolType: "zwischenbegehung",
+        protocolNumber: protocol.protocol_number,
+        payload: { average_progress: overallProgress, completed_items: completedItems },
+      });
 
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
@@ -837,7 +884,7 @@ function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; pr
     } finally {
       setFinalizing(false);
     }
-  }, [rooms, zbStates, projectId]);
+  }, [rooms, zbStates, projectId, overallProgress]);
 
   if (loadingRooms) {
     return (
@@ -1029,6 +1076,7 @@ function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?
   const [finalized, setFinalized] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+  const { isOnline, addToSyncQueue } = useOffline();
 
   useEffect(() => {
     let cancelled = false;
@@ -1069,28 +1117,32 @@ function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?
             setFinalized(true);
           }
         } else {
-          // Load positions from latest ZB (original flow)
-          const url = new URL(`/api/begehungen/${info.projectNumber}/latest/zwischenbegehung`, getApiUrl());
-          const resp = await fetch(url.toString());
-          if (!resp.ok) throw new Error("fetch failed");
-          const data = await resp.json();
+          // Load positions from latest ZB protocol in Supabase
+          const data = await fetchLatestInspectionProtocol(projectId, "zwischenbegehung");
           if (cancelled) return;
-          if (!data || !data.positions) { setLoading(false); return; }
+          if (!data || !data.items) { setLoading(false); return; }
+          const rooms = await fetchRoomsForProject(projectId);
+          const allPositions: Record<string, { nr: string; title: string; desc: string; qty: number; unit: string; price: number; trade: string; roomName: string }> = {};
+          rooms.forEach((r) => r.positions.forEach((p) => {
+            allPositions[p.id] = { nr: p.nr, title: p.title, desc: p.desc, qty: p.qty, unit: p.unit, price: p.price, trade: p.trade, roomName: r.name };
+          }));
           const completed: AbnahmePosition[] = [];
-          for (const pos of data.positions) {
-            const parts = (pos.status || "").split(":");
-            const prog = Number(parts[1]) || 0;
+          for (const pos of data.items) {
+            const prog = Number(pos.progress_percent) || 0;
+            if (!pos.position_id) continue;
             if (prog === 100) {
+              const posInfo = allPositions[pos.position_id];
+              if (!posInfo) continue;
               completed.push({
                 id: pos.position_id,
-                nr: pos.position_nr,
-                title: pos.title,
-                desc: pos.description || pos.desc || "",
-                qty: Number(pos.qty) || 0,
-                unit: pos.unit,
-                price: Number(pos.price) || 0,
-                trade: pos.trade,
-                roomName: pos.room_name,
+                nr: posInfo.nr,
+                title: posInfo.title,
+                desc: posInfo.desc,
+                qty: posInfo.qty,
+                unit: posInfo.unit,
+                price: posInfo.price,
+                trade: posInfo.trade,
+                roomName: posInfo.roomName,
               });
             }
           }
@@ -1118,11 +1170,18 @@ function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?
     const result = await captureAndUploadPhoto({
       projectId,
       inspectionType: "abnahme",
+      isOnline,
+      queueOfflineUpload: ({ label: queueLabel, detail, data }) => {
+        addToSyncQueue({ type: "photo", label: queueLabel, detail, data });
+      },
     });
     if (result) {
       setPhotos((p) => p + 1);
+      if (result.queued && Platform.OS === "web") {
+        window.alert("Foto offline gespeichert. Upload folgt automatisch.");
+      }
     }
-  }, [finalized, projectId]);
+  }, [finalized, projectId, isOnline, addToSyncQueue]);
 
   const clearSignature = useCallback(() => {
     setSignatureLines([]);
@@ -1148,33 +1207,44 @@ function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?
       const totalItems = positions.length;
       const completedItems = checked.size;
 
-      const { data: protocol, error: protoErr } = await supabase
-        .from("inspection_protocols")
-        .insert({
-          project_id: projectId,
-          protocol_type: "abnahme",
-          inspection_date: new Date().toISOString().split("T")[0],
-          status: "completed",
-          finalized_at: new Date().toISOString(),
-          total_items: totalItems,
-          completed_items: completedItems,
-        })
-        .select("id")
-        .single();
-      if (protoErr) throw protoErr;
+      const protocol = await createInspectionProtocol({
+        projectId,
+        protocolType: "abnahme",
+        totalItems,
+        completedItems,
+      });
+      const allLines = [...signatureLines, ...(currentLine.length > 0 ? [currentLine] : [])];
+      const signaturePath = await uploadInspectionSignature(projectId, protocol.id, allLines);
+      await updateInspectionProtocol(protocol.id, { signature_path: signaturePath });
 
       const items = positions.map((pos, i) => ({
-        protocol_id: protocol.id,
         offer_position_id: pos.id,
         sort_order: i,
         status: checked.has(pos.id) ? "ja" : "offen",
         progress_percent: checked.has(pos.id) ? 100 : 0,
         is_additional: false,
       }));
-      if (items.length > 0) {
-        const { error: itemsErr } = await supabase.from("inspection_protocol_items").insert(items);
-        if (itemsErr) throw itemsErr;
-      }
+      await insertInspectionProtocolItems(protocol.id, items as any[]);
+      await updateOfferPositions(
+        positions.map((pos) => ({
+          positionId: pos.id,
+          data: {
+            phase: "abnahme",
+            progress_percent: checked.has(pos.id) ? 100 : 0,
+            last_inspection_id: protocol.id,
+            completed_at: checked.has(pos.id) ? new Date().toISOString() : null,
+            updated_at: new Date().toISOString(),
+          },
+        }))
+      );
+      await updateProjectInspectionState(projectId, { status: "COMPLETED", progress_percent: 100 });
+      await emitInspectionCompletedEvent({
+        projectId,
+        protocolId: protocol.id,
+        protocolType: "abnahme",
+        protocolNumber: protocol.protocol_number,
+        payload: { signature_path: signaturePath, completed_items: completedItems },
+      });
 
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFinalized(true);
@@ -1184,7 +1254,7 @@ function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?
     } finally {
       setFinalizing(false);
     }
-  }, [positions, checked, projectId]);
+  }, [positions, checked, projectId, signatureLines, currentLine]);
 
   const onSignatureTouch = useCallback((evt: any) => {
     if (finalized) return;
@@ -1206,7 +1276,6 @@ function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?
     if (allLines.length === 0) return null;
     return allLines.map((line, i) => {
       if (line.length < 2) return null;
-      const d = line.map((p, j) => `${j === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
       return (
         <View key={i} style={StyleSheet.absoluteFill} pointerEvents="none">
           {line.map((point, j) => {

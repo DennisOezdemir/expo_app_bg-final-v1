@@ -9,6 +9,7 @@ interface AppUser {
   name: string;
   email: string;
   role: string;
+  roleLabel?: string;
   gewerk?: string;
 }
 
@@ -34,11 +35,13 @@ const SPLASH_KEY = "baugenius_splash_seen";
 
 function mapSupabaseUser(user: User): AppUser {
   const meta = user.user_metadata ?? {};
+  const role = meta.role || "GF";
   return {
     id: user.id,
     name: meta.full_name || meta.name || user.email?.split("@")[0] || "Benutzer",
     email: user.email || "",
-    role: meta.role || "GF",
+    role,
+    roleLabel: meta.role_label || undefined,
     gewerk: meta.gewerk,
   };
 }

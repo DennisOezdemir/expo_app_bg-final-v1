@@ -15,6 +15,8 @@ const colors = {
   amber400: '#fbbf24',
   amber600: '#d97706',
 
+  blue500: '#3b82f6',
+
   emerald500: '#10b981',
   emerald400: '#34d399',
 

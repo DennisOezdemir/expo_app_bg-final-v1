@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from "react";
-import { AppState, Platform } from "react-native";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
+import { uploadQueuedPhoto, type QueuedPhotoUploadData } from "@/lib/photo-capture";
 
 export type SyncItemType = "photo" | "timestamp" | "chat" | "checklist" | "begehung";
 
@@ -76,6 +77,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const [cacheTimestamps, setCacheTimestamps] = useState<Record<string, number>>({});
   const syncingRef = useRef(false);
   const queueRef = useRef<SyncQueueItem[]>([]);
+  const syncNowRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     const loadQueue = async () => {
@@ -106,7 +108,9 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       const online = !!(state.isConnected && state.isInternetReachable !== false);
       setIsOnline(prev => {
         if (!prev && online && queueRef.current.length > 0) {
-          setTimeout(() => syncNow(), 500);
+          setTimeout(() => {
+            void syncNowRef.current();
+          }, 500);
         }
         return online;
       });
@@ -122,7 +126,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           const online = !!(s.isConnected && s.isInternetReachable !== false);
           setIsOnline(online);
           if (online && queueRef.current.length > 0) {
-            syncNow();
+            void syncNowRef.current();
           }
         });
       }
@@ -181,17 +185,31 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       queueRef.current = updated;
       setSyncQueue([...updated]);
 
-      await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+      try {
+        if (item.type === "photo") {
+          await uploadQueuedPhoto(item.data as QueuedPhotoUploadData);
+        } else {
+          await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+        }
 
-      completed++;
-      setSyncProgress({ current: completed, total: pending.length });
-      setShowSyncToast({ type: "progress", message: `Synchronisiere... ${completed}/${pending.length}` });
+        completed++;
+        setSyncProgress({ current: completed, total: pending.length });
+        setShowSyncToast({ type: "progress", message: `Synchronisiere... ${completed}/${pending.length}` });
 
-      const done = queueRef.current.map(i =>
-        i.id === item.id ? { ...i, status: "done" as const } : i
-      );
-      queueRef.current = done;
-      setSyncQueue([...done]);
+        const done = queueRef.current.map(i =>
+          i.id === item.id ? { ...i, status: "done" as const } : i
+        );
+        queueRef.current = done;
+        setSyncQueue([...done]);
+      } catch {
+        const failed = queueRef.current.map(i =>
+          i.id === item.id
+            ? { ...i, status: "failed" as const, retryCount: i.retryCount + 1 }
+            : i
+        );
+        queueRef.current = failed;
+        setSyncQueue([...failed]);
+      }
     }
 
     await persistQueue(queueRef.current);
@@ -205,12 +223,21 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
     setLastSyncAt(Date.now());
     setSyncProgress(null);
-    setShowSyncToast({ type: "success", message: "Alles synchronisiert" });
+    const hasFailures = queueRef.current.some(i => i.status === "failed");
+    if (hasFailures) {
+      setShowSyncToast({ type: "error", message: "Einige Elemente konnten nicht synchronisiert werden" });
+    } else {
+      setShowSyncToast({ type: "success", message: "Alles synchronisiert" });
+    }
     setTimeout(() => setShowSyncToast(null), 3000);
 
     syncingRef.current = false;
     setIsSyncing(false);
   }, [persistQueue]);
+
+  useEffect(() => {
+    syncNowRef.current = syncNow;
+  }, [syncNow]);
 
   const setCache = useCallback(async (key: string, data: unknown, expiresIn?: number) => {
     try {
