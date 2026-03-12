@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { mapDbStatus, type ProjectStatus } from "@/lib/status";
 import { useProjects } from "@/hooks/queries/useProjects";
 import { useCreateProject } from "@/hooks/mutations/useCreateProject";
+import { SkeletonBox } from "@/components/Skeleton";
 
 // --- Create Project Modal ---
 
@@ -698,6 +699,16 @@ function ProjectCard({ project }: { project: Project }) {
   );
 }
 
+function ProjekteListeSkeleton() {
+  return (
+    <View style={{ padding: 16, gap: 12 }}>
+      {[...Array(4)].map((_, i) => (
+        <SkeletonBox key={i} height={88} borderRadius={12} />
+      ))}
+    </View>
+  );
+}
+
 export default function ProjekteScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -791,7 +802,7 @@ export default function ProjekteScreen() {
       </View>
 
       {loading ? (
-        <ScreenState kind="loading" />
+        <ScreenState kind="loading" skeleton={<ProjekteListeSkeleton />} />
       ) : error ? (
         <ScreenState
           kind="error"

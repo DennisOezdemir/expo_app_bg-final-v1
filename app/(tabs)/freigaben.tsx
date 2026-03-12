@@ -36,6 +36,7 @@ import { OfflineBlockedHint } from "@/components/OfflineBanner";
 import { useApprovals } from "@/hooks/queries/useApprovals";
 import { useApproveApproval, useRejectApproval } from "@/hooks/mutations/useApprovalDecision";
 import type { ApprovalRow } from "@/lib/api/approvals";
+import { SkeletonBox, SkeletonLine } from "@/components/Skeleton";
 
 // --- Types ---
 
@@ -478,6 +479,32 @@ const cardStyles = StyleSheet.create({
   },
 });
 
+function FreigabenListeSkeleton() {
+  return (
+    <View style={{ padding: 16, gap: 12 }}>
+      {[...Array(3)].map((_, i) => (
+        <View
+          key={i}
+          style={{
+            backgroundColor: Colors.raw.zinc900,
+            borderRadius: 16,
+            padding: 24,
+            flexDirection: "row",
+            gap: 16,
+            alignItems: "flex-start",
+          }}
+        >
+          <SkeletonBox width={40} height={40} borderRadius={20} />
+          <View style={{ flex: 1, gap: 10 }}>
+            <SkeletonLine width="70%" />
+            <SkeletonLine width="45%" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function FreigabenScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
@@ -575,7 +602,7 @@ export default function FreigabenScreen() {
           </View>
         )}
         {loading ? (
-          <ScreenState kind="loading" />
+          <ScreenState kind="loading" skeleton={<FreigabenListeSkeleton />} />
         ) : filtered.length === 0 ? (
           <ScreenState
             kind="empty"
