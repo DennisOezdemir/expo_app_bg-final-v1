@@ -3,6 +3,9 @@
     "name": "BAUGENIUS",
     "slug": "baugenius",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "baugenius",
@@ -15,10 +18,20 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.baugenius"
+      "bundleIdentifier": "com.baugenius",
+      "infoPlist": {
+        "NSCameraUsageDescription": "BauGenius benötigt Kamerazugriff für Begehungsfotos.",
+        "NSPhotoLibraryUsageDescription": "BauGenius benötigt Fotozugriff für die Baudokumentation.",
+        "NSLocationWhenInUseUsageDescription": "BauGenius benötigt den Standort für die Baustellenzuordnung."
+      }
     },
     "android": {
       "package": "com.baugenius",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#09090b",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -29,11 +42,15 @@
     "web": {
       "favicon": "./assets/images/favicon.png"
     },
+    "updates": {
+      "url": "https://u.expo.dev/YOUR_PROJECT_ID",
+      "fallbackToCacheTimeout": 3000
+    },
     "plugins": [
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://baugenius.app"
         }
       ],
       "expo-font",
@@ -49,6 +66,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "YOUR_PROJECT_ID"
+      }
     }
   }
 }

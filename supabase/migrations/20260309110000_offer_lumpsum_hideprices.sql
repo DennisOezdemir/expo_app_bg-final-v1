@@ -9,3 +9,4 @@ ALTER TABLE offers ADD COLUMN IF NOT EXISTS lump_sum_amount NUMERIC(12,2) DEFAUL
 
 -- Positionspreise im PDF/UI ausblenden
 ALTER TABLE offers ADD COLUMN IF NOT EXISTS hide_position_prices BOOLEAN NOT NULL DEFAULT false;
+

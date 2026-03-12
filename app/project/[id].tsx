@@ -495,14 +495,15 @@ function DocumentManagerModal({
   const [newFolderName, setNewFolderName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const dropContainerRef = useRef<View>(null);
 
   // Drag & Drop Upload (Web)
-  const handleDrop = useCallback(async (files: File[]) => {
-    if (!files.length) return;
+  const handleDrop = useCallback(async (droppedFiles: File[]) => {
+    if (!droppedFiles.length) return;
     setUploading(true);
     setDragOver(false);
     try {
-      for (const file of files) {
+      for (const file of droppedFiles) {
         const ts = Date.now();
         const storagePath = `documents/${projectId}/${ts}_${file.name}`;
         const { error: uploadErr } = await supabase.storage
@@ -528,6 +529,33 @@ function DocumentManagerModal({
     }
     setUploading(false);
   }, [projectId, activeFolder]);
+
+  // Native DOM event listeners for drag & drop on web
+  useEffect(() => {
+    if (Platform.OS !== "web" || !visible) return;
+    const node = (dropContainerRef.current as any);
+    const el: HTMLElement | null = node && (node instanceof HTMLElement ? node : node._nativeTag ?? node.getNode?.() ?? null);
+    // fallback: find the modal container in the DOM
+    const target = el || document.querySelector('[data-dropzone="doc-manager"]') as HTMLElement | null;
+    if (!target) return;
+
+    const onDragOver = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); };
+    const onDragLeave = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); };
+    const onDropHandler = (e: DragEvent) => {
+      e.preventDefault(); e.stopPropagation();
+      const dt = e.dataTransfer;
+      if (dt?.files?.length) handleDrop(Array.from(dt.files));
+    };
+
+    target.addEventListener("dragover", onDragOver);
+    target.addEventListener("dragleave", onDragLeave);
+    target.addEventListener("drop", onDropHandler);
+    return () => {
+      target.removeEventListener("dragover", onDragOver);
+      target.removeEventListener("dragleave", onDragLeave);
+      target.removeEventListener("drop", onDropHandler);
+    };
+  }, [visible, handleDrop]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -761,16 +789,9 @@ function DocumentManagerModal({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View
+        ref={dropContainerRef}
         style={[dmStyles.container, dragOver && dmStyles.dragOverContainer]}
-        {...(Platform.OS === "web" ? {
-          onDragOver: (e: any) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); },
-          onDragLeave: (e: any) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); },
-          onDrop: (e: any) => {
-            e.preventDefault(); e.stopPropagation();
-            const dt = e.dataTransfer || e.nativeEvent?.dataTransfer;
-            if (dt?.files?.length) handleDrop(Array.from(dt.files));
-          },
-        } : {})}
+        {...(Platform.OS === "web" ? { dataSet: { dropzone: "doc-manager" } } : {})}
       >
         {dragOver && (
           <View style={dmStyles.dragOverlay}>

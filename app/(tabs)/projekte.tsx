@@ -766,7 +766,8 @@ export default function ProjekteScreen() {
               }}
               style={({ pressed }) => [styles.addButton, { opacity: pressed ? 0.7 : 1 }]}
             >
-              <Ionicons name="add" size={24} color="#000" />
+              <Ionicons name="add" size={18} color="#000" />
+              <Text style={styles.addButtonText}>Projekt anlegen</Text>
             </Pressable>
           </View>
         </View>
@@ -855,12 +856,19 @@ const styles = StyleSheet.create({
     borderColor: Colors.raw.zinc800,
   },
   addButton: {
-    width: 48,
-    height: 48,
+    flexDirection: "row",
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
+    gap: 4,
     backgroundColor: Colors.raw.amber500,
-    borderRadius: 14,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+  },
+  addButtonText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    color: "#000",
   },
   chipsScroll: {
     marginBottom: 20,
