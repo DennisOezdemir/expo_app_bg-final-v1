@@ -20,7 +20,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
@@ -36,6 +36,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 // --- Types ---
 
 interface OfferData {
+  id: string;
   offer_number: string;
   total_net: number | null;
   status: string | null;
@@ -488,6 +489,8 @@ function DocumentManagerModal({
   const [files, setFiles] = useState<FileData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const filesOffsetRef = useRef(0);
+  const scrollRef = useRef<ScrollView>(null);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -808,7 +811,7 @@ function DocumentManagerModal({
             <ActivityIndicator size="small" color={Colors.raw.amber500} />
           </View>
         ) : (
-          <ScrollView style={dmStyles.scroll} contentContainerStyle={dmStyles.scrollContent}>
+          <ScrollView ref={scrollRef} style={dmStyles.scroll} contentContainerStyle={dmStyles.scrollContent}>
             {/* Auto-generated docs */}
             {autoDocCount > 0 && (
               <View style={dmStyles.section}>
@@ -893,7 +896,12 @@ function DocumentManagerModal({
               {folders.map((folder) => (
                 <Pressable
                   key={folder.id}
-                  onPress={() => setActiveFolder(folder.id)}
+                  onPress={() => {
+                    setActiveFolder(folder.id);
+                    setTimeout(() => {
+                      scrollRef.current?.scrollTo?.({ y: filesOffsetRef.current, animated: true });
+                    }, 50);
+                  }}
                   onLongPress={() => deleteFolder(folder.id, folder.name)}
                   style={[dmStyles.folderRow, activeFolder === folder.id && dmStyles.folderActive]}
                 >
@@ -911,7 +919,7 @@ function DocumentManagerModal({
             </View>
 
             {/* Files */}
-            <View style={dmStyles.section}>
+            <View onLayout={(e) => { filesOffsetRef.current = e.nativeEvent.layout.y; }} style={dmStyles.section}>
               <Text style={dmStyles.sectionTitle}>
                 {activeFolder ? folders.find((f) => f.id === activeFolder)?.name || "Dateien" : "Alle Dateien"} ({visibleFiles.length})
               </Text>
@@ -1104,6 +1112,8 @@ export default function ProjectDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showBegehungPicker, setShowBegehungPicker] = useState(false);
+  const [begehungType, setBegehungType] = useState<string | null>(null);
+  const [showOfferPicker, setShowOfferPicker] = useState(false);
   const [showPhotoGallery, setShowPhotoGallery] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showDocManager, setShowDocManager] = useState(false);
@@ -1140,7 +1150,7 @@ export default function ProjectDetailScreen() {
     const [offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes, sagaOrdersRes] = await Promise.all([
       supabase
         .from("offers")
-        .select("offer_number, total_net, status, pdf_storage_path")
+        .select("id, offer_number, total_net, status, pdf_storage_path")
         .eq("project_id", id),
       supabase
         .from("project_messages")
@@ -1605,7 +1615,12 @@ export default function ProjectDetailScreen() {
                 onPress={() => {
                   if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowBegehungPicker(false);
-                  router.push({ pathname: "/begehung/[type]", params: { type: item.key, projectId: id || "" } });
+                  if (offers.length > 1) {
+                    setBegehungType(item.key);
+                    setShowOfferPicker(true);
+                  } else {
+                    router.push({ pathname: "/begehung/[type]", params: { type: item.key, projectId: id || "", offerId: offers[0]?.id || "" } });
+                  }
                 }}
                 testID={`begehung-option-${item.key}`}
               >
@@ -1622,6 +1637,50 @@ export default function ProjectDetailScreen() {
             <Pressable
               style={({ pressed }) => [styles.modalCancel, { opacity: pressed ? 0.7 : 1 }]}
               onPress={() => setShowBegehungPicker(false)}
+            >
+              <Text style={styles.modalCancelText}>Abbrechen</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Offer picker for Begehung (when multiple offers exist) */}
+      <Modal
+        visible={showOfferPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowOfferPicker(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowOfferPicker(false)}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Angebot w{"\u00E4"}hlen</Text>
+            <Text style={styles.modalSubtitle}>F{"\u00FC"}r welches Angebot soll die Begehung durchgef{"\u00FC"}hrt werden?</Text>
+            {offers.map((offer) => (
+              <Pressable
+                key={offer.id}
+                style={({ pressed }) => [styles.modalOption, { opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowOfferPicker(false);
+                  router.push({ pathname: "/begehung/[type]", params: { type: begehungType || "erstbegehung", projectId: id || "", offerId: offer.id } });
+                }}
+              >
+                <View style={styles.modalOptionIcon}>
+                  <Ionicons name="document-text" size={20} color={Colors.raw.amber500} />
+                </View>
+                <View style={styles.modalOptionText}>
+                  <Text style={styles.modalOptionLabel}>{offer.offer_number}</Text>
+                  <Text style={styles.modalOptionDesc}>
+                    {offer.status === "DRAFT" ? "Entwurf" : offer.status === "ACCEPTED" ? "Beauftragt" : offer.status || "—"}
+                    {offer.total_net ? ` · €${Number(offer.total_net).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : ""}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+              </Pressable>
+            ))}
+            <Pressable
+              style={({ pressed }) => [styles.modalCancel, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={() => setShowOfferPicker(false)}
             >
               <Text style={styles.modalCancelText}>Abbrechen</Text>
             </Pressable>

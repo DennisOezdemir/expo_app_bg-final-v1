@@ -168,16 +168,28 @@ async function fetchProjectInfo(projectId: string): Promise<ProjectInfo | null> 
   };
 }
 
-async function fetchRoomsForProject(projectId: string): Promise<BegehungRoom[]> {
-  // 1. Find the first offer for this project
-  const { data: offerData, error: offerError } = await supabase
-    .from("offers")
-    .select("id")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .single();
-  if (offerError || !offerData) return [];
+async function fetchRoomsForProject(projectId: string, offerId?: string): Promise<BegehungRoom[]> {
+  // 1. Find the offer — specific one if offerId given, otherwise first
+  let offerData: { id: string } | null = null;
+  if (offerId) {
+    const { data, error } = await supabase
+      .from("offers")
+      .select("id")
+      .eq("id", offerId)
+      .single();
+    if (!error && data) offerData = data;
+  }
+  if (!offerData) {
+    const { data, error } = await supabase
+      .from("offers")
+      .select("id")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .single();
+    if (error || !data) return [];
+    offerData = data;
+  }
 
   // 2. Load sections (rooms)
   const { data: sections, error: secError } = await supabase
@@ -222,7 +234,7 @@ async function fetchRoomsForProject(projectId: string): Promise<BegehungRoom[]> 
 }
 
 export default function BegehungScreen() {
-  const { type, projectId, protocolId } = useLocalSearchParams<{ type: string; projectId: string; protocolId?: string }>();
+  const { type, projectId, protocolId, offerId } = useLocalSearchParams<{ type: string; projectId: string; protocolId?: string; offerId?: string }>();
 
   if (!projectId) {
     return (
@@ -236,12 +248,12 @@ export default function BegehungScreen() {
     );
   }
 
-  if (type === "zwischenbegehung") return <ZwischenbegehungView projectId={projectId} protocolId={protocolId} />;
-  if (type === "abnahme") return <AbnahmeView projectId={projectId} protocolId={protocolId} />;
-  return <ErstbegehungView type={type || "erstbegehung"} projectId={projectId} protocolId={protocolId} />;
+  if (type === "zwischenbegehung") return <ZwischenbegehungView projectId={projectId} protocolId={protocolId} offerId={offerId} />;
+  if (type === "abnahme") return <AbnahmeView projectId={projectId} protocolId={protocolId} offerId={offerId} />;
+  return <ErstbegehungView type={type || "erstbegehung"} projectId={projectId} protocolId={protocolId} offerId={offerId} />;
 }
 
-function ErstbegehungView({ type, projectId, protocolId }: { type: string; projectId: string; protocolId?: string }) {
+function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: string; projectId: string; protocolId?: string; offerId?: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -275,7 +287,7 @@ function ErstbegehungView({ type, projectId, protocolId }: { type: string; proje
     (async () => {
       try {
         const [fetchedRooms, info] = await Promise.all([
-          fetchRoomsForProject(projectId),
+          fetchRoomsForProject(projectId, offerId),
           fetchProjectInfo(projectId),
         ]);
         if (cancelled) return;
@@ -661,7 +673,7 @@ function ErstbegehungView({ type, projectId, protocolId }: { type: string; proje
   );
 }
 
-function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; protocolId?: string }) {
+function ZwischenbegehungView({ projectId, protocolId, offerId }: { projectId: string; protocolId?: string; offerId?: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -685,7 +697,7 @@ function ZwischenbegehungView({ projectId, protocolId }: { projectId: string; pr
     (async () => {
       try {
         const [fetchedRooms, info] = await Promise.all([
-          fetchRoomsForProject(projectId),
+          fetchRoomsForProject(projectId, offerId),
           fetchProjectInfo(projectId),
         ]);
         if (cancelled) return;
@@ -1060,7 +1072,7 @@ interface AbnahmePosition {
   roomName: string;
 }
 
-function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?: string }) {
+function AbnahmeView({ projectId, protocolId, offerId }: { projectId: string; protocolId?: string; offerId?: string }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -1095,7 +1107,7 @@ function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?
             .eq("protocol_id", protocolId);
 
           // Also load position details from offer
-          const rooms = await fetchRoomsForProject(projectId);
+          const rooms = await fetchRoomsForProject(projectId, offerId);
           const allPositions: Record<string, { nr: string; title: string; desc: string; qty: number; unit: string; price: number; trade: string; roomName: string }> = {};
           rooms.forEach((r) => r.positions.forEach((p) => {
             allPositions[p.id] = { nr: p.nr, title: p.title, desc: p.desc, qty: p.qty, unit: p.unit, price: p.price, trade: p.trade, roomName: r.name };
@@ -1121,7 +1133,7 @@ function AbnahmeView({ projectId, protocolId }: { projectId: string; protocolId?
           const data = await fetchLatestInspectionProtocol(projectId, "zwischenbegehung");
           if (cancelled) return;
           if (!data || !data.items) { setLoading(false); return; }
-          const rooms = await fetchRoomsForProject(projectId);
+          const rooms = await fetchRoomsForProject(projectId, offerId);
           const allPositions: Record<string, { nr: string; title: string; desc: string; qty: number; unit: string; price: number; trade: string; roomName: string }> = {};
           rooms.forEach((r) => r.positions.forEach((p) => {
             allPositions[p.id] = { nr: p.nr, title: p.title, desc: p.desc, qty: p.qty, unit: p.unit, price: p.price, trade: p.trade, roomName: r.name };
