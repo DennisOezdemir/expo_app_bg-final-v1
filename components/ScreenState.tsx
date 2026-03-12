@@ -1,9 +1,12 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import React from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
+import { SkeletonCard } from "@/components/Skeleton";
 
 interface ScreenStateProps {
   kind: "loading" | "error" | "empty";
+  skeleton?: React.ReactNode;
   title?: string;
   detail?: string;
   retryLabel?: string;
@@ -13,6 +16,7 @@ interface ScreenStateProps {
 
 export function ScreenState({
   kind,
+  skeleton,
   title,
   detail,
   retryLabel = "Erneut versuchen",
@@ -20,11 +24,7 @@ export function ScreenState({
   iconName,
 }: ScreenStateProps) {
   if (kind === "loading") {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color={Colors.raw.amber500} />
-      </View>
-    );
+    return skeleton ? <>{skeleton}</> : <SkeletonCard />;
   }
 
   return (

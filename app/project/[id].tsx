@@ -30,8 +30,27 @@ import { mapDbStatus, type ProjectStatus } from "@/lib/status";
 import { captureAndUploadPhoto } from "@/lib/photo-capture";
 import { useOffline } from "@/contexts/OfflineContext";
 import { useProjectDetail } from "@/hooks/queries/useProjectDetail";
+import { SkeletonBox, SkeletonLine } from "@/components/Skeleton";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// Alert that works on web too
+function showAlert(title: string, msg?: string) {
+  if (Platform.OS === "web") {
+    window.alert(msg ? `${title}: ${msg}` : title);
+  } else {
+    Alert.alert(title, msg);
+  }
+}
+
+// Sanitize filename for Supabase Storage (no spaces, no special chars)
+function sanitizeFileName(name: string): string {
+  return name
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[äÄ]/g, "ae").replace(/[öÖ]/g, "oe").replace(/[üÜ]/g, "ue").replace(/[ß]/g, "ss")
+    .replace(/\s+/g, "_")       // spaces → underscores
+    .replace(/[^a-zA-Z0-9._-]/g, ""); // remove everything else
+}
 
 // --- Types ---
 
@@ -199,7 +218,7 @@ const shStyles = StyleSheet.create({
     color: Colors.raw.white,
   },
   badge: {
-    backgroundColor: Colors.raw.rose500,
+    backgroundColor: Colors.raw.amber500,
     borderRadius: 10,
     minWidth: 22,
     height: 22,
@@ -210,7 +229,7 @@ const shStyles = StyleSheet.create({
   badgeText: {
     fontFamily: "Inter_700Bold",
     fontSize: 11,
-    color: "#fff",
+    color: "#000",
   },
 });
 
@@ -505,14 +524,15 @@ function DocumentManagerModal({
     try {
       for (const file of droppedFiles) {
         const ts = Date.now();
-        const storagePath = `documents/${projectId}/${ts}_${file.name}`;
+        const storagePath = `documents/${projectId}/${ts}_${sanitizeFileName(file.name)}`;
+        console.log("[Upload] Drag&Drop uploading:", file.name, "to", storagePath, "folder:", activeFolder);
         const { error: uploadErr } = await supabase.storage
           .from("project-files")
           .upload(storagePath, file, { contentType: file.type || "application/octet-stream" });
-        if (uploadErr) { Alert.alert("Upload-Fehler", uploadErr.message); continue; }
+        if (uploadErr) { console.error("[Upload] Storage error:", uploadErr); showAlert("Upload-Fehler", uploadErr.message); continue; }
 
         const fileType = file.type?.startsWith("image/") ? "photo" : file.type === "application/pdf" ? "pdf" : "document";
-        await supabase.from("project_files").insert({
+        const { error: dbErr } = await supabase.from("project_files").insert({
           project_id: projectId,
           file_type: fileType,
           file_name: file.name,
@@ -521,11 +541,14 @@ function DocumentManagerModal({
           storage_path: storagePath,
           folder_id: activeFolder,
         });
+        if (dbErr) { console.error("[Upload] DB insert error:", dbErr); showAlert("DB-Fehler", dbErr.message); continue; }
+        console.log("[Upload] Success:", file.name);
       }
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       fetchData();
     } catch (err: any) {
-      Alert.alert("Fehler", err.message || "Upload fehlgeschlagen");
+      console.error("[Upload] Catch error:", err);
+      showAlert("Fehler", err.message || "Upload fehlgeschlagen");
     }
     setUploading(false);
   }, [projectId, activeFolder]);
@@ -533,27 +556,46 @@ function DocumentManagerModal({
   // Native DOM event listeners for drag & drop on web
   useEffect(() => {
     if (Platform.OS !== "web" || !visible) return;
-    const node = (dropContainerRef.current as any);
-    const el: HTMLElement | null = node && (node instanceof HTMLElement ? node : node._nativeTag ?? node.getNode?.() ?? null);
-    // fallback: find the modal container in the DOM
-    const target = el || document.querySelector('[data-dropzone="doc-manager"]') as HTMLElement | null;
-    if (!target) return;
 
-    const onDragOver = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); };
-    const onDragLeave = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); };
-    const onDropHandler = (e: DragEvent) => {
-      e.preventDefault(); e.stopPropagation();
-      const dt = e.dataTransfer;
-      if (dt?.files?.length) handleDrop(Array.from(dt.files));
+    let target: HTMLElement | null = null;
+    let cleanup: (() => void) | null = null;
+
+    const attach = () => {
+      target = document.querySelector('[data-dropzone="doc-manager"]') as HTMLElement | null;
+      if (!target) return;
+
+      const onDragOver = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); };
+      const onDragLeave = (e: DragEvent) => {
+        e.preventDefault(); e.stopPropagation();
+        // Only hide overlay when actually leaving the container
+        const related = e.relatedTarget as HTMLElement | null;
+        if (!related || !target?.contains(related)) setDragOver(false);
+      };
+      const onDropHandler = (e: DragEvent) => {
+        e.preventDefault(); e.stopPropagation();
+        const dt = e.dataTransfer;
+        if (dt?.files?.length) handleDrop(Array.from(dt.files));
+      };
+
+      target.addEventListener("dragover", onDragOver);
+      target.addEventListener("dragleave", onDragLeave);
+      target.addEventListener("drop", onDropHandler);
+
+      cleanup = () => {
+        target?.removeEventListener("dragover", onDragOver);
+        target?.removeEventListener("dragleave", onDragLeave);
+        target?.removeEventListener("drop", onDropHandler);
+      };
     };
 
-    target.addEventListener("dragover", onDragOver);
-    target.addEventListener("dragleave", onDragLeave);
-    target.addEventListener("drop", onDropHandler);
+    // Modal may not be in DOM yet — retry briefly
+    const timer = setTimeout(attach, 100);
+    const timer2 = setTimeout(() => { if (!target) attach(); }, 300);
+
     return () => {
-      target.removeEventListener("dragover", onDragOver);
-      target.removeEventListener("dragleave", onDragLeave);
-      target.removeEventListener("drop", onDropHandler);
+      clearTimeout(timer);
+      clearTimeout(timer2);
+      cleanup?.();
     };
   }, [visible, handleDrop]);
 
@@ -605,22 +647,30 @@ function DocumentManagerModal({
   };
 
   const deleteFolder = (folderId: string, folderName: string) => {
-    Alert.alert(
-      "Ordner löschen",
-      `"${folderName}" wirklich löschen? Dateien werden nicht gelöscht.`,
-      [
-        { text: "Abbrechen", style: "cancel" },
-        {
-          text: "Löschen",
-          style: "destructive",
-          onPress: async () => {
-            await supabase.from("project_folders").delete().eq("id", folderId);
-            if (activeFolder === folderId) setActiveFolder(null);
-            fetchData();
+    if (Platform.OS === "web") {
+      if (!window.confirm(`"${folderName}" wirklich löschen? Dateien werden nicht gelöscht.`)) return;
+      supabase.from("project_folders").delete().eq("id", folderId).then(() => {
+        if (activeFolder === folderId) setActiveFolder(null);
+        fetchData();
+      });
+    } else {
+      Alert.alert(
+        "Ordner löschen",
+        `"${folderName}" wirklich löschen? Dateien werden nicht gelöscht.`,
+        [
+          { text: "Abbrechen", style: "cancel" },
+          {
+            text: "Löschen",
+            style: "destructive",
+            onPress: async () => {
+              await supabase.from("project_folders").delete().eq("id", folderId);
+              if (activeFolder === folderId) setActiveFolder(null);
+              fetchData();
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const pickAndUploadFile = async () => {
@@ -630,7 +680,7 @@ function DocumentManagerModal({
         const file = await new Promise<File | null>((resolve) => {
           const input = document.createElement("input");
           input.type = "file";
-          input.accept = "image/*,application/pdf,.dwg,.dxf";
+          input.accept = "image/*,application/pdf,.dwg,.dxf,.doc,.docx,.xls,.xlsx";
           input.style.display = "none";
           document.body.appendChild(input);
           input.addEventListener("change", () => {
@@ -646,16 +696,22 @@ function DocumentManagerModal({
         if (!file) { setUploading(false); return; }
 
         const ts = Date.now();
-        const ext = file.name.split(".").pop() || "bin";
-        const storagePath = `documents/${projectId}/${ts}_${file.name}`;
+        const storagePath = `documents/${projectId}/${ts}_${sanitizeFileName(file.name)}`;
+        console.log("[Upload] Picker uploading:", file.name, "size:", file.size, "type:", file.type, "to folder:", activeFolder);
 
         const { error: uploadErr } = await supabase.storage
           .from("project-files")
           .upload(storagePath, file, { contentType: file.type || "application/octet-stream" });
-        if (uploadErr) { Alert.alert("Upload-Fehler", uploadErr.message); setUploading(false); return; }
+        if (uploadErr) {
+          console.error("[Upload] Storage error:", uploadErr);
+          showAlert("Upload-Fehler", uploadErr.message);
+          setUploading(false);
+          return;
+        }
+        console.log("[Upload] Storage OK, inserting DB record...");
 
         const fileType = file.type?.startsWith("image/") ? "photo" : file.type === "application/pdf" ? "pdf" : "document";
-        await supabase.from("project_files").insert({
+        const { error: dbErr } = await supabase.from("project_files").insert({
           project_id: projectId,
           file_type: fileType,
           file_name: file.name,
@@ -664,6 +720,13 @@ function DocumentManagerModal({
           storage_path: storagePath,
           folder_id: activeFolder,
         });
+        if (dbErr) {
+          console.error("[Upload] DB insert error:", dbErr);
+          showAlert("DB-Fehler", dbErr.message);
+          setUploading(false);
+          return;
+        }
+        console.log("[Upload] DB OK. Done!");
       } else {
         const ImagePicker = require("expo-image-picker");
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -675,7 +738,7 @@ function DocumentManagerModal({
 
         const asset = result.assets[0];
         const fileName = asset.fileName || `photo_${Date.now()}.jpg`;
-        const storagePath = `documents/${projectId}/${Date.now()}_${fileName}`;
+        const storagePath = `documents/${projectId}/${Date.now()}_${sanitizeFileName(fileName)}`;
         const base64 = asset.base64;
         if (!base64) { setUploading(false); return; }
 
@@ -683,9 +746,9 @@ function DocumentManagerModal({
         const { error: uploadErr } = await supabase.storage
           .from("project-files")
           .upload(storagePath, decode(base64), { contentType: "image/jpeg" });
-        if (uploadErr) { Alert.alert("Upload-Fehler", uploadErr.message); setUploading(false); return; }
+        if (uploadErr) { showAlert("Upload-Fehler", uploadErr.message); setUploading(false); return; }
 
-        await supabase.from("project_files").insert({
+        const { error: dbErr } = await supabase.from("project_files").insert({
           project_id: projectId,
           file_type: "photo",
           file_name: fileName,
@@ -694,12 +757,14 @@ function DocumentManagerModal({
           storage_path: storagePath,
           folder_id: activeFolder,
         });
+        if (dbErr) { showAlert("DB-Fehler", dbErr.message); setUploading(false); return; }
       }
 
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       fetchData();
     } catch (err: any) {
-      Alert.alert("Fehler", err.message || "Upload fehlgeschlagen");
+      console.error("[Upload] Catch error:", err);
+      showAlert("Fehler", err.message || "Upload fehlgeschlagen");
     }
     setUploading(false);
   };
@@ -725,31 +790,32 @@ function DocumentManagerModal({
         });
         if (!file) { setUploading(false); return; }
         fileName = file.name || `foto_${Date.now()}.jpg`;
-        storagePath = `documents/${projectId}/${Date.now()}_${fileName}`;
+        storagePath = `documents/${projectId}/${Date.now()}_${sanitizeFileName(fileName)}`;
         fileSize = file.size;
         const { error: uploadErr } = await supabase.storage
           .from("project-files")
           .upload(storagePath, file, { contentType: file.type || "image/jpeg" });
-        if (uploadErr) { Alert.alert("Fehler", uploadErr.message); setUploading(false); return; }
+        if (uploadErr) { console.error("[CapturePhoto] Storage error:", uploadErr); showAlert("Fehler", uploadErr.message); setUploading(false); return; }
       } else {
         const ImagePicker = require("expo-image-picker");
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== "granted") { Alert.alert("Kamera-Zugriff benötigt"); setUploading(false); return; }
+        if (status !== "granted") { showAlert("Kamera-Zugriff benötigt"); setUploading(false); return; }
         const result = await ImagePicker.launchCameraAsync({ quality: 0.7, base64: true });
         if (result.canceled || !result.assets?.length) { setUploading(false); return; }
         const base64 = result.assets[0].base64;
         if (!base64) { setUploading(false); return; }
         fileName = `foto_${Date.now()}.jpg`;
-        storagePath = `documents/${projectId}/${Date.now()}_${fileName}`;
+        storagePath = `documents/${projectId}/${Date.now()}_${sanitizeFileName(fileName)}`;
         fileSize = Math.round(base64.length * 0.75);
         const { decode } = require("base64-arraybuffer");
         const { error: uploadErr } = await supabase.storage
           .from("project-files")
           .upload(storagePath, decode(base64), { contentType: "image/jpeg" });
-        if (uploadErr) { Alert.alert("Fehler", uploadErr.message); setUploading(false); return; }
+        if (uploadErr) { console.error("[CapturePhoto] Storage error:", uploadErr); showAlert("Fehler", uploadErr.message); setUploading(false); return; }
       }
 
-      await supabase.from("project_files").insert({
+      console.log("[CapturePhoto] Storage OK, inserting DB...");
+      const { error: dbErr } = await supabase.from("project_files").insert({
         project_id: projectId,
         file_type: "photo",
         file_name: fileName,
@@ -758,11 +824,13 @@ function DocumentManagerModal({
         storage_path: storagePath,
         folder_id: activeFolder,
       });
+      if (dbErr) { console.error("[CapturePhoto] DB error:", dbErr); showAlert("DB-Fehler", dbErr.message); setUploading(false); return; }
 
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       fetchData();
     } catch (err: any) {
-      Alert.alert("Fehler", err.message);
+      console.error("[CapturePhoto] Catch error:", err);
+      showAlert("Fehler", err.message);
     }
     setUploading(false);
   };
@@ -911,75 +979,95 @@ function DocumentManagerModal({
                 <Text style={[dmStyles.folderName, !activeFolder && { color: Colors.raw.amber500 }]}>
                   Alle Dateien
                 </Text>
-                <Text style={dmStyles.folderCount}>{files.length}</Text>
+                {files.length > 0 ? (
+                  <View style={dmStyles.folderBadge}>
+                    <Text style={dmStyles.folderBadgeText}>{files.length}</Text>
+                  </View>
+                ) : (
+                  <Text style={dmStyles.folderCountEmpty}>0</Text>
+                )}
               </Pressable>
 
-              {folders.map((folder) => (
-                <Pressable
-                  key={folder.id}
-                  onPress={() => {
-                    setActiveFolder(folder.id);
-                    setTimeout(() => {
-                      scrollRef.current?.scrollTo?.({ y: filesOffsetRef.current, animated: true });
-                    }, 50);
-                  }}
-                  onLongPress={() => deleteFolder(folder.id, folder.name)}
-                  style={[dmStyles.folderRow, activeFolder === folder.id && dmStyles.folderActive]}
-                >
-                  <Ionicons
-                    name="folder"
-                    size={20}
-                    color={activeFolder === folder.id ? Colors.raw.amber500 : Colors.raw.zinc500}
-                  />
-                  <Text style={[dmStyles.folderName, activeFolder === folder.id && { color: Colors.raw.amber500 }]}>
-                    {folder.name}
-                  </Text>
-                  <Text style={dmStyles.folderCount}>{folder.file_count}</Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Files */}
-            <View onLayout={(e) => { filesOffsetRef.current = e.nativeEvent.layout.y; }} style={dmStyles.section}>
-              <Text style={dmStyles.sectionTitle}>
-                {activeFolder ? folders.find((f) => f.id === activeFolder)?.name || "Dateien" : "Alle Dateien"} ({visibleFiles.length})
-              </Text>
-              {visibleFiles.length === 0 ? (
-                <View style={dmStyles.emptyDropZone}>
-                  <Ionicons name="cloud-upload-outline" size={32} color={Colors.raw.zinc700} />
-                  <Text style={dmStyles.emptyText}>
-                    {activeFolder ? "Ordner ist leer" : "Keine Dateien vorhanden"}
-                  </Text>
-                  {Platform.OS === "web" && (
-                    <Text style={dmStyles.dropHint}>Dateien per Drag & Drop hierher ziehen</Text>
-                  )}
-                </View>
-              ) : (
-                visibleFiles.map((file) => (
-                  <Pressable
-                    key={file.id}
-                    onPress={() => openFile(file)}
-                    style={({ pressed }) => [dmStyles.fileRow, { opacity: pressed ? 0.8 : 1 }]}
-                  >
-                    <Ionicons
-                      name={
-                        file.mime_type?.startsWith("image/") ? "image" :
-                        file.mime_type === "application/pdf" ? "document-text" : "document"
-                      }
-                      size={20}
-                      color={Colors.raw.amber500}
-                    />
-                    <View style={dmStyles.fileInfo}>
-                      <Text style={dmStyles.fileName} numberOfLines={1}>{file.file_name}</Text>
-                      <Text style={dmStyles.fileMeta}>
-                        {formatSize(file.file_size_bytes)}
-                        {file.created_at ? ` · ${new Date(file.created_at).toLocaleDateString("de-DE")}` : ""}
+              {folders.map((folder) => {
+                const isOpen = activeFolder === folder.id;
+                const folderFiles = files.filter((f) => f.folder_id === folder.id);
+                return (
+                  <View key={folder.id}>
+                    <Pressable
+                      onPress={() => setActiveFolder(isOpen ? null : folder.id)}
+                      onLongPress={() => deleteFolder(folder.id, folder.name)}
+                      style={[dmStyles.folderRow, isOpen && dmStyles.folderActive]}
+                    >
+                      <Ionicons
+                        name={isOpen ? "folder-open" : "folder"}
+                        size={20}
+                        color={isOpen ? Colors.raw.amber500 : Colors.raw.zinc500}
+                      />
+                      <Text style={[dmStyles.folderName, isOpen && { color: Colors.raw.amber500 }]}>
+                        {folder.name}
                       </Text>
-                    </View>
-                    <Feather name="download" size={16} color={Colors.raw.zinc500} />
-                  </Pressable>
-                ))
-              )}
+                      {folder.file_count > 0 ? (
+                        <View style={dmStyles.folderBadge}>
+                          <Text style={dmStyles.folderBadgeText}>{folder.file_count}</Text>
+                        </View>
+                      ) : (
+                        <Text style={dmStyles.folderCountEmpty}>0</Text>
+                      )}
+                      <Ionicons
+                        name={isOpen ? "chevron-down" : "chevron-forward"}
+                        size={18}
+                        color={isOpen ? Colors.raw.amber500 : Colors.raw.zinc600}
+                      />
+                    </Pressable>
+                    {isOpen && (
+                      <View style={dmStyles.folderContent}>
+                        {folderFiles.length === 0 ? (
+                          <Pressable onPress={pickAndUploadFile} disabled={uploading} style={dmStyles.emptyDropZoneSmall}>
+                            <Ionicons name="cloud-upload-outline" size={24} color={Colors.raw.zinc600} />
+                            <Text style={dmStyles.emptyText}>Ordner ist leer</Text>
+                            <Text style={dmStyles.dropHint}>
+                              {Platform.OS === "web" ? "Drag & Drop oder Klick" : "Tippen zum Hochladen"}
+                            </Text>
+                          </Pressable>
+                        ) : (
+                          folderFiles.map((file) => (
+                            <Pressable
+                              key={file.id}
+                              onPress={() => openFile(file)}
+                              style={({ pressed }) => [dmStyles.fileRow, dmStyles.fileRowIndented, { opacity: pressed ? 0.8 : 1 }]}
+                            >
+                              <Ionicons
+                                name={
+                                  file.mime_type?.startsWith("image/") ? "image" :
+                                  file.mime_type === "application/pdf" ? "document-text" : "document"
+                                }
+                                size={18}
+                                color={Colors.raw.amber500}
+                              />
+                              <View style={dmStyles.fileInfo}>
+                                <Text style={dmStyles.fileName} numberOfLines={1}>{file.file_name}</Text>
+                                <Text style={dmStyles.fileMeta}>
+                                  {formatSize(file.file_size_bytes)}
+                                  {file.created_at ? ` · ${new Date(file.created_at).toLocaleDateString("de-DE")}` : ""}
+                                </Text>
+                              </View>
+                              <Feather name="download" size={16} color={Colors.raw.zinc500} />
+                            </Pressable>
+                          ))
+                        )}
+                        <Pressable
+                          onPress={pickAndUploadFile}
+                          disabled={uploading}
+                          style={({ pressed }) => [dmStyles.uploadInFolderBtn, { opacity: pressed || uploading ? 0.6 : 1 }]}
+                        >
+                          <Ionicons name="cloud-upload" size={14} color={Colors.raw.amber500} />
+                          <Text style={dmStyles.uploadInlineBtnText}>Hochladen</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
             </View>
           </ScrollView>
         )}
@@ -1083,16 +1171,70 @@ const dmStyles = StyleSheet.create({
   },
   folderActive: { backgroundColor: Colors.raw.amber500 + "10" },
   folderName: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc300 },
-  folderCount: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc600 },
+  folderBadge: {
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 10,
+    minWidth: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+    marginRight: 4,
+  },
+  folderBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+    color: "#000",
+  },
+  folderCountEmpty: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc700, marginRight: 4 },
+  folderContent: {
+    backgroundColor: Colors.raw.zinc900,
+    marginLeft: 20,
+    marginBottom: 4,
+    borderLeftWidth: 2,
+    borderLeftColor: Colors.raw.amber500 + "30",
+    paddingLeft: 12,
+  },
+  emptyDropZoneSmall: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 20,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    borderStyle: "dashed" as any,
+    borderRadius: 12,
+    gap: 4,
+    marginVertical: 8,
+  },
+  fileRowIndented: {
+    paddingLeft: 4,
+  },
+  uploadInFolderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: 4,
+    marginBottom: 8,
+    borderRadius: 8,
+    backgroundColor: Colors.raw.amber500 + "10",
+  },
+  uploadInlineBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.amber500,
+  },
   emptyDropZone: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 40,
+    paddingVertical: 30,
     borderWidth: 2,
     borderColor: Colors.raw.zinc800,
     borderStyle: "dashed" as any,
     borderRadius: 16,
-    gap: 8,
+    gap: 6,
+    marginTop: 8,
   },
   emptyText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc600, textAlign: "center" },
   dropHint: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc700, textAlign: "center" },
@@ -1108,6 +1250,20 @@ const dmStyles = StyleSheet.create({
   fileName: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc300 },
   fileMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc600, marginTop: 2 },
 });
+
+// --- Skeleton ---
+
+function ProjektDetailSkeleton() {
+  return (
+    <View style={{ padding: 20, gap: 16 }}>
+      <SkeletonLine width="60%" />
+      <SkeletonLine width="40%" />
+      <SkeletonBox height={120} borderRadius={12} />
+      <SkeletonBox height={120} borderRadius={12} />
+      <SkeletonBox height={120} borderRadius={12} />
+    </View>
+  );
+}
 
 // --- Main Screen ---
 
@@ -1130,6 +1286,7 @@ export default function ProjectDetailScreen() {
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [totalCosts, setTotalCosts] = useState<number>(0);
   const [photoCount, setPhotoCount] = useState(0);
+  const [docFileCount, setDocFileCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showBegehungPicker, setShowBegehungPicker] = useState(false);
@@ -1168,7 +1325,7 @@ export default function ProjectDetailScreen() {
     setLoading(true);
     setError(null);
 
-    const [offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes, sagaOrdersRes] = await Promise.all([
+    const [offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes, sagaOrdersRes, docFilesCountRes] = await Promise.all([
       supabase
         .from("offers")
         .select("id, offer_number, total_net, status, pdf_storage_path")
@@ -1196,6 +1353,10 @@ export default function ProjectDetailScreen() {
         .from("saga_orders")
         .select("id, external_ref, address, pdf_url, pdf_file_url, status, created_at")
         .eq("project_id", id),
+      supabase
+        .from("project_files")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", id),
     ]);
 
     setOffers(offersRes.data ?? []);
@@ -1203,6 +1364,7 @@ export default function ProjectDetailScreen() {
     setInspections(inspectionsRes.data ?? []);
     setSagaOrders(sagaOrdersRes.data ?? []);
     setPhotoCount(photosCountRes.count ?? 0);
+    setDocFileCount(docFilesCountRes.count ?? 0);
 
     const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
     setTotalCosts(costs);
@@ -1245,7 +1407,7 @@ export default function ProjectDetailScreen() {
   if (loading || projectLoading) {
     return (
       <View style={styles.container}>
-        <ScreenState kind="loading" />
+        <ScreenState kind="loading" skeleton={<ProjektDetailSkeleton />} />
       </View>
     );
   }
@@ -1512,11 +1674,17 @@ export default function ProjectDetailScreen() {
                   <Text style={styles.photoSubtitle}>{photoUploading ? "Wird hochgeladen..." : "Noch keine Fotos"}</Text>
                   <Text style={styles.photoSubtitle}>{photoUploading ? "Bitte warten" : "Tippen um Foto aufzunehmen"}</Text>
                 </View>
-                {photoUploading ? (
-                  <ActivityIndicator size="small" color={Colors.raw.amber500} />
-                ) : (
-                  <Ionicons name="add-circle" size={28} color={Colors.raw.amber500} />
-                )}
+                <Pressable
+                  onPress={handleCapturePhoto}
+                  disabled={photoUploading}
+                  style={({ pressed }) => [styles.begehungAddBtn, { opacity: pressed || photoUploading ? 0.6 : 1 }]}
+                >
+                  {photoUploading ? (
+                    <ActivityIndicator size={14} color={Colors.raw.zinc950} />
+                  ) : (
+                    <Ionicons name="add" size={18} color={Colors.raw.zinc950} />
+                  )}
+                </Pressable>
               </View>
             </Pressable>
           )}
@@ -1577,8 +1745,17 @@ export default function ProjectDetailScreen() {
         <SectionCard>
           <SectionHeader
             title="Dokumente"
-            badge={(() => { const c = offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length; return c > 0 ? String(c) : undefined; })()}
+            badge={(() => { const c = sagaOrders.length + offers.length + inspections.filter((i) => i.finalized_at || i.status === "completed").length + docFileCount; return c > 0 ? String(c) : undefined; })()}
           />
+          {sagaOrders.map((order) => (
+            <DocumentRow
+              key={`order-${order.id}`}
+              name={`Auftrag ${order.external_ref || "—"}`}
+              subtitle={order.address || undefined}
+              externalUrl={order.pdf_file_url || order.pdf_url}
+              icon="briefcase"
+            />
+          ))}
           {offers.map((offer) => (
             <DocumentRow
               key={offer.offer_number}
@@ -1599,8 +1776,11 @@ export default function ProjectDetailScreen() {
                 icon="clipboard"
               />
             ))}
-          {offers.length === 0 && inspections.filter((i) => i.finalized_at || i.status === "completed").length === 0 && (
+          {sagaOrders.length === 0 && offers.length === 0 && inspections.filter((i) => i.finalized_at || i.status === "completed").length === 0 && docFileCount === 0 && (
             <Text style={styles.emptySection}>Keine Dokumente</Text>
+          )}
+          {docFileCount > 0 && (
+            <Text style={[styles.emptySection, { color: Colors.raw.zinc500 }]}>+ {docFileCount} Dateien in der Ablage</Text>
           )}
           <Pressable
             onPress={() => {

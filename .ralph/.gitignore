@@ -1,0 +1,7 @@
+# Ralph working files
+*.log
+*.tmp
+.env.local
+.context.json
+
+# Don't ignore anything else - all ralph files should be committed
