@@ -14,10 +14,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Project {
   id: string;
@@ -161,6 +162,7 @@ interface OfferPosition {
   nr: string;
   title: string;
   desc: string;
+  longText: string;
   qty: number;
   unit: string;
   basePrice: number;
@@ -517,6 +519,7 @@ function AddPositionSheet({
       nr: `${roomNr}.${String(nextPosNr).padStart(2, "0")}`,
       title: addedItem.title,
       desc: addedItem.desc,
+      longText: addedItem.desc,
       qty: qtyNum,
       unit: addedItem.unit,
       basePrice: priceNum,
@@ -538,6 +541,7 @@ function AddPositionSheet({
       nr: freiNr,
       title: freiTitle,
       desc: freiDesc,
+      longText: freiDesc,
       qty: qtyNum,
       unit: freiUnit,
       basePrice: priceNum,
@@ -800,6 +804,7 @@ function AddPositionSheet({
                               nr: `${roomNr}.${String(nextPosNr + idx).padStart(2, "0")}`,
                               title: p.title,
                               desc: p.desc,
+                              longText: p.desc,
                               qty: p.qty,
                               unit: p.unit,
                               basePrice: p.price,
@@ -934,27 +939,52 @@ function EditPositionSheet({
   position,
   onSave,
   onDelete,
+  focusField,
 }: {
   visible: boolean;
   onClose: () => void;
   position: OfferPosition | null;
   onSave: (pos: OfferPosition) => void;
   onDelete: (id: string) => void;
+  focusField?: "title" | "qty" | "unit" | "price" | "longText" | "markup";
 }) {
   const insets = useSafeAreaInsets();
+  const [titleVal, setTitleVal] = useState("");
   const [qty, setQty] = useState("");
+  const [unitVal, setUnitVal] = useState("");
   const [price, setPrice] = useState("");
   const [markupVal, setMarkupVal] = useState("");
   const [desc, setDesc] = useState("");
 
+  const titleRef = React.useRef<TextInput>(null);
+  const qtyRef = React.useRef<TextInput>(null);
+  const unitRef = React.useRef<TextInput>(null);
+  const priceRef = React.useRef<TextInput>(null);
+  const longTextRef = React.useRef<TextInput>(null);
+  const markupRef = React.useRef<TextInput>(null);
+
   useEffect(() => {
     if (position) {
+      setTitleVal(position.title);
       setQty(position.qty > 0 ? position.qty.toString().replace(".", ",") : "");
+      setUnitVal(position.unit);
       setPrice(position.basePrice.toFixed(2).replace(".", ","));
       setMarkupVal(position.markup.toString());
-      setDesc(position.desc);
+      setDesc(position.longText || position.desc);
     }
   }, [position]);
+
+  useEffect(() => {
+    if (visible && focusField) {
+      const timer = setTimeout(() => {
+        const refMap: Record<string, React.RefObject<TextInput>> = {
+          title: titleRef, qty: qtyRef, unit: unitRef, price: priceRef, longText: longTextRef, markup: markupRef,
+        };
+        refMap[focusField]?.current?.focus();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [visible, focusField]);
 
   if (!position) return null;
 
@@ -968,10 +998,13 @@ function EditPositionSheet({
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     onSave({
       ...position,
+      title: titleVal.trim() || position.title,
+      unit: unitVal.trim() || position.unit,
       qty: qtyNum,
       basePrice,
       markup: markupNum,
       desc,
+      longText: desc,
     });
     onClose();
   };
@@ -980,7 +1013,7 @@ function EditPositionSheet({
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={apStyles.overlay}>
-          <View style={[apStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20), maxHeight: "80%" }]}>
+          <View style={[apStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20), maxHeight: "85%" }]}>
             <View style={apStyles.handle} />
             <View style={apStyles.sheetHeader}>
               <Text style={apStyles.sheetTitle}>{position.nr} bearbeiten</Text>
@@ -989,13 +1022,23 @@ function EditPositionSheet({
               </Pressable>
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={epStyles.posTitle}>{position.title}</Text>
+              <Text style={apStyles.fieldLabel}>Kurztext</Text>
+              <TextInput
+                ref={titleRef}
+                style={apStyles.freiInput}
+                value={titleVal}
+                onChangeText={setTitleVal}
+                placeholder="Positionsbezeichnung"
+                placeholderTextColor={Colors.raw.zinc600}
+              />
               <Text style={apStyles.fieldLabel}>Langtext</Text>
               <TextInput
+                ref={longTextRef}
                 style={[apStyles.freiInput, { height: 80, textAlignVertical: "top" }]}
                 value={desc}
                 onChangeText={setDesc}
                 multiline
+                placeholder="Beschreibung der Leistung..."
                 placeholderTextColor={Colors.raw.zinc600}
               />
               {position.catalogNr && position.catalogPositionId && (
@@ -1010,31 +1053,63 @@ function EditPositionSheet({
               <View style={{ flexDirection: "row", gap: 12 }}>
                 <View style={{ flex: 1 }}>
                   <Text style={apStyles.fieldLabel}>Menge</Text>
+                  <TextInput
+                    ref={qtyRef}
+                    style={apStyles.freiInput}
+                    value={qty}
+                    onChangeText={setQty}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    placeholderTextColor={Colors.raw.zinc600}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={apStyles.fieldLabel}>Einheit</Text>
+                  <TextInput
+                    ref={unitRef}
+                    style={apStyles.freiInput}
+                    value={unitVal}
+                    onChangeText={setUnitVal}
+                    placeholder="m², Stk, lfm..."
+                    placeholderTextColor={Colors.raw.zinc600}
+                  />
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={apStyles.fieldLabel}>Einzelpreis</Text>
                   <View style={apStyles.fieldRow}>
-                    <TextInput style={[apStyles.fieldInput, { flex: 1 }]} value={qty} onChangeText={setQty} keyboardType="decimal-pad" />
-                    <Text style={apStyles.fieldUnit}>{position.unit}</Text>
+                    <Text style={apStyles.euroPrefix}>{"\u20AC"}</Text>
+                    <TextInput
+                      ref={priceRef}
+                      style={[apStyles.fieldInput, { flex: 1 }]}
+                      value={price}
+                      onChangeText={setPrice}
+                      keyboardType="decimal-pad"
+                    />
                   </View>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={apStyles.fieldLabel}>Preis</Text>
+                  <Text style={apStyles.fieldLabel}>Aufschlag</Text>
                   <View style={apStyles.fieldRow}>
-                    <Text style={apStyles.euroPrefix}>{"\u20AC"}</Text>
-                    <TextInput style={[apStyles.fieldInput, { flex: 1 }]} value={price} onChangeText={setPrice} keyboardType="decimal-pad" />
+                    <TextInput
+                      ref={markupRef}
+                      style={[apStyles.fieldInput, { width: 60 }]}
+                      value={markupVal}
+                      onChangeText={setMarkupVal}
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={apStyles.fieldUnit}>%</Text>
                   </View>
                 </View>
               </View>
               {position.catalogNr && (
                 <Text style={epStyles.catalogRef}>Katalog-Pos: {position.catalogNr}</Text>
               )}
-              <Text style={apStyles.fieldLabel}>Aufschlag</Text>
-              <View style={apStyles.fieldRow}>
-                <TextInput style={[apStyles.fieldInput, { width: 60 }]} value={markupVal} onChangeText={setMarkupVal} keyboardType="decimal-pad" />
-                <Text style={apStyles.fieldUnit}>%</Text>
-              </View>
               <View style={epStyles.summaryBlock}>
                 <View style={epStyles.summaryRow}>
                   <Text style={epStyles.summaryLabel}>Endpreis</Text>
-                  <Text style={epStyles.summaryValue}>{formatEuro(endPrice)} /{position.unit}</Text>
+                  <Text style={epStyles.summaryValue}>{formatEuro(endPrice)} /{unitVal || position.unit}</Text>
                 </View>
                 <View style={epStyles.summaryRow}>
                   <Text style={epStyles.summaryLabel}>Gesamt</Text>
@@ -1210,6 +1285,7 @@ export default function OfferEditorScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+  const { user } = useAuth();
 
   const isEditing = !!params.offerId;
 
@@ -1296,7 +1372,7 @@ export default function OfferEditorScreen() {
 
       const { data: positions } = await supabase
         .from("offer_positions")
-        .select("id, section_id, position_number, title, description, unit, unit_price, quantity, total_price, catalog_code, catalog_position_v2_id, surcharge_profit_percent, sort_order")
+        .select("id, section_id, position_number, title, description, long_text, unit, unit_price, quantity, total_price, catalog_code, catalog_position_v2_id, surcharge_profit_percent, sort_order")
         .eq("offer_id", oid)
         .is("deleted_at", null)
         .order("sort_order");
@@ -1309,6 +1385,7 @@ export default function OfferEditorScreen() {
             nr: `${String(sec.section_number).padStart(2, "0")}.${String(idx + 1).padStart(2, "0")}`,
             title: p.title ?? "",
             desc: p.description ?? "",
+            longText: p.long_text ?? p.description ?? "",
             qty: Number(p.quantity) || 0,
             unit: p.unit ?? "Stk",
             basePrice: Number(p.unit_price) || 0,
@@ -1337,6 +1414,7 @@ export default function OfferEditorScreen() {
   const [addPosVisible, setAddPosVisible] = useState(false);
   const [addPosRoomId, setAddPosRoomId] = useState<string | null>(null);
   const [editPosition, setEditPosition] = useState<OfferPosition | null>(null);
+  const [editFocus, setEditFocus] = useState<"title" | "qty" | "unit" | "price" | "longText" | "markup" | undefined>(undefined);
   const [_editPosRoomId, setEditPosRoomId] = useState<string | null>(null);
   const [addRoomVisible, setAddRoomVisible] = useState(false);
   const [saveVisible, setSaveVisible] = useState(false);
@@ -1356,6 +1434,7 @@ export default function OfferEditorScreen() {
   // PDF Export Modus
   type PdfExportMode = "full" | "lump_sum" | "title_sums" | "total_only";
   const [pdfExportMode, setPdfExportMode] = useState<PdfExportMode>("full");
+  const [footerExpanded, setFooterExpanded] = useState(false);
 
   // Variablen für Textbausteine auflösen
   const resolveVars = useCallback((tpl: string) => {
@@ -1470,6 +1549,7 @@ export default function OfferEditorScreen() {
           position_number: posNumber,
           title: pos.title,
           description: pos.desc,
+          long_text: pos.longText || pos.desc,
           unit: pos.unit,
           unit_price: pos.basePrice,
           quantity: pos.qty,
@@ -1506,6 +1586,7 @@ export default function OfferEditorScreen() {
       .update({
         title: pos.title,
         description: pos.desc,
+        long_text: pos.longText || pos.desc,
         unit: pos.unit,
         unit_price: pos.basePrice,
         quantity: pos.qty,
@@ -1706,7 +1787,7 @@ export default function OfferEditorScreen() {
         const total = ep * pos.qty;
         posHtml += `<tr>
           <td class="nr">${rNr}.${String(pi + 1).padStart(2, "0")}</td>
-          <td class="desc"><strong>${pos.title}</strong><br><span class="sub">${pos.desc}</span></td>
+          <td class="desc"><strong>${pos.title}</strong><br><span class="sub">${pos.longText || pos.desc}</span></td>
           ${showMenge ? `<td class="r">${pos.qty.toString().replace(".", ",")}</td><td>${pos.unit}</td>` : ""}
           ${showEP ? `<td class="r">${fmtEuro(ep)}</td>` : ""}
           ${showGP ? `<td class="r">${fmtEuro(total)}</td>` : ""}
@@ -2204,8 +2285,8 @@ export default function OfferEditorScreen() {
               <Text style={s.metaValue}>{offerNumber || "—"}</Text>
             </View>
             <View style={s.metaGridItem}>
-              <Text style={s.metaLabel}>Version</Text>
-              <Text style={s.metaValue}>v{offerVersion}</Text>
+              <Text style={s.metaLabel}>Erstellt von</Text>
+              <Text style={s.metaValue}>{user?.name || "—"}</Text>
             </View>
             <View style={s.metaGridItem}>
               <Text style={s.metaLabel}>Datum</Text>
@@ -2371,19 +2452,45 @@ export default function OfferEditorScreen() {
 
                     return (
                       <View key={pos.id} style={[s.posRow, pi === 0 && { borderTopWidth: 0 }]}>
-                        <Text style={s.posNr}>{dynamicNr}</Text>
-                        <View style={s.posCenter}>
-                          <Text style={s.posTitle} numberOfLines={1}>{pos.title}</Text>
-                          <Text style={s.posDetail}>
-                            {hidePositionPrices
-                              ? `${pos.qty.toString().replace(".", ",")} ${pos.unit}`
-                              : pos.unit === "Pauschal" ? "Pauschal" : `${pos.qty.toString().replace(".", ",")} ${pos.unit} × ${formatEuro(ep)}/${pos.unit}`}
-                          </Text>
+                        <View style={s.posLeftCol}>
+                          <Text style={s.posNr}>{dynamicNr}</Text>
+                          <Pressable
+                            onPress={() => {
+                              setEditFocus("qty");
+                              setEditPosition(pos);
+                              setEditPosRoomId(room.id);
+                            }}
+                            style={({ pressed }) => [s.qtyBadge, { opacity: pressed ? 0.7 : 1 }]}
+                          >
+                            <Text style={s.qtyBadgeText}>{pos.qty.toString().replace(".", ",")} {pos.unit}</Text>
+                          </Pressable>
                         </View>
-                        {!hidePositionPrices && <Text style={s.posTotal}>{formatEuro(total)}</Text>}
+                        <View style={s.posCenter}>
+                          <Pressable onPress={() => { setEditFocus("title"); setEditPosition(pos); setEditPosRoomId(room.id); }}>
+                            <Text style={s.posTitle} numberOfLines={1}>{pos.title}</Text>
+                          </Pressable>
+                          {!!(pos.longText || pos.desc) && (
+                            <Pressable onPress={() => { setEditFocus("longText"); setEditPosition(pos); setEditPosRoomId(room.id); }}>
+                              <Text style={s.posLongText} numberOfLines={3}>{pos.longText || pos.desc}</Text>
+                            </Pressable>
+                          )}
+                          {!hidePositionPrices && pos.unit !== "Pauschal" && (
+                            <Pressable onPress={() => { setEditFocus("price"); setEditPosition(pos); setEditPosRoomId(room.id); }}>
+                              <Text style={s.posDetail}>
+                                {`${formatEuro(ep)}/${pos.unit}`}
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                        {!hidePositionPrices && (
+                          <Pressable onPress={() => { setEditFocus("price"); setEditPosition(pos); setEditPosRoomId(room.id); }}>
+                            <Text style={s.posTotal}>{formatEuro(total)}</Text>
+                          </Pressable>
+                        )}
                         <View style={s.posActions}>
                           <Pressable
                             onPress={() => {
+                              setEditFocus(undefined);
                               setEditPosition(pos);
                               setEditPosRoomId(room.id);
                             }}
@@ -2433,77 +2540,99 @@ export default function OfferEditorScreen() {
         </Pressable>
       </ScrollView>
 
-      {/* ── Footer ── */}
-      <View style={[s.stickyFooter, { paddingBottom: bottomInset + 14 }]}>
-        <View style={s.footerSummary}>
-          <View style={s.footerSummaryRow}>
-            <Text style={s.footerLabel}>Netto</Text>
-            <Text style={s.footerValue}>{formatEuroShort(totalNetto)}</Text>
-          </View>
-          <View style={s.footerSummaryRow}>
-            <Text style={s.footerLabel}>MwSt. (19%)</Text>
-            <Text style={s.footerValue}>{formatEuroShort(mwst)}</Text>
-          </View>
-          <View style={s.footerDivider} />
-          <View style={s.footerSummaryRow}>
-            <Text style={s.footerLabelBold}>Brutto</Text>
-            <Text style={s.footerTotal}>{formatEuroShort(brutto)}</Text>
-          </View>
-          <View style={s.footerSummaryRow}>
-            <Text style={s.footerLabel}>{totalPositions} Positionen</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      {/* ── Footer (collapsible) ── */}
+      <View style={[s.stickyFooter, { paddingBottom: bottomInset + 10 }]}>
+        {/* Slim bar — always visible */}
+        <Pressable
+          onPress={() => setFooterExpanded((v) => !v)}
+          style={s.footerSlimBar}
+        >
+          <View style={s.footerSlimLeft}>
+            <Text style={s.footerSlimBrutto}>{formatEuroShort(brutto)}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               <View style={[s.marginDot, { backgroundColor: marginColor }]} />
-              <Text style={[s.footerMargin, { color: marginColor }]}>Marge {margin.toFixed(0)}%</Text>
+              <Text style={[s.footerMargin, { color: marginColor }]}>{margin.toFixed(0)}%</Text>
             </View>
           </View>
-        </View>
-        {/* PDF Export Optionen */}
-        <View style={s.pdfExportRow}>
-          <Ionicons name="document-text-outline" size={14} color={Colors.raw.zinc500} />
-          <Text style={s.pdfExportLabel}>PDF Export:</Text>
-          {([
-            { key: "full" as PdfExportMode, label: "Mit Stückliste" },
-            { key: "lump_sum" as PdfExportMode, label: "Positionen pauschal" },
-            { key: "title_sums" as PdfExportMode, label: "Nur Titelsummen" },
-            { key: "total_only" as PdfExportMode, label: "Nur Angebotssumme" },
-          ] as const).map((opt) => (
-            <Pressable
-              key={opt.key}
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setPdfExportMode(opt.key);
-              }}
-              style={({ pressed }) => [
-                s.pdfExportChip,
-                pdfExportMode === opt.key && s.pdfExportChipActive,
-                { opacity: pressed ? 0.8 : 1 },
-              ]}
-            >
-              <Ionicons name="download-outline" size={12} color={pdfExportMode === opt.key ? Colors.raw.white : Colors.raw.zinc400} />
-              <Text style={[s.pdfExportChipText, pdfExportMode === opt.key && s.pdfExportChipTextActive]}>
-                {opt.label}
-              </Text>
+          <View style={s.footerSlimActions}>
+            <Pressable onPress={() => handlePreview("preview")} style={({ pressed }) => [s.footerIconBtn, { opacity: pressed ? 0.7 : 1 }]} testID="preview-btn">
+              <Ionicons name="eye-outline" size={20} color={Colors.raw.amber500} />
             </Pressable>
-          ))}
-        </View>
-        <View style={s.footerBtns}>
-          <Pressable onPress={() => handlePreview("preview")} style={({ pressed }) => [s.previewBtn, { opacity: pressed ? 0.8 : 1 }]} testID="preview-btn">
-            <Ionicons name="eye-outline" size={17} color={Colors.raw.amber500} />
-            <Text style={s.previewBtnText}>Vorschau</Text>
-          </Pressable>
-          <Pressable onPress={() => handlePreview("save")} disabled={pdfSaving} style={({ pressed }) => [s.pdfBtn, pdfSaved && { backgroundColor: Colors.raw.emerald500 }, { opacity: pressed || pdfSaving ? 0.7 : 1 }]} testID="pdf-btn">
-            {pdfSaving ? (
-              <ActivityIndicator size={15} color={Colors.raw.white} />
-            ) : (
-              <Ionicons name={pdfSaved ? "checkmark-circle" : "download-outline"} size={17} color={Colors.raw.white} />
-            )}
-            <Text style={s.pdfBtnText}>{pdfSaving ? "Lädt..." : pdfSaved ? "Gespeichert!" : "PDF Download"}</Text>
-          </Pressable>
-          <Pressable onPress={() => setSaveVisible(true)} style={({ pressed }) => [s.saveBtn, { opacity: pressed ? 0.85 : 1 }]} testID="save-btn">
-            <Feather name="save" size={16} color="#000" />
-            <Text style={s.saveBtnText}>Speichern</Text>
-          </Pressable>
-        </View>
+            <Pressable onPress={() => handlePreview("save")} disabled={pdfSaving} style={({ pressed }) => [s.footerIconBtn, pdfSaved && { backgroundColor: Colors.raw.emerald500 }, { opacity: pressed || pdfSaving ? 0.6 : 1 }]} testID="pdf-btn">
+              {pdfSaving ? (
+                <ActivityIndicator size={16} color={Colors.raw.white} />
+              ) : (
+                <Ionicons name={pdfSaved ? "checkmark-circle" : "download-outline"} size={20} color={Colors.raw.white} />
+              )}
+            </Pressable>
+            <Pressable onPress={() => setSaveVisible(true)} style={({ pressed }) => [s.footerIconBtn, s.footerSaveIconBtn, { opacity: pressed ? 0.8 : 1 }]} testID="save-btn">
+              <Feather name="save" size={18} color="#000" />
+            </Pressable>
+            <Ionicons
+              name={footerExpanded ? "chevron-down" : "chevron-up"}
+              size={18}
+              color={Colors.raw.zinc500}
+              style={{ marginLeft: 4 }}
+            />
+          </View>
+        </Pressable>
+
+        {/* Expanded details */}
+        {footerExpanded && (
+          <View style={s.footerExpandedArea}>
+            <View style={s.footerSummary}>
+              <View style={s.footerSummaryRow}>
+                <Text style={s.footerLabel}>Netto</Text>
+                <Text style={s.footerValue}>{formatEuroShort(totalNetto)}</Text>
+              </View>
+              <View style={s.footerSummaryRow}>
+                <Text style={s.footerLabel}>MwSt. (19%)</Text>
+                <Text style={s.footerValue}>{formatEuroShort(mwst)}</Text>
+              </View>
+              <View style={s.footerDivider} />
+              <View style={s.footerSummaryRow}>
+                <Text style={s.footerLabelBold}>Brutto</Text>
+                <Text style={s.footerTotal}>{formatEuroShort(brutto)}</Text>
+              </View>
+              <View style={s.footerSummaryRow}>
+                <Text style={s.footerLabel}>{totalPositions} Positionen</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <View style={[s.marginDot, { backgroundColor: marginColor }]} />
+                  <Text style={[s.footerMargin, { color: marginColor }]}>Marge {margin.toFixed(0)}%</Text>
+                </View>
+              </View>
+            </View>
+            {/* PDF Export Optionen */}
+            <View style={s.pdfExportRow}>
+              <Ionicons name="document-text-outline" size={14} color={Colors.raw.zinc500} />
+              <Text style={s.pdfExportLabel}>PDF Export:</Text>
+              {([
+                { key: "full" as PdfExportMode, label: "Mit Stückliste" },
+                { key: "lump_sum" as PdfExportMode, label: "Positionen pauschal" },
+                { key: "title_sums" as PdfExportMode, label: "Nur Titelsummen" },
+                { key: "total_only" as PdfExportMode, label: "Nur Angebotssumme" },
+              ] as const).map((opt) => (
+                <Pressable
+                  key={opt.key}
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setPdfExportMode(opt.key);
+                  }}
+                  style={({ pressed }) => [
+                    s.pdfExportChip,
+                    pdfExportMode === opt.key && s.pdfExportChipActive,
+                    { opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  <Ionicons name="download-outline" size={12} color={pdfExportMode === opt.key ? Colors.raw.white : Colors.raw.zinc400} />
+                  <Text style={[s.pdfExportChipText, pdfExportMode === opt.key && s.pdfExportChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
         {!!pdfError && (
           <Text style={{ color: Colors.raw.rose500, fontSize: 11, fontFamily: "Inter_600SemiBold", textAlign: "center", marginTop: 4 }}>
             Fehler: {pdfError}
@@ -2549,10 +2678,11 @@ export default function OfferEditorScreen() {
 
       <EditPositionSheet
         visible={!!editPosition}
-        onClose={() => { setEditPosition(null); setEditPosRoomId(null); }}
+        onClose={() => { setEditPosition(null); setEditPosRoomId(null); setEditFocus(undefined); }}
         position={editPosition}
         onSave={updatePosition}
         onDelete={deletePosition}
+        focusField={editFocus}
       />
 
       <AddRoomSheet
@@ -2817,7 +2947,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  roomName: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white },
+  roomName: { fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.raw.white },
   roomNr: { fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 12, color: Colors.raw.amber500 },
   roomHeaderRight: { flexDirection: "row", alignItems: "center", gap: 10 },
   roomMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500 },
@@ -2832,15 +2962,34 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.raw.zinc800 + "80",
   },
+  posLeftCol: {
+    alignItems: "flex-start",
+    gap: 4,
+    marginRight: 10,
+    minWidth: 48,
+  },
   posNr: {
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
     fontSize: 11,
     color: Colors.raw.amber500,
-    width: 40,
+  },
+  qtyBadge: {
+    backgroundColor: Colors.raw.zinc800,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  qtyBadgeText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: Colors.raw.zinc300,
   },
   posCenter: { flex: 1, marginRight: 8 },
-  posTitle: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.white, marginBottom: 3 },
-  posDetail: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.raw.zinc500, lineHeight: 15 },
+  posTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.raw.white, marginBottom: 4 },
+  posLongText: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.raw.zinc400, lineHeight: 20, marginBottom: 5 },
+  posDetail: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500, lineHeight: 18 },
   posTotal: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.white, minWidth: 72, textAlign: "right" },
   posActions: { flexDirection: "row", marginLeft: 6, gap: 2 },
   posActionBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 8 },
@@ -2875,7 +3024,7 @@ const s = StyleSheet.create({
   },
   addRoomBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.amber500 },
 
-  // ── Sticky Footer ──
+  // ── Sticky Footer (collapsible) ──
   stickyFooter: {
     position: "absolute",
     bottom: 0,
@@ -2884,8 +3033,44 @@ const s = StyleSheet.create({
     backgroundColor: Colors.raw.zinc900 + "FA",
     borderTopWidth: 1,
     borderTopColor: Colors.raw.zinc800,
-    paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  footerSlimBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  footerSlimLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  footerSlimBrutto: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 17,
+    color: Colors.raw.white,
+  },
+  footerSlimActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  footerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  footerSaveIconBtn: {
+    backgroundColor: Colors.raw.amber500,
+    borderColor: Colors.raw.amber500,
+  },
+  footerExpandedArea: {
+    marginTop: 10,
   },
   footerSummary: { marginBottom: 12 },
   footerSummaryRow: {
@@ -2901,43 +3086,7 @@ const s = StyleSheet.create({
   footerTotal: { fontFamily: "Inter_800ExtraBold", fontSize: 18, color: Colors.raw.white },
   footerMargin: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
   marginDot: { width: 7, height: 7, borderRadius: 4 },
-  footerBtns: { flexDirection: "row", gap: 10 },
-  previewBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc700,
-    borderRadius: 12,
-    paddingVertical: 13,
-    paddingHorizontal: 16,
-  },
-  previewBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.amber500 },
-  pdfBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc600,
-    backgroundColor: Colors.raw.zinc800,
-    borderRadius: 12,
-    paddingVertical: 13,
-    paddingHorizontal: 16,
-  },
-  pdfBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.white },
-  saveBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: Colors.raw.amber500,
-    borderRadius: 12,
-    paddingVertical: 13,
-  },
-  saveBtnText: { fontFamily: "Inter_700Bold", fontSize: 14, color: "#000" },
+  // (old footerBtns/previewBtn/pdfBtn/saveBtn removed — replaced by footerIconBtn)
 
   // ── Menu Modal ──
   menuOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },

@@ -58,9 +58,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (val === "true") setSplashSeen(true);
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        setUser(mapSupabaseUser(session.user));
+        // Refresh session to get latest user_metadata from DB
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        const currentUser = refreshed?.user ?? session.user;
+        setUser(mapSupabaseUser(currentUser));
         setIsAuthenticated(true);
       }
       setIsLoading(false);
