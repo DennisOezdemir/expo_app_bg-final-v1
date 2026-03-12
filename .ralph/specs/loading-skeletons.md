@@ -1,6 +1,6 @@
 # Loading-Skeletons Feature Specification
 
-**Status:** Planned
+**Status:** Completed
 **Version:** 1.0
 **Last Updated:** 2026-03-12
 
@@ -27,35 +27,35 @@ Ersetze alle `ActivityIndicator`/`ScreenState kind="loading"` Zustände durch an
 
 #### Basiskomponente
 
-- [ ] Neue Datei `components/Skeleton.tsx` erstellen mit folgenden Exporten:
+- [x] Neue Datei `components/Skeleton.tsx` erstellen mit folgenden Exporten:
   - `SkeletonBox` – rechteckiger Block mit konfigurierbarer `width`, `height`, `borderRadius`
   - `SkeletonLine` – Textzeilen-Platzhalter mit konfigurierbarer `width`, fixer Höhe 14px
   - `SkeletonCard` – generische Karte als Fallback (kombiniert SkeletonBox-Blöcke)
-- [ ] Pulse-Animation via `react-native-reanimated`: Opacity wechselt zwischen `1.0` und `0.4`, Dauer 600ms pro Richtung, Loop unendlich mit `reverse: true`
-- [ ] Animation respektiert `AccessibilityInfo.isReduceMotionEnabled()` – bei aktiviertem Reduce Motion wird keine Animation abgespielt (statische Placeholder)
-- [ ] Alle Komponenten sind vollständig TypeScript-typisiert, kein `any`
+- [x] Pulse-Animation via `react-native-reanimated`: Opacity wechselt zwischen `1.0` und `0.4`, Dauer 600ms pro Richtung, Loop unendlich mit `reverse: true`
+- [x] Animation respektiert `AccessibilityInfo.isReduceMotionEnabled()` – bei aktiviertem Reduce Motion wird keine Animation abgespielt (statische Placeholder)
+- [x] Alle Komponenten sind vollständig TypeScript-typisiert, kein `any`
 
 #### ScreenState Erweiterung
 
-- [ ] `ScreenState` erhält neue optionale Prop `skeleton?: React.ReactNode`
-- [ ] Bei `kind="loading"` und vorhandenem `skeleton`-Prop: rendert den übergebenen Skeleton
-- [ ] Bei `kind="loading"` ohne `skeleton`-Prop: rendert `<SkeletonCard />` als generischen Fallback (ersetzt den bisherigen `ActivityIndicator`)
-- [ ] `kind="error"` und `kind="empty"` bleiben vollständig unverändert
+- [x] `ScreenState` erhält neue optionale Prop `skeleton?: React.ReactNode`
+- [x] Bei `kind="loading"` und vorhandenem `skeleton`-Prop: rendert den übergebenen Skeleton
+- [x] Bei `kind="loading"` ohne `skeleton`-Prop: rendert `<SkeletonCard />` als generischen Fallback (ersetzt den bisherigen `ActivityIndicator`)
+- [x] `kind="error"` und `kind="empty"` bleiben vollständig unverändert
 
 #### Screen-spezifische Skeletons
 
-- [ ] **Projektliste** (`app/(tabs)/projekte.tsx`): Lokale `ProjekteListeSkeleton`-Komponente mit 4–5 Karten-Platzhaltern (Titelzeile, Adresszeile, Status-Badge-Block), wird via `skeleton`-Prop an `ScreenState` übergeben
-- [ ] **Freigaben** (`app/(tabs)/freigaben.tsx`): Lokale `FreigabenListeSkeleton`-Komponente mit 3–4 Listeneinträgen (Icon-Block links, Titelzeile, Betragszeile), wird via `skeleton`-Prop übergeben
-- [ ] **Projektdetail** (`app/project/[id].tsx`): Lokale `ProjektDetailSkeleton`-Komponente mit Header-Block (breite Titelzeile + schmale Adresszeile) und 2–3 Abschnitts-Blöcken mit je 2 Zeilen, wird via `skeleton`-Prop übergeben
-- [ ] Kein `ActivityIndicator` mehr in den 3 betroffenen Screens sichtbar
+- [x] **Projektliste** (`app/(tabs)/projekte.tsx`): Lokale `ProjekteListeSkeleton`-Komponente mit 4–5 Karten-Platzhaltern (Titelzeile, Adresszeile, Status-Badge-Block), wird via `skeleton`-Prop an `ScreenState` übergeben
+- [x] **Freigaben** (`app/(tabs)/freigaben.tsx`): Lokale `FreigabenListeSkeleton`-Komponente mit 3–4 Listeneinträgen (Icon-Block links, Titelzeile, Betragszeile), wird via `skeleton`-Prop übergeben
+- [x] **Projektdetail** (`app/project/[id].tsx`): Lokale `ProjektDetailSkeleton`-Komponente mit Header-Block (breite Titelzeile + schmale Adresszeile) und 2–3 Abschnitts-Blöcken mit je 2 Zeilen, wird via `skeleton`-Prop übergeben
+- [x] Kein `ActivityIndicator` mehr in den 3 betroffenen Screens sichtbar
 
 ### Non-Functional Requirements
 
-- [ ] Animation läuft mit 60fps auf Android und iOS – ausschließlich via `react-native-reanimated` Worklets (kein JS-Thread-Blocking)
-- [ ] Keine neuen npm-Dependencies – ausschließlich bereits installiertes `react-native-reanimated`
-- [ ] `npm run lint` läuft ohne neue Fehler oder Warnungen durch
-- [ ] Mobile-first: Skeleton-Layouts passen sich an unterschiedliche Bildschirmbreiten an (keine fixen Pixel-Breiten die auf kleinen Screens abgeschnitten werden)
-- [ ] Mindest-Touch-Target 44px bleibt auf allen echten interaktiven Elementen erhalten (Skeletons selbst sind nicht interaktiv)
+- [x] Animation läuft mit 60fps auf Android und iOS – ausschließlich via `react-native-reanimated` Worklets (kein JS-Thread-Blocking)
+- [x] Keine neuen npm-Dependencies – ausschließlich bereits installiertes `react-native-reanimated`
+- [x] `npm run lint` läuft ohne neue Fehler oder Warnungen durch
+- [x] Mobile-first: Skeleton-Layouts passen sich an unterschiedliche Bildschirmbreiten an (keine fixen Pixel-Breiten die auf kleinen Screens abgeschnitten werden)
+- [x] Mindest-Touch-Target 44px bleibt auf allen echten interaktiven Elementen erhalten (Skeletons selbst sind nicht interaktiv)
 
 ---
 
@@ -149,18 +149,18 @@ function ProjekteListeSkeleton() {
 
 ## Acceptance Criteria
 
-- [ ] `components/Skeleton.tsx` existiert und exportiert `SkeletonBox`, `SkeletonLine` und `SkeletonCard`
-- [ ] Pulse-Animation ist auf allen 3 betroffenen Screens sichtbar beim Laden
-- [ ] Kein `ActivityIndicator` mehr in `projekte.tsx`, `freigaben.tsx` und `project/[id].tsx` sichtbar
-- [ ] `ScreenState kind="loading"` ohne `skeleton`-Prop rendert `<SkeletonCard />` Fallback
-- [ ] `ScreenState kind="loading"` mit `skeleton`-Prop rendert den übergebenen Skeleton
-- [ ] `kind="error"` und `kind="empty"` verhalten sich identisch wie vor dem Feature (kein Regressionsrisiko)
-- [ ] Bei aktiviertem Reduce Motion (Accessibility): keine Animation, nur statische Placeholder
-- [ ] Skeleton-Farben sind `zinc800`/`zinc700` – kein weißes oder helles Flackern im Dark Theme
-- [ ] Animation blockiert nicht den JS-Thread (Reanimated Worklet, prüfbar via Flipper/Profiler)
-- [ ] Kein `any`-Typ in `Skeleton.tsx` oder den geänderten Screen-Dateien
-- [ ] `npm run lint` läuft ohne neue Fehler durch
-- [ ] Skeletons brechen nicht auf kleinen Screens (320px Breite) ab oder werden abgeschnitten
+- [x] `components/Skeleton.tsx` existiert und exportiert `SkeletonBox`, `SkeletonLine` und `SkeletonCard`
+- [x] Pulse-Animation ist auf allen 3 betroffenen Screens sichtbar beim Laden
+- [x] Kein `ActivityIndicator` mehr in `projekte.tsx`, `freigaben.tsx` und `project/[id].tsx` sichtbar
+- [x] `ScreenState kind="loading"` ohne `skeleton`-Prop rendert `<SkeletonCard />` Fallback
+- [x] `ScreenState kind="loading"` mit `skeleton`-Prop rendert den übergebenen Skeleton
+- [x] `kind="error"` und `kind="empty"` verhalten sich identisch wie vor dem Feature (kein Regressionsrisiko)
+- [x] Bei aktiviertem Reduce Motion (Accessibility): keine Animation, nur statische Placeholder
+- [x] Skeleton-Farben sind `zinc800`/`zinc700` – kein weißes oder helles Flackern im Dark Theme
+- [x] Animation blockiert nicht den JS-Thread (Reanimated Worklet, prüfbar via Flipper/Profiler)
+- [x] Kein `any`-Typ in `Skeleton.tsx` oder den geänderten Screen-Dateien
+- [x] `npm run lint` läuft ohne neue Fehler durch
+- [x] Skeletons brechen nicht auf kleinen Screens (320px Breite) ab oder werden abgeschnitten
 
 ---
 

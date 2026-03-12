@@ -14,6 +14,7 @@ Accumulated knowledge from feature implementations. Reference before starting ne
 
 <!-- Add mistakes and issues to avoid -->
 - [YYYY-MM-DD] [feature] Anti-pattern description
+- [2026-03-12] [loading-skeletons] Spec verification: grep for `ActivityIndicator` in ScreenState.tsx too — fallback path must also be clean, not just the 3 screen files
 
 ### E2E Pitfalls
 <!-- E2E testing specific issues -->

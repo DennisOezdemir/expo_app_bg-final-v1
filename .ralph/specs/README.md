@@ -54,4 +54,5 @@ SPDX-License-Identifier: Proprietary
 
 | Spec | Status | Last Updated | Implementation Plan |
 |------|--------|--------------|---------------------|
+| `loading-skeletons` | Completed | 2026-03-12 | `loading-skeletons-implementation-plan.md` |
 | `material-need-model-completion` | Planned | 2026-03-11 | `material-need-model-completion-implementation-plan.md` |
