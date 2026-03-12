@@ -1,0 +1,99 @@
+## Context
+If @.ralph/guides/AGENTS.md exists, study it for commands and patterns.
+Study @.ralph/specs/$FEATURE.md for feature specification.
+Study @.ralph/specs/$FEATURE-implementation-plan.md for completed tasks.
+
+## Learnings
+Read @.ralph/LEARNINGS.md for patterns from previous features.
+Capture any review feedback patterns for future iterations.
+
+## Task
+All implementation and E2E tasks are complete. Create PR for manual review.
+Complete ALL steps in a single pass — do not end the session between steps.
+
+### Step 1: Verify Ready State
+1. Check all tasks are complete in implementation plan (no `- [ ]` items)
+2. Verify tests pass: `cd . && npm test`
+3. Verify build succeeds: `cd . && npm run build`
+
+If any fail, fix before proceeding.
+
+### Step 2: Check Git Status
+```bash
+cd . && git status
+cd . && git log --oneline -5
+```
+
+Ensure:
+- On branch `feat/$FEATURE`
+- All changes are committed
+- Branch is pushed to remote
+
+If uncommitted changes exist:
+```bash
+git -C . add -A && git -C . commit -m "chore($FEATURE): final cleanup"
+git -C . push origin feat/$FEATURE
+```
+
+### Step 3: Create PR
+Check if PR already exists:
+```bash
+cd . && gh pr list --head feat/$FEATURE
+```
+
+If no PR exists, create one:
+```bash
+cd . && gh pr create --base main --head feat/$FEATURE \
+  --title "feat($FEATURE): [read description from spec]" \
+  --body "$(cat <<'EOF'
+## Summary
+[Read from spec Purpose section]
+
+## Changes
+[Read from implementation plan - list completed phases]
+
+## Testing
+- [x] Unit/integration tests: passing
+- [x] E2E tests: All scenarios passed
+- [x] Build succeeds
+
+## E2E Test Results
+[Copy from implementation plan if E2E phase exists]
+
+Closes #[Read the source issue number from the spec file metadata or context section]
+
+Generated with Claude Code
+EOF
+)"
+```
+
+### Manual Review Required
+
+**PR created. Review and merge manually.**
+
+The feature branch has been prepared and pushed. A pull request has been created for human review.
+
+**Next steps (manual):**
+1. Review the PR on GitHub
+2. Address any review comments
+3. Merge when approved
+
+Note: Spec status updates are handled in the Spec Verification phase before PR creation.
+
+## Rules
+- Manual review mode stops after PR creation
+- No automated code review or merge
+- Human review and approval required before merging
+- If gh CLI fails, check authentication: `gh auth status`
+
+## Troubleshooting
+- **gh: command not found** -> Install GitHub CLI: `brew install gh`
+- **gh auth error** -> Run: `gh auth login`
+- **PR already exists** -> Use: `gh pr view` to see status
+
+## Learning Capture
+If you discover patterns worth remembering during PR creation, append to @.ralph/LEARNINGS.md:
+- Process improvements -> Add under "## Tool Usage"
+- Common issues -> Add under "## Anti-Patterns"
+
+Format: `- [YYYY-MM-DD] [$FEATURE] Brief description`

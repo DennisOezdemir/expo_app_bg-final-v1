@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "lastAnalyzedAt": "2026-03-11T21:12:22.583Z",
+  "gitCommitHash": "96b150a4f29120d2b22f5f90c91e48c4faf08aec",
+  "gitBranch": "main",
+  "scanResult": {
+    "framework": "React",
+    "frameworkVersion": "19.1.0",
+    "packageManager": "npm",
+    "testing": {
+      "unit": null,
+      "e2e": null
+    },
+    "styling": null,
+    "database": "Supabase",
+    "orm": "Drizzle",
+    "auth": null
+  },
+  "aiAnalysis": {
+    "projectContext": {
+      "entryPoints": [
+        "app/_layout.tsx",
+        "app/index.tsx",
+        "server/index.ts"
+      ],
+      "keyDirectories": {
+        "app": "Expo Router file-based routing - screens and tab navigation",
+        "app/(tabs)": "Main tab screens: dashboard, projects, photos, materials, time tracking, approvals, profile",
+        "app/angebot": "Quote/offer detail and editor screens",
+        "app/auftrag": "Order/job detail screens",
+        "app/begehung": "Site inspection screens (Baubegehung)",
+        "app/einstellungen": "Settings screens: company, team, customers, suppliers, catalog, letterhead, import",
+        "app/chat": "Chat/messaging screens",
+        "app/planung": "Planning/scheduling screens",
+        "app/project": "Project detail and team assignment screens",
+        "app/rechnung": "Invoice screens",
+        "app/finanzen": "Finance overview screens",
+        "app/freigabe": "Approval detail screens",
+        "server": "Express backend API server with PostgreSQL",
+        "server/templates": "HTML templates for landing page",
+        "components": "Shared React Native components (TopBar, ErrorBoundary, OfflineBanner, BGAssistant, SyncQueue)",
+        "contexts": "React Context providers: Auth, Role, OfflineMode, DebugLog",
+        "hooks/mutations": "TanStack Query mutation hooks (create project, approval decisions)",
+        "hooks/queries": "TanStack Query query hooks (projects, dashboard, approvals)",
+        "hooks/realtime": "Supabase realtime subscription hooks for cache invalidation",
+        "lib": "Core utilities: Supabase client, query client, API functions, photo capture",
+        "lib/api": "API layer functions for approvals, dashboard, inspections, projects",
+        "shared": "Shared schema definitions (Drizzle ORM schema)",
+        "constants": "App constants and configuration",
+        "assets": "Static assets (images, fonts)",
+        "supabase": "Supabase configuration and migrations",
+        "scripts": "Build scripts (static build for Expo)",
+        "patches": "patch-package patches for dependencies",
+        "n8n-workflows": "n8n automation workflow definitions",
+        "docs": "Project documentation"
+      },
+      "namingConventions": "camelCase for files/hooks, PascalCase for components/contexts, kebab-case for route segments, German-language domain naming (begehung, angebot, rechnung, freigabe, zeiten)"
+    },
+    "commands": {
+      "lint": "npm run lint"
+    },
+    "implementationGuidelines": [
+      "Architecture: Expo Router entry (_layout.tsx) → AuthContext/RoleContext providers → Tab navigation with file-based routing → Screens use TanStack Query hooks → hooks call lib/api functions → lib/api calls Supabase client directly OR server API endpoints → Express server (server/index.ts) → routes.ts handles /api/* with raw pg Pool queries → PostgreSQL database. Supabase realtime subscriptions invalidate query cache for live updates. Offline context manages connectivity state with sync queue.",
+      "Expo Router for file-based navigation and deep linking",
+      "TanStack React Query for server state management",
+      "Supabase JS client for auth and direct DB access",
+      "Drizzle ORM with drizzle-zod for shared schema validation",
+      "Express server with raw pg Pool for complex API routes",
+      "React Context for auth, roles, offline state, debug logging",
+      "Supabase Realtime subscriptions for live cache invalidation",
+      "Offline-first architecture with SyncQueuePanel component",
+      "German-language domain model (Baugenius construction management)",
+      "expo-image-picker and expo-file-system for photo capture",
+      "react-native-reanimated for animations and gestures",
+      "html2pdf.js for PDF generation (quotes/invoices)",
+      "patch-package for dependency patches via postinstall",
+      "n8n workflows for external automation integrations",
+      "Zod for runtime input validation across client and server"
+    ],
+    "technologyPractices": {
+      "projectType": "Expo React Native App with Express Backend",
+      "practices": [
+        "File-based routing with Expo Router (app/ directory)",
+        "Hybrid data access: Supabase direct + Express API for complex transactions",
+        "Query/Mutation hook pattern separating data fetching from UI",
+        "Context-based dependency injection for auth, roles, offline state",
+        "Offline-first with sync queue for construction site usage",
+        "Shared schema between client and server via shared/schema.ts",
+        "CORS configured for Replit dev environment and localhost",
+        "PostgreSQL transactions for multi-table inserts (begehungen)"
+      ],
+      "antiPatterns": [
+        "Avoid skipping tests"
+      ]
+    }
+  }
+}
