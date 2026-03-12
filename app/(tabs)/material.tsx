@@ -108,36 +108,44 @@ const ringStyles = StyleSheet.create({
 
 /* ─── Types ──────────────────────────────────── */
 
-type MaterialStatus = "offen" | "fertig" | "bestellt";
+type NeedStatus = "planned" | "ordered" | "delivered";
+type ProblemType = "aufmass_fehlt" | "mapping_fehlt" | "termin_fehlt" | "lieferant_fehlt" | null;
 
-interface MaterialItem {
+interface MaterialNeed {
   id: string;
-  name: string;
-  quantity: number;
-  unit: string;
-  price: string;
-  status: MaterialStatus;
-  supplier?: string;
-  productId?: string;
   trade: string;
+  material_type: string;
+  label: string;
+  total_quantity: number;
+  quantity_unit: string;
+  room: string | null;
+  status: NeedStatus;
+  problem: ProblemType;
+  needed_by: string | null;
+  product_name: string | null;
+  supplier_name: string | null;
+  unit_price_net: number | null;
+  line_total_net: number | null;
 }
 
 interface TradeGroup {
   id: string;
   name: string;
   icon: string;
-  totalMaterials: number;
-  openCount: number;
+  totalNeeds: number;
+  problemCount: number;
+  readyCount: number;
+  orderedCount: number;
   progress: number;
   statusColor: string;
-  materials: MaterialItem[];
+  needs: MaterialNeed[];
 }
 
 interface ProjectOption {
   id: string;
   project_number: string;
   name: string;
-  materialCount: number;
+  needCount: number;
 }
 
 /* ─── Helpers ────────────────────────────────── */
@@ -150,74 +158,65 @@ const TRADE_ICONS: Record<string, string> = {
   Tischler: "construct",
   Elektro: "flash",
   Trockenbau: "cube",
+  Heizung: "flame",
+  Allgemein: "build",
   Sonstiges: "build",
 };
 
-function mapStatus(pm: { product_id: string | null; status: string }): MaterialStatus {
-  if (pm.product_id && pm.status === "ordered") return "bestellt";
-  if (pm.product_id) return "fertig";
-  return "offen";
-}
+const PROBLEM_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
+  aufmass_fehlt: { label: "Aufmaß fehlt", color: Colors.raw.rose400, icon: "warning" },
+  mapping_fehlt: { label: "Kein Mapping", color: Colors.raw.amber500, icon: "help-circle" },
+  termin_fehlt: { label: "Kein Termin", color: Colors.raw.zinc500, icon: "time" },
+  lieferant_fehlt: { label: "Lieferant fehlt", color: Colors.raw.amber500, icon: "storefront" },
+};
 
 function fmtPrice(val: number | null): string {
   if (val == null || val === 0) return "—";
   return `€${val.toFixed(2).replace(".", ",")}`;
 }
 
-const STATUS_CONFIG: Record<MaterialStatus, { label: string; color: string; icon: string }> = {
-  fertig: { label: "", color: Colors.raw.emerald500, icon: "checkmark-circle" },
-  offen: { label: "offen", color: Colors.raw.amber500, icon: "alert-circle" },
-  bestellt: { label: "bestellt", color: "#3b82f6", icon: "cart" },
-};
-
-type FilterKey = "alle" | "offen" | "fertig" | "bestellt";
+type FilterKey = "alle" | "probleme" | "bereit" | "bestellt";
 const FILTERS: { key: FilterKey; label: string; dotColor?: string }[] = [
   { key: "alle", label: "Alle" },
-  { key: "offen", label: "Offen", dotColor: Colors.raw.amber500 },
-  { key: "fertig", label: "Fertig", dotColor: Colors.raw.emerald500 },
-  { key: "bestellt", label: "Bestellt", dotColor: "#3b82f6" },
+  { key: "probleme", label: "Probleme", dotColor: Colors.raw.rose400 },
+  { key: "bereit", label: "Bereit", dotColor: Colors.raw.emerald500 },
+  { key: "bestellt", label: "Bestellt", dotColor: Colors.raw.amber500 },
 ];
 
-/* ─── MaterialRow ────────────────────────────── */
+/* ─── NeedRow ────────────────────────────────── */
 
-function MaterialRow({ item }: { item: MaterialItem }) {
-  const cfg = STATUS_CONFIG[item.status];
+function NeedRow({ item }: { item: MaterialNeed }) {
+  const problemCfg = item.problem ? PROBLEM_CONFIG[item.problem] : null;
+
   return (
     <View style={matStyles.row}>
       <View style={matStyles.rowLeft}>
-        <Text style={matStyles.matName}>{item.name}</Text>
+        <Text style={matStyles.matName} numberOfLines={2}>{item.label}</Text>
         <Text style={matStyles.matUnit}>
-          {item.quantity > 0 ? `${Number(item.quantity).toFixed(1)} ${item.unit}` : item.unit}
-          {item.price !== "—" ? ` • ${item.price}` : ""}
+          {item.total_quantity > 0 ? `${Number(item.total_quantity).toFixed(0)} ${item.quantity_unit}` : item.quantity_unit}
+          {item.room ? ` • ${item.room}` : ""}
+          {item.needed_by ? ` • bis ${new Date(item.needed_by).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}` : ""}
         </Text>
+        {item.product_name && (
+          <Text style={matStyles.productName}>{item.product_name}</Text>
+        )}
       </View>
       <View style={matStyles.rowRight}>
-        {item.status === "fertig" && item.supplier ? (
-          <View style={[matStyles.statusPill, { backgroundColor: cfg.color + "18" }]}>
-            <Ionicons name="checkmark-circle" size={14} color={cfg.color} />
-            <Text style={[matStyles.statusText, { color: cfg.color }]}>{item.supplier}</Text>
+        {item.status === "ordered" ? (
+          <View style={[matStyles.statusPill, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
+            <Ionicons name="cart" size={14} color={Colors.raw.amber500} />
+            <Text style={[matStyles.statusText, { color: Colors.raw.amber500 }]}>bestellt</Text>
           </View>
-        ) : item.status === "bestellt" ? (
-          <View style={[matStyles.statusPill, { backgroundColor: cfg.color + "18" }]}>
-            <Ionicons name="cart" size={14} color={cfg.color} />
-            <Text style={[matStyles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+        ) : problemCfg ? (
+          <View style={[matStyles.statusPill, { backgroundColor: problemCfg.color + "18" }]}>
+            <Ionicons name={problemCfg.icon as any} size={14} color={problemCfg.color} />
+            <Text style={[matStyles.statusText, { color: problemCfg.color }]}>{problemCfg.label}</Text>
           </View>
         ) : (
-          <Pressable
-            onPress={() => {
-              if (Platform.OS !== "web") {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }
-              router.push({
-                pathname: "/assign-material",
-                params: { name: item.name, materialId: item.id, trade: item.trade },
-              });
-            }}
-            style={({ pressed }) => [matStyles.assignBtn, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <Text style={matStyles.assignText}>Zuordnen</Text>
-            <Ionicons name="arrow-forward" size={14} color={Colors.raw.amber500} />
-          </Pressable>
+          <View style={[matStyles.statusPill, { backgroundColor: "rgba(16, 185, 129, 0.15)" }]}>
+            <Ionicons name="checkmark-circle" size={14} color={Colors.raw.emerald500} />
+            <Text style={[matStyles.statusText, { color: Colors.raw.emerald500 }]}>bereit</Text>
+          </View>
         )}
       </View>
     </View>
@@ -242,6 +241,7 @@ const matStyles = StyleSheet.create({
     marginBottom: 3,
   },
   matUnit: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500 },
+  productName: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc600, marginTop: 2 },
   rowRight: { alignItems: "flex-end" },
   statusPill: {
     flexDirection: "row",
@@ -252,8 +252,6 @@ const matStyles = StyleSheet.create({
     borderRadius: 8,
   },
   statusText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  assignBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
-  assignText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.amber500 },
 });
 
 /* ─── TradeCard ──────────────────────────────── */
@@ -273,24 +271,22 @@ function TradeCard({
     transform: [{ scale: scale.value }],
   }));
 
-  const filteredMaterials =
+  const filteredNeeds =
     filter === "alle"
-      ? trade.materials
-      : trade.materials.filter((m) => m.status === filter);
+      ? trade.needs
+      : filter === "probleme"
+      ? trade.needs.filter((n) => n.problem !== null)
+      : filter === "bereit"
+      ? trade.needs.filter((n) => n.problem === null && n.status === "planned")
+      : trade.needs.filter((n) => n.status === "ordered");
 
   return (
     <AnimatedPressable
       style={[tradeStyles.card, animStyle]}
-      onPressIn={() => {
-        scale.value = withSpring(0.98, { damping: 15, stiffness: 300 });
-      }}
-      onPressOut={() => {
-        scale.value = withSpring(1, { damping: 15, stiffness: 300 });
-      }}
+      onPressIn={() => { scale.value = withSpring(0.98, { damping: 15, stiffness: 300 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { damping: 15, stiffness: 300 }); }}
       onPress={() => {
-        if (Platform.OS !== "web") {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
+        if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setOpen(!open);
       }}
     >
@@ -304,15 +300,21 @@ function TradeCard({
           <Text style={tradeStyles.tradeName}>{trade.name}</Text>
         </View>
         <View style={tradeStyles.headerRight}>
-          {trade.openCount > 0 ? (
-            <View style={[tradeStyles.openBadge, { backgroundColor: trade.statusColor + "18" }]}>
-              <View style={[tradeStyles.openDot, { backgroundColor: trade.statusColor }]} />
-              <Text style={[tradeStyles.openText, { color: trade.statusColor }]}>
-                {trade.openCount} offen
+          {trade.problemCount > 0 ? (
+            <View style={[tradeStyles.openBadge, { backgroundColor: Colors.raw.rose500 + "18" }]}>
+              <View style={[tradeStyles.openDot, { backgroundColor: Colors.raw.rose500 }]} />
+              <Text style={[tradeStyles.openText, { color: Colors.raw.rose500 }]}>
+                {trade.problemCount} Probleme
               </Text>
             </View>
-          ) : (
+          ) : trade.orderedCount === trade.totalNeeds ? (
             <Ionicons name="checkmark-circle" size={20} color={Colors.raw.emerald500} />
+          ) : (
+            <View style={[tradeStyles.openBadge, { backgroundColor: Colors.raw.emerald500 + "18" }]}>
+              <Text style={[tradeStyles.openText, { color: Colors.raw.emerald500 }]}>
+                {trade.readyCount} bereit
+              </Text>
+            </View>
           )}
           <Ionicons
             name={open ? "chevron-up" : "chevron-down"}
@@ -323,7 +325,10 @@ function TradeCard({
       </View>
 
       <View style={tradeStyles.meta}>
-        <Text style={tradeStyles.metaText}>{trade.totalMaterials} Materialien</Text>
+        <Text style={tradeStyles.metaText}>
+          {trade.totalNeeds} Materialien
+          {trade.orderedCount > 0 ? ` • ${trade.orderedCount} bestellt` : ""}
+        </Text>
       </View>
 
       <View style={tradeStyles.progressRow}>
@@ -344,12 +349,12 @@ function TradeCard({
 
       {open && (
         <View style={tradeStyles.materialsSection}>
-          {filteredMaterials.length === 0 ? (
+          {filteredNeeds.length === 0 ? (
             <View style={tradeStyles.emptyMat}>
               <Text style={tradeStyles.emptyMatText}>Keine Materialien für diesen Filter</Text>
             </View>
           ) : (
-            filteredMaterials.map((m) => <MaterialRow key={m.id} item={m} />)
+            filteredNeeds.map((n) => <NeedRow key={n.id} item={n} />)
           )}
         </View>
       )}
@@ -421,31 +426,29 @@ export default function MaterialScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
   const [loading, setLoading] = useState(true);
   const [trades, setTrades] = useState<TradeGroup[]>([]);
-  const [totalMaterials, setTotalMaterials] = useState(0);
-  const [assignedMaterials, setAssignedMaterials] = useState(0);
+  const [totalNeeds, setTotalNeeds] = useState(0);
+  const [readyCount, setReadyCount] = useState(0);
+  const [problemCount, setProblemCount] = useState(0);
   const [orderedCount, setOrderedCount] = useState(0);
-  const [orderedTotal, setOrderedTotal] = useState(0);
 
-  // Project selection
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
 
-  // Load projects that have materials
+  // Load projects that have material needs
   const loadProjects = useCallback(async () => {
     const { data, error } = await supabase
       .from("projects")
       .select("id, project_number, name, status")
-      .in("status", ["PLANNING", "IN_PROGRESS", "COMPLETION", "INSPECTION", "ACTIVE"])
-      .order("project_number", { ascending: false });
+      .in("status", ["PLANNING", "IN_PROGRESS", "COMPLETION", "INSPECTION", "ACTIVE", "INTAKE"])
+      .order("name", { ascending: true });
 
     if (error || !data) return;
 
-    // Count materials per project
     const projectOpts: ProjectOption[] = [];
     for (const p of data) {
       const { count } = await supabase
-        .from("project_materials")
+        .from("project_material_needs")
         .select("id", { count: "exact", head: true })
         .eq("project_id", p.id);
 
@@ -454,129 +457,107 @@ export default function MaterialScreen() {
           id: p.id,
           project_number: p.project_number,
           name: p.name,
-          materialCount: count ?? 0,
+          needCount: count ?? 0,
         });
       }
     }
 
     setProjects(projectOpts);
-    // Auto-select the project with most materials
     if (projectOpts.length > 0 && !selectedProject) {
-      const best = projectOpts.reduce((a, b) => (a.materialCount > b.materialCount ? a : b));
+      const best = projectOpts.reduce((a, b) => (a.needCount > b.needCount ? a : b));
       setSelectedProject(best);
     }
   }, [selectedProject]);
 
-  // Load materials for selected project
-  const loadMaterials = useCallback(async () => {
+  // Load material needs for selected project
+  const loadNeeds = useCallback(async () => {
     if (!selectedProject) return;
     setLoading(true);
 
-    const { data: pmData, error } = await supabase
-      .from("project_materials")
-      .select(
-        `id, material_type, trade, quantity, quantity_unit, product_id, status,
-         line_total_net_eur, override_price_net_eur,
-         products:product_id (name, last_price_net_eur, unit, sku, is_favorite, use_count,
-           suppliers:supplier_id (name, short_name)
-         )`
-      )
+    const { data, error } = await supabase
+      .from("project_material_needs")
+      .select("id, trade, material_type, label, total_quantity, quantity_unit, room, status, problem, needed_by, product_name, supplier_name, unit_price_net, line_total_net")
       .eq("project_id", selectedProject.id)
       .order("trade")
-      .order("material_type");
+      .order("label");
 
-    if (error || !pmData) {
+    if (error || !data) {
       setLoading(false);
       return;
     }
 
     // Group by trade
-    const tradeMap = new Map<string, MaterialItem[]>();
+    const tradeMap = new Map<string, MaterialNeed[]>();
     let total = 0;
-    let assigned = 0;
+    let ready = 0;
+    let problems = 0;
     let ordered = 0;
-    let orderedSum = 0;
 
-    for (const pm of pmData as any[]) {
-      const tradeName = pm.trade || "Sonstiges";
-      const mStatus = mapStatus(pm);
-      const product = pm.products;
-      const supplier = product?.suppliers;
-      const price =
-        pm.override_price_net_eur || pm.line_total_net_eur || product?.last_price_net_eur || 0;
-
-      const item: MaterialItem = {
-        id: pm.id,
-        name: pm.material_type,
-        quantity: parseFloat(pm.quantity) || 0,
-        unit: pm.quantity_unit || "Stk",
-        price: fmtPrice(price),
-        status: mStatus,
-        supplier: supplier?.short_name || supplier?.name || undefined,
-        productId: pm.product_id || undefined,
+    for (const row of data as any[]) {
+      const tradeName = row.trade || "Sonstiges";
+      const need: MaterialNeed = {
+        id: row.id,
         trade: tradeName,
+        material_type: row.material_type,
+        label: row.label,
+        total_quantity: parseFloat(row.total_quantity) || 0,
+        quantity_unit: row.quantity_unit || "Stk",
+        room: row.room,
+        status: row.status as NeedStatus,
+        problem: row.problem as ProblemType,
+        needed_by: row.needed_by,
+        product_name: row.product_name,
+        supplier_name: row.supplier_name,
+        unit_price_net: row.unit_price_net ? parseFloat(row.unit_price_net) : null,
+        line_total_net: row.line_total_net ? parseFloat(row.line_total_net) : null,
       };
 
       if (!tradeMap.has(tradeName)) tradeMap.set(tradeName, []);
-      tradeMap.get(tradeName)!.push(item);
+      tradeMap.get(tradeName)!.push(need);
 
       total++;
-      if (pm.product_id) assigned++;
-      if (mStatus === "bestellt") {
-        ordered++;
-        orderedSum += price;
-      }
+      if (row.status === "ordered") ordered++;
+      else if (row.problem) problems++;
+      else ready++;
     }
 
-    // Build trade groups
     const tradeGroups: TradeGroup[] = [];
-    for (const [name, materials] of tradeMap) {
-      const openCount = materials.filter((m) => m.status === "offen").length;
-      const assignedCount = materials.filter((m) => m.status !== "offen").length;
-      const progress = materials.length > 0 ? Math.round((assignedCount / materials.length) * 100) : 0;
+    for (const [name, needs] of tradeMap) {
+      const tProblems = needs.filter((n) => n.problem !== null && n.status !== "ordered").length;
+      const tReady = needs.filter((n) => n.problem === null && n.status === "planned").length;
+      const tOrdered = needs.filter((n) => n.status === "ordered").length;
+      const okCount = tReady + tOrdered;
+      const progress = needs.length > 0 ? Math.round((okCount / needs.length) * 100) : 0;
 
       tradeGroups.push({
         id: name,
         name,
         icon: TRADE_ICONS[name] || "build",
-        totalMaterials: materials.length,
-        openCount,
+        totalNeeds: needs.length,
+        problemCount: tProblems,
+        readyCount: tReady,
+        orderedCount: tOrdered,
         progress,
-        statusColor: openCount === 0 ? Colors.raw.emerald500 : Colors.raw.rose500,
-        materials,
+        statusColor: tProblems > 0 ? Colors.raw.rose500 : Colors.raw.emerald500,
+        needs,
       });
     }
 
-    // Sort: most materials first
-    tradeGroups.sort((a, b) => b.totalMaterials - a.totalMaterials);
+    tradeGroups.sort((a, b) => b.totalNeeds - a.totalNeeds);
 
     setTrades(tradeGroups);
-    setTotalMaterials(total);
-    setAssignedMaterials(assigned);
+    setTotalNeeds(total);
+    setReadyCount(ready);
+    setProblemCount(problems);
     setOrderedCount(ordered);
-    setOrderedTotal(orderedSum);
     setLoading(false);
   }, [selectedProject]);
 
-  // Load projects on mount
-  useEffect(() => {
-    loadProjects();
-  }, []);
+  useEffect(() => { loadProjects(); }, []);
+  useEffect(() => { if (selectedProject) loadNeeds(); }, [selectedProject]);
+  useFocusEffect(useCallback(() => { if (selectedProject) loadNeeds(); }, [selectedProject]));
 
-  // Reload materials when project changes
-  useEffect(() => {
-    if (selectedProject) loadMaterials();
-  }, [selectedProject]);
-
-  // Refresh when screen gets focus (e.g. returning from assign-material)
-  useFocusEffect(
-    useCallback(() => {
-      if (selectedProject) loadMaterials();
-    }, [selectedProject])
-  );
-
-  const percent = totalMaterials > 0 ? Math.round((assignedMaterials / totalMaterials) * 100) : 0;
-  const openCount = totalMaterials - assignedMaterials;
+  const percent = totalNeeds > 0 ? Math.round(((readyCount + orderedCount) / totalNeeds) * 100) : 0;
 
   return (
     <View style={styles.container}>
@@ -598,16 +579,13 @@ export default function MaterialScreen() {
                 <Text style={styles.headerTitle}>Material</Text>
                 {!isOnline && <OfflineBadge cacheAge={getCacheAge("material")} />}
               </View>
-              {/* Project Picker */}
               {selectedProject ? (
                 <Pressable
-                  onPress={() => {
-                    if (projects.length > 1) setShowProjectPicker(!showProjectPicker);
-                  }}
+                  onPress={() => { if (projects.length > 1) setShowProjectPicker(!showProjectPicker); }}
                   style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
                 >
                   <Text style={styles.headerSubtitle}>
-                    {selectedProject.project_number} • {selectedProject.name}
+                    {selectedProject.project_number ? `${selectedProject.project_number} • ` : ""}{selectedProject.name}
                   </Text>
                   {projects.length > 1 && (
                     <Ionicons
@@ -621,18 +599,6 @@ export default function MaterialScreen() {
                 <Text style={styles.headerSubtitle}>Kein Projekt mit Material</Text>
               )}
             </View>
-            <Pressable
-              onPress={() => router.push("/bestellung" as any)}
-              style={({ pressed }) => [styles.cartButton, { opacity: pressed ? 0.7 : 1 }]}
-              testID="cart-button"
-            >
-              <Ionicons name="cart" size={22} color={Colors.raw.zinc400} />
-              {orderedCount > 0 && (
-                <View style={styles.cartBadge}>
-                  <Text style={styles.cartBadgeText}>{orderedCount}</Text>
-                </View>
-              )}
-            </Pressable>
           </View>
         </View>
 
@@ -642,10 +608,7 @@ export default function MaterialScreen() {
             {projects.map((p) => (
               <Pressable
                 key={p.id}
-                onPress={() => {
-                  setSelectedProject(p);
-                  setShowProjectPicker(false);
-                }}
+                onPress={() => { setSelectedProject(p); setShowProjectPicker(false); }}
                 style={[
                   styles.projectOption,
                   selectedProject?.id === p.id && styles.projectOptionActive,
@@ -658,11 +621,11 @@ export default function MaterialScreen() {
                       selectedProject?.id === p.id && styles.projectOptionTextActive,
                     ]}
                   >
-                    {p.project_number}
+                    {p.project_number || p.name}
                   </Text>
                   <Text style={styles.projectOptionSubtext}>{p.name}</Text>
                 </View>
-                <Text style={styles.projectOptionCount}>{p.materialCount}</Text>
+                <Text style={styles.projectOptionCount}>{p.needCount}</Text>
               </Pressable>
             ))}
           </View>
@@ -689,8 +652,14 @@ export default function MaterialScreen() {
               <ProgressRing
                 percent={percent}
                 color={percent === 100 ? Colors.raw.emerald500 : Colors.raw.amber500}
-                label={`${assignedMaterials} von ${totalMaterials} zugeordnet`}
-                sublabel={openCount > 0 ? `${openCount} brauchen dich` : "Alles zugeordnet ✓"}
+                label={`${readyCount + orderedCount} von ${totalNeeds} bereit`}
+                sublabel={
+                  problemCount > 0
+                    ? `${problemCount} Probleme • ${orderedCount} bestellt`
+                    : orderedCount > 0
+                    ? `${orderedCount} bestellt`
+                    : "Alles bereit ✓"
+                }
               />
             </View>
 
@@ -705,9 +674,7 @@ export default function MaterialScreen() {
                 <Pressable
                   key={f.key}
                   onPress={() => {
-                    if (Platform.OS !== "web") {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setActiveFilter(f.key);
                   }}
                   style={[
@@ -747,40 +714,24 @@ export default function MaterialScreen() {
       </ScrollView>
 
       {/* Sticky Bottom Bar */}
-      {!loading && trades.length > 0 && (
+      {!loading && trades.length > 0 && problemCount > 0 && (
         <View
           style={[styles.stickyBar, { paddingBottom: Platform.OS === "web" ? 34 : insets.bottom + 8 }]}
         >
-          {!isOnline && (
-            <View style={{ marginBottom: 8 }}>
-              <OfflineBlockedHint message="Bestellen nur online möglich" />
-            </View>
-          )}
           <Pressable
-            onPress={() => router.push("/bestellung" as any)}
-            disabled={!isOnline}
+            onPress={() => setActiveFilter("probleme")}
             style={({ pressed }) => [
               styles.stickyBarButton,
-              {
-                opacity: !isOnline ? 0.4 : pressed ? 0.9 : 1,
-                transform: [{ scale: pressed && isOnline ? 0.98 : 1 }],
-              },
+              { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
             ]}
-            testID="cart-sticky-bar"
           >
             <View style={styles.stickyBarLeft}>
-              <Ionicons name="cart" size={20} color="#fff" />
+              <Ionicons name="warning" size={20} color="#000" />
               <Text style={styles.stickyBarText}>
-                {orderedCount > 0
-                  ? `Warenkorb: ${orderedCount} Artikel`
-                  : `${openCount} Materialien offen`}
+                {problemCount} Probleme klären
               </Text>
             </View>
-            <Text style={styles.stickyBarAmount}>
-              {orderedTotal > 0
-                ? `€${Math.round(orderedTotal).toLocaleString("de-DE")}`
-                : `${percent}%`}
-            </Text>
+            <Text style={styles.stickyBarAmount}>{percent}%</Text>
           </Pressable>
         </View>
       )}
@@ -811,30 +762,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.raw.zinc500,
   },
-  cartButton: {
-    width: 48,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.raw.zinc900,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    position: "relative",
-  },
-  cartBadge: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    backgroundColor: Colors.raw.amber500,
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  cartBadgeText: { fontFamily: "Inter_700Bold", fontSize: 10, color: "#000" },
   heroCard: {
     backgroundColor: Colors.raw.zinc900,
     borderRadius: 16,
@@ -890,7 +817,6 @@ const styles = StyleSheet.create({
   stickyBarLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   stickyBarText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#000" },
   stickyBarAmount: { fontFamily: "Inter_800ExtraBold", fontSize: 17, color: "#000" },
-  // Project Picker
   projectPicker: {
     backgroundColor: Colors.raw.zinc900,
     borderRadius: 14,
@@ -930,7 +856,6 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 6,
   },
-  // Loading & Empty
   loadingContainer: {
     alignItems: "center",
     paddingVertical: 60,

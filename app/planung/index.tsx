@@ -1118,7 +1118,7 @@ export default function PlanungScreen() {
   const handleAutoPlan = useCallback(async (projectId: string) => {
     setAutoPlanning(projectId);
     try {
-      const { data, error } = await supabase.rpc("auto_plan_project", {
+      const { data, error } = await supabase.rpc("auto_plan_full", {
         p_project_id: projectId,
       });
       if (error) {
@@ -1133,13 +1133,18 @@ export default function PlanungScreen() {
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-      const unassignedTrades = result.unassigned_trades || [];
-      Alert.alert(
-        "Vorschlag erstellt",
-        `${result.phases_created} Phasen erstellt, ${result.assigned_count} Monteure zugewiesen.${
-          unassignedTrades.length > 0 ? `\n\nOhne Monteur: ${unassignedTrades.join(", ")}` : ""
-        }\n\nBitte Vorschläge prüfen und freigeben.`
-      );
+      const sched = result.schedule || {};
+      const mat = result.material || {};
+      const unassignedTrades = sched.unassigned_trades || [];
+      const lines = [
+        sched.phases_created ? `${sched.phases_created} Phasen erstellt` : null,
+        sched.assigned_count ? `${sched.assigned_count} Monteure zugewiesen` : null,
+        unassignedTrades.length > 0 ? `Ohne Monteur: ${unassignedTrades.join(", ")}` : null,
+        mat.needs_created ? `${mat.needs_created} Material-Bedarfe erstellt` : null,
+        mat.total_cost ? `Material-Kosten: €${Number(mat.total_cost).toLocaleString("de-DE")}` : null,
+        "\nFreigaben im Freigabecenter prüfen.",
+      ].filter(Boolean);
+      Alert.alert("Planung erstellt", lines.join("\n"));
       fetchData();
     } catch (e: any) {
       Alert.alert("Fehler", e.message || "Auto-Planung fehlgeschlagen");

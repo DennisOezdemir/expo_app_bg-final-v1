@@ -13,7 +13,7 @@
 - **n8n**: `https://n8n.srv1045913.hstgr.cloud`
 - **Gotenberg PDF**: `https://gotenberg.srv1045913.hstgr.cloud`
 - **Sprache**: UI komplett Deutsch, Code/Kommentare Deutsch oder Englisch
-- **trade_type Enum**: `'Sanitär'`, `'Maler'`, `'Elektro'`, `'Fliesen'`, `'Trockenbau'`, `'Sonstiges'`
+- **trade_type Enum**: `'Sanitär'`, `'Maler'`, `'Elektro'`, `'Fliesen'`, `'Trockenbau'`, `'Tischler'`, `'Heizung'`, `'Boden'`, `'Maurer'`, `'Reinigung'`, `'Sonstiges'`
 
 ## Design-Regeln (Ayse-konform)
 
@@ -26,6 +26,12 @@
 
 ## Architektur-Regeln
 
+- **STAFFELLAUF-PRINZIP** (wichtigste Regel, siehe `docs/NORDSTAR.md`):
+  - Ein Agent = Eine Aufgabe = Stab weitergeben
+  - NIEMALS einen Monolith-Agent bauen der alles macht
+  - Jeder Agent darf "Nein" sagen und korrigieren
+  - Ein Godmode-Agent lernt aus SOLL vs IST und passt Faktoren an
+  - Gilt für ALLES: Planung, Intake, Angebote, Abrechnung, Qualität
 - Event-driven: `project_events` Tabelle für alle Statusänderungen
 - DB-Funktionen für deterministische Logik (kein n8n nötig)
 - n8n nur für externe API-Calls (Claude Vision, SevDesk, Superchat)

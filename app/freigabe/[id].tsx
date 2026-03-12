@@ -29,10 +29,11 @@ import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { approveApproval, rejectApproval } from "@/lib/api/approvals";
 
 // --- Types ---
 
-type ApprovalUiType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung" | "begehung";
+type ApprovalUiType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung" | "begehung" | "planung";
 
 const APPROVAL_TYPE_MAP: Record<string, ApprovalUiType> = {
   PROJECT_START: "auftrag",
@@ -40,7 +41,7 @@ const APPROVAL_TYPE_MAP: Record<string, ApprovalUiType> = {
   MATERIAL_ORDER: "material",
   SUBCONTRACTOR_ORDER: "material",
   INSPECTION_ASSIGN: "angebot",
-  SCHEDULE: "angebot",
+  SCHEDULE: "planung",
   COMPLETION: "angebot",
   INSPECTION: "angebot",
   SITE_INSPECTION: "begehung",
@@ -477,6 +478,186 @@ function AuftragContent({ data, onDataUpdate, clientSuggestions }: { data: Appro
   );
 }
 
+function MaterialContent({ data }: { data: ApprovalDetail }) {
+  const rd = data.requestData || {};
+  const trades = rd.trades_summary || rd.trades || [];
+  const problems = rd.problems || [];
+  const totalCost = rd.total_cost;
+  const needsCount = rd.needs_count || rd.needs_created;
+
+  return (
+    <>
+      {totalCost != null && (
+        <>
+          <SectionLabel label="GESAMTKOSTEN" />
+          <Card>
+            <View style={s.amountRow}>
+              <Ionicons name="cash" size={20} color={Colors.raw.amber500} />
+              <Text style={s.amountBig}>€{Number(totalCost).toLocaleString("de-DE", { minimumFractionDigits: 2 })}</Text>
+            </View>
+            {needsCount && (
+              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500, marginTop: 8 }}>
+                {needsCount} Positionen
+              </Text>
+            )}
+          </Card>
+        </>
+      )}
+
+      {trades.length > 0 && (
+        <>
+          <SectionLabel label="GEWERKE-ZUSAMMENFASSUNG" />
+          <Card>
+            {trades.map((t: any, i: number) => {
+              const name = typeof t === "string" ? t : t.trade || t.name;
+              const cost = typeof t === "object" ? t.cost || t.total : null;
+              const count = typeof t === "object" ? t.count || t.positions : null;
+              return (
+                <View key={i} style={[s.tradeChip, { justifyContent: "space-between" }]}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <MaterialCommunityIcons name="hammer-wrench" size={14} color={Colors.raw.amber500} />
+                    <Text style={s.tradeText}>{name}</Text>
+                    {count != null && (
+                      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc600 }}>
+                        ({count} Pos.)
+                      </Text>
+                    )}
+                  </View>
+                  {cost != null && (
+                    <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc300 }}>
+                      €{Number(cost).toLocaleString("de-DE")}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+          </Card>
+        </>
+      )}
+
+      {problems.length > 0 && (
+        <>
+          <SectionLabel label={`PROBLEME (${problems.length})`} />
+          <Card>
+            {problems.map((p: any, i: number) => {
+              const PROBLEM_LABELS: Record<string, string> = {
+                aufmass_fehlt: "Aufmaß fehlt",
+                termin_fehlt: "Termin fehlt",
+                mapping_fehlt: "Katalog-Zuordnung fehlt",
+                preis_fehlt: "Preis fehlt",
+              };
+              let text: string;
+              if (typeof p === "string") {
+                text = p;
+              } else if (p.trade && p.problem) {
+                const label = PROBLEM_LABELS[p.problem] || p.problem;
+                text = `${p.trade}: ${label}${p.count > 1 ? ` (${p.count} Pos.)` : ""}`;
+              } else {
+                text = p.message || p.description || JSON.stringify(p);
+              }
+              return (
+                <View key={i} style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: i < problems.length - 1 ? 10 : 0 }}>
+                  <Ionicons name="warning" size={16} color={Colors.raw.rose400} style={{ marginTop: 2 }} />
+                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.raw.zinc300, flex: 1 }}>
+                    {text}
+                  </Text>
+                </View>
+              );
+            })}
+          </Card>
+        </>
+      )}
+
+      {data.summary ? (
+        <>
+          <SectionLabel label="ZUSAMMENFASSUNG" />
+          <Card>
+            <Text style={s.summaryText}>{data.summary}</Text>
+          </Card>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function ScheduleContent({ data }: { data: ApprovalDetail }) {
+  const rd = data.requestData || {};
+  // assignments is the actual array; phases may be just a count
+  const assignments: any[] = rd.assignments || [];
+  const unassigned: string[] = rd.unassigned || [];
+
+  // Compute date range from assignments
+  const dates = assignments.flatMap((a: any) => [a.start_date, a.end_date].filter(Boolean)).sort();
+  const startDate = dates[0];
+  const endDate = dates[dates.length - 1];
+
+  return (
+    <>
+      <SectionLabel label="ÜBERSICHT" />
+      <Card>
+        <InfoRow label="Phasen" value={String(assignments.length || rd.phases || 0)} icon="layers" />
+        <InfoRow label="Monteure zugewiesen" value={String(rd.assigned || assignments.length)} icon="people" />
+        {startDate && <InfoRow label="Start" value={new Date(startDate).toLocaleDateString("de-DE")} icon="play-circle" />}
+        {endDate && <InfoRow label="Ende" value={new Date(endDate).toLocaleDateString("de-DE")} icon="flag" />}
+      </Card>
+
+      {assignments.length > 0 && (
+        <>
+          <SectionLabel label={`PHASEN (${assignments.length})`} />
+          <Card>
+            {assignments.map((a: any, i: number) => (
+              <View key={i} style={[s.posRow, i < assignments.length - 1 && s.posRowBorder]}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <MaterialCommunityIcons name="hammer-wrench" size={14} color={Colors.raw.amber500} />
+                    <Text style={s.posName}>{a.trade || `Phase ${i + 1}`}</Text>
+                  </View>
+                  {(a.start_date || a.end_date) && (
+                    <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, marginTop: 4, marginLeft: 22 }}>
+                      {a.start_date ? new Date(a.start_date).toLocaleDateString("de-DE") : "?"} – {a.end_date ? new Date(a.end_date).toLocaleDateString("de-DE") : "?"}
+                    </Text>
+                  )}
+                  {a.member_name && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4, marginLeft: 22 }}>
+                      <Ionicons name="person" size={12} color={Colors.raw.amber500} />
+                      <Text style={{ fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.amber500 }}>
+                        {a.member_name}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            ))}
+          </Card>
+        </>
+      )}
+
+      {unassigned.length > 0 && (
+        <>
+          <SectionLabel label="OHNE MONTEUR" />
+          <Card>
+            {unassigned.map((trade: string, i: number) => (
+              <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: i < unassigned.length - 1 ? 8 : 0 }}>
+                <Ionicons name="warning" size={16} color={Colors.raw.rose400} />
+                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.raw.zinc300 }}>{trade}</Text>
+              </View>
+            ))}
+          </Card>
+        </>
+      )}
+
+      {data.summary ? (
+        <>
+          <SectionLabel label="ZUSAMMENFASSUNG" />
+          <Card>
+            <Text style={s.summaryText}>{data.summary}</Text>
+          </Card>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function GenericContent({ data }: { data: ApprovalDetail }) {
   const rd = data.requestData || {};
   return (
@@ -813,19 +994,7 @@ export default function FreigabeDetailScreen() {
     );
 
     try {
-      const { data: result, error } = await supabase.rpc("fn_approve_intake", { p_approval_id: data.id });
-      if (error) {
-        console.error("Approve failed:", error);
-        if (Platform.OS === "web") alert("Fehler: " + error.message);
-        setActing(false);
-        return;
-      }
-      if (result && !result.success) {
-        console.error("Approve failed:", result.error);
-        if (Platform.OS === "web") alert("Fehler: " + result.error);
-        setActing(false);
-        return;
-      }
+      await approveApproval(data.id, data.dbType);
 
       setShowToast(true);
       setTimeout(() => {
@@ -835,8 +1004,9 @@ export default function FreigabeDetailScreen() {
           router.back();
         }
       }, 1200);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Approve error:", e);
+      if (Platform.OS === "web") alert("Fehler: " + (e.message || "Freigabe fehlgeschlagen"));
       setActing(false);
     }
   }, [data, acting, router, approveFlash]);
@@ -856,22 +1026,7 @@ export default function FreigabeDetailScreen() {
       setRejectionVisible(false);
 
       try {
-        const { data: result, error } = await supabase.rpc("fn_reject_intake", {
-          p_approval_id: data.id,
-          p_reason: reason,
-        });
-        if (error) {
-          console.error("Reject failed:", error);
-          if (Platform.OS === "web") alert("Fehler: " + error.message);
-          setActing(false);
-          return;
-        }
-        if (result && !result.success) {
-          console.error("Reject failed:", result.error);
-          if (Platform.OS === "web") alert("Fehler: " + result.error);
-          setActing(false);
-          return;
-        }
+        await rejectApproval(data.id, data.dbType);
 
         if (Platform.OS !== "web") {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -883,8 +1038,9 @@ export default function FreigabeDetailScreen() {
             router.back();
           }
         }, 300);
-      } catch (e) {
+      } catch (e: any) {
         console.error("Reject error:", e);
+        if (Platform.OS === "web") alert("Fehler: " + (e.message || "Ablehnung fehlgeschlagen"));
         setActing(false);
       }
     },
@@ -920,6 +1076,8 @@ export default function FreigabeDetailScreen() {
       ? "Erstbegehung nötig"
       : data.uiType === "material"
       ? "Material bestellen"
+      : data.uiType === "planung"
+      ? "Planung freigeben"
       : data.uiType === "nachtrag"
       ? "Nachtrag genehmigen"
       : data.uiType === "rechnung"
@@ -933,6 +1091,8 @@ export default function FreigabeDetailScreen() {
       ? "ERSTBEGEHUNG STARTEN"
       : data.uiType === "material"
       ? "BESTELLEN"
+      : data.uiType === "planung"
+      ? "PLANUNG BESTÄTIGEN"
       : data.uiType === "nachtrag"
       ? "GENEHMIGEN"
       : "FREIGEBEN";
@@ -1048,6 +1208,10 @@ export default function FreigabeDetailScreen() {
               </>
             ) : null}
           </>
+        ) : data.uiType === "material" ? (
+          <MaterialContent data={data} />
+        ) : data.uiType === "planung" ? (
+          <ScheduleContent data={data} />
         ) : (
           <GenericContent data={data} />
         )}

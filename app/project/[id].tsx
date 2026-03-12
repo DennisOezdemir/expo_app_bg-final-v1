@@ -1295,6 +1295,7 @@ export default function ProjectDetailScreen() {
   const [showPhotoGallery, setShowPhotoGallery] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showDocManager, setShowDocManager] = useState(false);
+  const [autoPlanLoading, setAutoPlanLoading] = useState(false);
   const { isOnline, addToSyncQueue } = useOffline();
 
   const handleCapturePhoto = useCallback(async () => {
@@ -1370,6 +1371,40 @@ export default function ProjectDetailScreen() {
     setTotalCosts(costs);
     setLoading(false);
   }, [id]);
+
+  const handleAutoPlan = useCallback(async () => {
+    if (!id || autoPlanLoading) return;
+    setAutoPlanLoading(true);
+    try {
+      const { data: result, error } = await supabase.rpc("auto_plan_full", { p_project_id: id });
+      if (error) {
+        showAlert("Fehler", error.message);
+        return;
+      }
+      const r = result as any;
+      if (!r?.success) {
+        showAlert("Fehler", r?.error || "Planung fehlgeschlagen");
+        return;
+      }
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      const sched = r.schedule || {};
+      const mat = r.material || {};
+      const lines = [
+        sched.phases_created ? `${sched.phases_created} Phasen` : null,
+        mat.needs_created ? `${mat.needs_created} Material-Bedarfe` : null,
+        "\nFreigaben im Freigabecenter prüfen.",
+      ].filter(Boolean);
+      showAlert("Planung erstellt", lines.join("\n"));
+      void refetchProject();
+      void fetchData();
+    } catch (e: any) {
+      showAlert("Fehler", e.message || "Auto-Planung fehlgeschlagen");
+    } finally {
+      setAutoPlanLoading(false);
+    }
+  }, [id, autoPlanLoading, refetchProject, fetchData]);
 
   useEffect(() => {
     const loadClientName = async () => {
@@ -1481,6 +1516,36 @@ export default function ProjectDetailScreen() {
                 </View>
               );
             })()}
+            {/* Planung starten: nur nach abgeschlossener Erstbegehung */}
+            {(project.status === "PLANNING" || project.status === "ACTIVE") &&
+              inspections.some((i) => i.protocol_type === "erstbegehung" && (i.finalized_at || i.status === "completed")) && (
+              <Pressable
+                onPress={handleAutoPlan}
+                disabled={autoPlanLoading}
+                style={({ pressed }) => [
+                  {
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    backgroundColor: Colors.raw.amber500 + "18",
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 10,
+                    marginLeft: 8,
+                  },
+                  { opacity: autoPlanLoading ? 0.5 : pressed ? 0.7 : 1 },
+                ]}
+              >
+                {autoPlanLoading ? (
+                  <ActivityIndicator size="small" color={Colors.raw.amber500} />
+                ) : (
+                  <Ionicons name="flash" size={16} color={Colors.raw.amber500} />
+                )}
+                <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.amber500 }}>
+                  Planung starten
+                </Text>
+              </Pressable>
+            )}
           </View>
           <Text style={styles.heroAddress}>
             {addressLine || project.display_name || project.name}

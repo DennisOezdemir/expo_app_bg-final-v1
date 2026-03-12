@@ -40,11 +40,12 @@ import { SkeletonBox, SkeletonLine } from "@/components/Skeleton";
 
 // --- Types ---
 
-type ApprovalType = "auftrag" | "angebot" | "material" | "nachtrag" | "rechnung" | "begehung";
+type ApprovalType = "auftrag" | "angebot" | "material" | "planung" | "nachtrag" | "rechnung" | "begehung";
 
 interface Approval {
   id: string;
   type: ApprovalType;
+  dbType: string; // original approval_type from DB
   title: string;
   projectCode: string;
   projectAddress: string;
@@ -53,6 +54,7 @@ interface Approval {
   createdAgo: string;
   supplier?: string;
   reason?: string;
+  tradesSummary?: { trade: string; count: number; problems: number }[];
 }
 
 const TYPE_CONFIG: Record<
@@ -62,6 +64,7 @@ const TYPE_CONFIG: Record<
   auftrag: { label: "Auftrag freigeben", icon: "briefcase", iconSet: "ionicons", color: Colors.raw.amber500 },
   angebot: { label: "Angebot freigeben", icon: "document-text", iconSet: "ionicons", color: Colors.raw.amber400 },
   material: { label: "Material bestellen", icon: "package-variant", iconSet: "material", color: Colors.raw.emerald500 },
+  planung: { label: "Baustellenplanung", icon: "calendar", iconSet: "ionicons", color: Colors.raw.amber400 },
   nachtrag: { label: "Nachtrag genehmigen", icon: "git-pull-request", iconSet: "feather", color: Colors.raw.amber400 },
   rechnung: { label: "Rechnung freigeben", icon: "receipt", iconSet: "ionicons", color: Colors.raw.zinc400 },
   begehung: { label: "Erstbegehung nötig", icon: "eye", iconSet: "ionicons", color: Colors.raw.amber500 },
@@ -72,20 +75,19 @@ const APPROVAL_TYPE_MAP: Record<string, ApprovalType> = {
   INVOICE: "rechnung",
   MATERIAL_ORDER: "material",
   SUBCONTRACTOR_ORDER: "material",
+  SCHEDULE: "planung",
   INSPECTION_ASSIGN: "angebot",
-  SCHEDULE: "angebot",
   COMPLETION: "angebot",
   INSPECTION: "angebot",
   SITE_INSPECTION: "begehung",
 };
 
-type FilterKey = "alle" | "auftrag" | "angebot" | "material" | "nachtrag";
+type FilterKey = "alle" | "auftrag" | "material" | "planung";
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "alle", label: "Alle" },
   { key: "auftrag", label: "Aufträge" },
-  { key: "angebot", label: "Angebote" },
   { key: "material", label: "Material" },
-  { key: "nachtrag", label: "Nachträge" },
+  { key: "planung", label: "Planung" },
 ];
 
 // --- Helpers ---
@@ -107,22 +109,36 @@ function mapDbApproval(row: ApprovalRow): Approval {
   const uiType = APPROVAL_TYPE_MAP[row.approval_type] || "angebot";
   const project = Array.isArray(row.projects) ? row.projects[0] : row.projects;
   const summary = row.request_summary || "";
-  const data = (row.request_data || {}) as Record<string, string | number | null | undefined>;
+  const data = (row.request_data || {}) as Record<string, any>;
   const supplier = typeof data.supplier === "string" ? data.supplier : undefined;
   const reasonFromData = typeof data.reason === "string" ? data.reason : undefined;
   const detailFromData = typeof data.detail === "string" ? data.detail : "";
 
+  // Material-specific: extract trades summary
+  let tradesSummary: { trade: string; count: number; problems: number }[] | undefined;
+  if (row.approval_type === "MATERIAL_ORDER" && Array.isArray(data.trades_summary)) {
+    tradesSummary = data.trades_summary;
+  }
+
+  // Schedule-specific: extract assignment info
+  let scheduleDetail = "";
+  if (row.approval_type === "SCHEDULE" && data.phases) {
+    scheduleDetail = `${data.phases} Phasen, ${data.assigned || 0} Monteure zugewiesen`;
+  }
+
   return {
     id: row.id,
     type: uiType,
+    dbType: row.approval_type,
     title: TYPE_CONFIG[uiType]?.label || "Freigabe",
     projectCode: project?.project_number || "–",
-    projectAddress: [project?.object_street, project?.object_city].filter(Boolean).join(", ") || "–",
+    projectAddress: [project?.object_street, project?.object_city].filter(Boolean).join(", ") || project?.name || "–",
     amount: data.amount ? `€${data.amount}` : "",
-    detail: summary || detailFromData,
+    detail: summary || scheduleDetail || detailFromData,
     createdAgo: formatTimeAgo(row.requested_at),
     supplier,
     reason: row.feedback_reason || reasonFromData,
+    tradesSummary,
   };
 }
 
@@ -273,6 +289,21 @@ function SwipeableCard({
             <Text style={cardStyles.detail}>{approval.detail}</Text>
           ) : null}
 
+          {approval.tradesSummary && approval.tradesSummary.length > 0 && (
+            <View style={cardStyles.tradesContainer}>
+              {approval.tradesSummary.map((t) => (
+                <View key={t.trade} style={[
+                  cardStyles.tradeBadge,
+                  t.problems > 0 ? cardStyles.tradeBadgeWarning : cardStyles.tradeBadgeOk,
+                ]}>
+                  <Text style={cardStyles.tradeBadgeText}>
+                    {t.trade}: {t.count}{t.problems > 0 ? ` (${t.problems} ⚠)` : " ✓"}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           {approval.supplier && (
             <View style={cardStyles.supplierRow}>
               <Feather name="truck" size={14} color={Colors.raw.zinc500} />
@@ -417,6 +448,28 @@ const cardStyles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.raw.zinc500,
+  },
+  tradesContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 10,
+  },
+  tradeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  tradeBadgeOk: {
+    backgroundColor: "rgba(16, 185, 129, 0.15)",
+  },
+  tradeBadgeWarning: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+  },
+  tradeBadgeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.raw.zinc300,
   },
   created: {
     fontFamily: "Inter_400Regular",
