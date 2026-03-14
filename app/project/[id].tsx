@@ -1304,6 +1304,7 @@ export default function ProjectDetailScreen() {
   const [showBegehungPicker, setShowBegehungPicker] = useState(false);
   const [begehungType, setBegehungType] = useState<string | null>(null);
   const [showOfferPicker, setShowOfferPicker] = useState(false);
+  const [showAngebotPicker, setShowAngebotPicker] = useState(false);
   const [showPhotoGallery, setShowPhotoGallery] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showDocManager, setShowDocManager] = useState(false);
@@ -1682,7 +1683,13 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<Ionicons name="document-text" size={24} color={Colors.raw.amber500} />}
             label="Angebot"
-            onPress={() => router.push({ pathname: "/angebot/editor", params: { projectId: id || "" } })}
+            onPress={() => {
+              if (offers.length === 0) {
+                router.push({ pathname: "/angebot/editor", params: { projectId: id || "" } });
+              } else {
+                setShowAngebotPicker(true);
+              }
+            }}
           />
           <QuickAction
             icon={<Ionicons name="clipboard" size={24} color={Colors.raw.amber500} />}
@@ -1996,6 +2003,67 @@ export default function ProjectDetailScreen() {
             <Pressable
               style={({ pressed }) => [styles.modalCancel, { opacity: pressed ? 0.7 : 1 }]}
               onPress={() => setShowOfferPicker(false)}
+            >
+              <Text style={styles.modalCancelText}>Abbrechen</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Angebot picker (when Angebot QuickAction clicked and offers exist) */}
+      <Modal
+        visible={showAngebotPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAngebotPicker(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowAngebotPicker(false)}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Angebot w{"\u00E4"}hlen</Text>
+            <Text style={styles.modalSubtitle}>Bestehendes Angebot {"\u00F6"}ffnen oder neues erstellen</Text>
+            {offers.map((offer) => (
+              <Pressable
+                key={offer.id}
+                style={({ pressed }) => [styles.modalOption, { opacity: pressed ? 0.7 : 1 }]}
+                onPress={() => {
+                  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowAngebotPicker(false);
+                  router.push({ pathname: "/angebot/editor", params: { offerId: offer.id } });
+                }}
+              >
+                <View style={styles.modalOptionIcon}>
+                  <Ionicons name="document-text" size={20} color={Colors.raw.amber500} />
+                </View>
+                <View style={styles.modalOptionText}>
+                  <Text style={styles.modalOptionLabel}>{offer.offer_number}</Text>
+                  <Text style={styles.modalOptionDesc}>
+                    {offer.status === "DRAFT" ? "Entwurf" : offer.status === "ACCEPTED" ? "Beauftragt" : offer.status || "—"}
+                    {offer.total_net ? ` · €${Number(offer.total_net).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : ""}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+              </Pressable>
+            ))}
+            <Pressable
+              style={({ pressed }) => [styles.modalOption, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowAngebotPicker(false);
+                router.push({ pathname: "/angebot/editor", params: { projectId: id || "", forceNew: "true" } });
+              }}
+            >
+              <View style={styles.modalOptionIcon}>
+                <Ionicons name="add-circle" size={20} color={Colors.raw.amber500} />
+              </View>
+              <View style={styles.modalOptionText}>
+                <Text style={styles.modalOptionLabel}>Neues Angebot erstellen</Text>
+                <Text style={styles.modalOptionDesc}>Leeres Angebot anlegen</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.modalCancel, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={() => setShowAngebotPicker(false)}
             >
               <Text style={styles.modalCancelText}>Abbrechen</Text>
             </Pressable>

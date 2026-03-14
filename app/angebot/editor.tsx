@@ -1355,7 +1355,7 @@ const svStyles = StyleSheet.create({
 });
 
 export default function OfferEditorScreen() {
-  const params = useLocalSearchParams<{ offerId?: string; projectId?: string }>();
+  const params = useLocalSearchParams<{ offerId?: string; projectId?: string; forceNew?: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
@@ -1397,33 +1397,77 @@ export default function OfferEditorScreen() {
     }
   }, [params.projectId]);
 
+  // ── Wenn offerId übergeben: Angebot laden und Projekt daraus extrahieren ──
+  useEffect(() => {
+    if (!params.offerId) return;
+    if (project) return; // Bereits geladen
+
+    (async () => {
+      try {
+        const { data: offer, error: offerError } = await supabase
+          .from("offers")
+          .select("id, offer_number, version, status, is_lump_sum, lump_sum_amount, hide_position_prices, project_id")
+          .eq("id", params.offerId)
+          .single();
+
+        if (offerError || !offer) {
+          console.error("Fehler beim Laden des Angebots:", offerError);
+          return;
+        }
+
+        // Angebot-Daten setzen
+        setOfferId(offer.id);
+        setOfferNumber(offer.offer_number);
+        setOfferVersion(offer.version ?? 1);
+        setIsLumpSum(offer.is_lump_sum ?? false);
+        setLumpSumAmount(offer.lump_sum_amount ? String(offer.lump_sum_amount) : "");
+        setHidePositionPrices(offer.hide_position_prices ?? false);
+
+        // Projekt separat laden
+        const { data: projectData, error: projectError } = await supabase
+          .from("projects")
+          .select("id, project_number, name, object_street, object_zip, object_city, clients(company_name, salutation, last_name)")
+          .eq("id", offer.project_id)
+          .single();
+
+        if (projectError || !projectData) {
+          console.error("Fehler beim Laden des Projekts:", projectError);
+          return;
+        }
+
+        setProject({
+          id: projectData.id,
+          project_number: projectData.project_number,
+          name: projectData.name ?? "",
+          object_street: projectData.object_street ?? "",
+          object_zip: projectData.object_zip ?? "",
+          object_city: projectData.object_city ?? "",
+          client: (projectData.clients as any) ? {
+            company_name: (projectData.clients as any).company_name ?? "",
+            salutation: (projectData.clients as any).salutation ?? "",
+            last_name: (projectData.clients as any).last_name ?? "",
+          } : undefined,
+        });
+      } catch (err) {
+        console.error("Fehler im offerId useEffect:", err);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.offerId]);
+
   // ── Auto-Persist: Angebot laden oder erstellen wenn Projekt gewählt ──
   useEffect(() => {
     if (!project?.id) return;
     setOfferLoading(true);
 
     const loadOrCreateOffer = async () => {
-      // 1. Neuestes bearbeitbares Angebot suchen (DRAFT oder SENT)
-      const { data: existing } = await supabase
-        .from("offers")
-        .select("id, offer_number, version, status, is_lump_sum, lump_sum_amount, hide_position_prices")
-        .eq("project_id", project.id)
-        .in("status", ["DRAFT", "SENT"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
       let oid: string;
-      if (existing) {
-        oid = existing.id;
-        setOfferId(existing.id);
-        setOfferNumber(existing.offer_number);
-        setOfferVersion(existing.version ?? 1);
-        setIsLumpSum(existing.is_lump_sum ?? false);
-        setLumpSumAmount(existing.lump_sum_amount ? String(existing.lump_sum_amount) : "");
-        setHidePositionPrices(existing.hide_position_prices ?? false);
-      } else {
-        // 2. Neues Angebot erstellen (offer_number wird vom DB-Trigger generiert: A-YYYY-NNN)
+
+      // Wenn offerId bereits gesetzt (via params.offerId), verwende diese
+      if (offerId) {
+        oid = offerId;
+      } else if (params.forceNew === "true") {
+        // forceNew: Direkt neues Angebot erstellen, skip Suche nach existierenden
         const { data: newOffer } = await supabase
           .from("offers")
           .insert({ project_id: project.id, version: 1, status: "DRAFT" })
@@ -1435,6 +1479,39 @@ export default function OfferEditorScreen() {
         setOfferId(newOffer.id);
         setOfferNumber(newOffer.offer_number);
         setOfferVersion(newOffer.version ?? 1);
+      } else {
+        // 1. Neuestes bearbeitbares Angebot suchen (DRAFT oder SENT)
+        const { data: existing } = await supabase
+          .from("offers")
+          .select("id, offer_number, version, status, is_lump_sum, lump_sum_amount, hide_position_prices")
+          .eq("project_id", project.id)
+          .in("status", ["DRAFT", "SENT"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existing) {
+          oid = existing.id;
+          setOfferId(existing.id);
+          setOfferNumber(existing.offer_number);
+          setOfferVersion(existing.version ?? 1);
+          setIsLumpSum(existing.is_lump_sum ?? false);
+          setLumpSumAmount(existing.lump_sum_amount ? String(existing.lump_sum_amount) : "");
+          setHidePositionPrices(existing.hide_position_prices ?? false);
+        } else {
+          // 2. Neues Angebot erstellen (offer_number wird vom DB-Trigger generiert: A-YYYY-NNN)
+          const { data: newOffer } = await supabase
+            .from("offers")
+            .insert({ project_id: project.id, version: 1, status: "DRAFT" })
+            .select("id, offer_number, version")
+            .single();
+
+          if (!newOffer) { setOfferLoading(false); return; }
+          oid = newOffer.id;
+          setOfferId(newOffer.id);
+          setOfferNumber(newOffer.offer_number);
+          setOfferVersion(newOffer.version ?? 1);
+        }
       }
 
       // 3. Sections + Positionen laden
@@ -1522,7 +1599,7 @@ export default function OfferEditorScreen() {
   // Variablen für Textbausteine auflösen
   const resolveVars = useCallback((tpl: string) => {
     const vars: Record<string, string> = {
-      "{{Kunde}}": project?.client || "—",
+      "{{Kunde}}": project?.client?.company_name || "—",
       "{{Adresse}}": project?.address || "—",
       "{{Projekt}}": project?.name || "—",
       "{{Angebotsnr}}": offerNumber || "—",
@@ -2251,7 +2328,7 @@ export default function OfferEditorScreen() {
   <!-- Empfänger + Meta -->
   <div class="address-meta">
     <div class="recipient">
-      <strong>${project?.client || ""}</strong><br>
+      <strong>${project?.client?.company_name || ""}</strong><br>
       ${project?.address || ""}
     </div>
     <div class="meta-box">
@@ -2573,7 +2650,7 @@ export default function OfferEditorScreen() {
           <View style={s.metaRow}>
             <Text style={s.metaLabel}>Kunde</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text style={s.metaValue}>{project.client}</Text>
+              <Text style={s.metaValue}>{project.client?.company_name || "—"}</Text>
               <Pressable style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
                 <Text style={s.changeBtn}>Ändern</Text>
               </Pressable>
