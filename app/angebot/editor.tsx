@@ -16,6 +16,8 @@ import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import * as Haptics from "expo-haptics";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -157,6 +159,16 @@ const ROOM_SUGGESTIONS: { icon: string; name: string }[] = [
 
 const UNITS = ["m\u00B2", "Stk", "Pauschal", "lfm", "m\u00B3"];
 
+type PositionType = "STANDARD" | "ALTERNATIVE" | "EVENTUAL";
+
+const UNIT_OPTIONS = ["m²", "m", "lfm", "Stk", "St", "psch", "kg", "l", "t", "cbm", "Paar", "Set"];
+
+const POSITION_TYPE_OPTIONS: { value: PositionType; label: string; short: string; color: string }[] = [
+  { value: "STANDARD", label: "Normal", short: "N", color: Colors.raw.emerald500 },
+  { value: "ALTERNATIVE", label: "Alternativ", short: "A", color: Colors.raw.amber500 },
+  { value: "EVENTUAL", label: "Eventual", short: "E", color: Colors.raw.zinc500 },
+];
+
 interface OfferPosition {
   id: string;
   nr: string;
@@ -167,6 +179,7 @@ interface OfferPosition {
   unit: string;
   basePrice: number;
   markup: number;
+  positionType: PositionType;
   catalogNr?: string;
   catalogPositionId?: string;
 }
@@ -177,6 +190,18 @@ interface Room {
   name: string;
   positions: OfferPosition[];
   collapsed: boolean;
+}
+
+interface LvParsedPosition {
+  position_nr: string;
+  title: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  trade: string | null;
+  catalog_code: string | null;
+  matched_catalog_title: string | null;
+  confidence: number;
 }
 
 function formatEuro(amount: number): string {
@@ -524,6 +549,7 @@ function AddPositionSheet({
       unit: addedItem.unit,
       basePrice: priceNum,
       markup: markupNum,
+      positionType: "STANDARD",
       catalogNr: addedItem.nr,
       catalogPositionId: addedItem.id,
     });
@@ -546,6 +572,7 @@ function AddPositionSheet({
       unit: freiUnit,
       basePrice: priceNum,
       markup: 0,
+      positionType: "STANDARD",
     });
     onClose();
   }, [freiNr, freiTitle, freiDesc, freiUnit, freiQty, freiPrice, roomNr, nextPosNr, onAdd, onClose]);
@@ -809,6 +836,7 @@ function AddPositionSheet({
                               unit: p.unit,
                               basePrice: p.price,
                               markup: 15,
+                              positionType: "STANDARD",
                             }));
                             if (onAddMultiple) {
                               onAddMultiple(positions);
@@ -955,6 +983,8 @@ function EditPositionSheet({
   const [price, setPrice] = useState("");
   const [markupVal, setMarkupVal] = useState("");
   const [desc, setDesc] = useState("");
+  const [posType, setPosType] = useState<PositionType>("STANDARD");
+  const [showUnitPicker, setShowUnitPicker] = useState(false);
 
   const titleRef = React.useRef<TextInput>(null);
   const qtyRef = React.useRef<TextInput>(null);
@@ -971,6 +1001,8 @@ function EditPositionSheet({
       setPrice(position.basePrice.toFixed(2).replace(".", ","));
       setMarkupVal(position.markup.toString());
       setDesc(position.longText || position.desc);
+      setPosType(position.positionType || "STANDARD");
+      setShowUnitPicker(false);
     }
   }, [position]);
 
@@ -1003,6 +1035,7 @@ function EditPositionSheet({
       qty: qtyNum,
       basePrice,
       markup: markupNum,
+      positionType: posType,
       desc,
       longText: desc,
     });
@@ -1065,15 +1098,56 @@ function EditPositionSheet({
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={apStyles.fieldLabel}>Einheit</Text>
-                  <TextInput
-                    ref={unitRef}
-                    style={apStyles.freiInput}
-                    value={unitVal}
-                    onChangeText={setUnitVal}
-                    placeholder="m², Stk, lfm..."
-                    placeholderTextColor={Colors.raw.zinc600}
-                  />
+                  <Pressable
+                    onPress={() => setShowUnitPicker(!showUnitPicker)}
+                    style={[apStyles.freiInput, { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }]}
+                  >
+                    <Text style={{ color: unitVal ? Colors.raw.zinc200 : Colors.raw.zinc600, fontSize: 15 }}>
+                      {unitVal || "Auswählen..."}
+                    </Text>
+                    <Feather name="chevron-down" size={14} color={Colors.raw.zinc500} />
+                  </Pressable>
+                  {showUnitPicker && (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                      {UNIT_OPTIONS.map((u) => (
+                        <Pressable
+                          key={u}
+                          onPress={() => { setUnitVal(u); setShowUnitPicker(false); }}
+                          style={({ pressed }) => ({
+                            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
+                            backgroundColor: unitVal === u ? Colors.raw.amber500 + "30" : Colors.raw.zinc800,
+                            borderWidth: 1,
+                            borderColor: unitVal === u ? Colors.raw.amber500 : Colors.raw.zinc700,
+                            opacity: pressed ? 0.7 : 1,
+                          })}
+                        >
+                          <Text style={{ color: unitVal === u ? Colors.raw.amber500 : Colors.raw.zinc300, fontSize: 13, fontFamily: "Inter_500Medium" }}>{u}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
                 </View>
+              </View>
+              <Text style={apStyles.fieldLabel}>Positionstyp</Text>
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                {POSITION_TYPE_OPTIONS.map((opt) => (
+                  <Pressable
+                    key={opt.value}
+                    onPress={() => setPosType(opt.value)}
+                    style={({ pressed }) => ({
+                      flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center",
+                      backgroundColor: posType === opt.value ? opt.color + "20" : Colors.raw.zinc800,
+                      borderWidth: 1.5,
+                      borderColor: posType === opt.value ? opt.color : Colors.raw.zinc700,
+                      opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Text style={{
+                      color: posType === opt.value ? opt.color : Colors.raw.zinc400,
+                      fontSize: 13, fontFamily: "Inter_600SemiBold",
+                    }}>{opt.label}</Text>
+                  </Pressable>
+                ))}
               </View>
               <View style={{ flexDirection: "row", gap: 12 }}>
                 <View style={{ flex: 1 }}>
@@ -1372,7 +1446,7 @@ export default function OfferEditorScreen() {
 
       const { data: positions } = await supabase
         .from("offer_positions")
-        .select("id, section_id, position_number, title, description, long_text, unit, unit_price, quantity, total_price, catalog_code, catalog_position_v2_id, surcharge_profit_percent, sort_order")
+        .select("id, section_id, position_number, title, description, long_text, unit, unit_price, quantity, total_price, catalog_code, catalog_position_v2_id, surcharge_profit_percent, sort_order, position_type")
         .eq("offer_id", oid)
         .is("deleted_at", null)
         .order("sort_order");
@@ -1390,6 +1464,7 @@ export default function OfferEditorScreen() {
             unit: p.unit ?? "Stk",
             basePrice: Number(p.unit_price) || 0,
             markup: Number(p.surcharge_profit_percent) || 0,
+            positionType: (p.position_type as PositionType) || "STANDARD",
             catalogNr: p.catalog_code ?? undefined,
             catalogPositionId: p.catalog_position_v2_id ?? undefined,
           }));
@@ -1430,6 +1505,14 @@ export default function OfferEditorScreen() {
   const [isLumpSum, setIsLumpSum] = useState(false);
   const [lumpSumAmount, setLumpSumAmount] = useState("");
   const [hidePositionPrices, setHidePositionPrices] = useState(false);
+
+  // LV Import
+  const [lvImportVisible, setLvImportVisible] = useState(false);
+  const [lvImportLoading, setLvImportLoading] = useState(false);
+  const [lvImportResults, setLvImportResults] = useState<LvParsedPosition[] | null>(null);
+  const [lvImportSelected, setLvImportSelected] = useState<Set<number>>(new Set());
+  const [lvImportError, setLvImportError] = useState("");
+  const [lvImportSummary, setLvImportSummary] = useState<{ total: number; matched: number; needs_review: number } | null>(null);
 
   // PDF Export Modus
   type PdfExportMode = "full" | "lump_sum" | "title_sums" | "total_only";
@@ -1501,6 +1584,7 @@ export default function OfferEditorScreen() {
   const calculatedNetto = useMemo(() => {
     return rooms.reduce((s, r) => {
       return s + r.positions.reduce((ps, p) => {
+        if (p.positionType !== "STANDARD") return ps;
         const ep = p.basePrice * (1 + p.markup / 100);
         return ps + ep * p.qty;
       }, 0);
@@ -1556,6 +1640,7 @@ export default function OfferEditorScreen() {
           catalog_code: pos.catalogNr ?? null,
           catalog_position_v2_id: pos.catalogPositionId ?? null,
           surcharge_profit_percent: pos.markup,
+          position_type: pos.positionType || "STANDARD",
           sort_order: posNumber,
         })
         .select("id")
@@ -1591,6 +1676,7 @@ export default function OfferEditorScreen() {
         unit_price: pos.basePrice,
         quantity: pos.qty,
         surcharge_profit_percent: pos.markup,
+        position_type: pos.positionType || "STANDARD",
         updated_at: new Date().toISOString(),
       })
       .eq("id", pos.id)
@@ -1655,6 +1741,190 @@ export default function OfferEditorScreen() {
     });
   }, [offerId, flashSaved]);
 
+  // ── LV Import: Datei auswählen → parse-lv Edge Function → Ergebnisse anzeigen ──
+  const handleLvImport = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          "application/pdf",
+          "application/xml",
+          "text/xml",
+          "text/csv",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-excel",
+        ],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+      const file = result.assets[0];
+
+      setLvImportVisible(true);
+      setLvImportLoading(true);
+      setLvImportError("");
+      setLvImportResults(null);
+      setLvImportSummary(null);
+
+      // Datei in Supabase Storage hochladen
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "pdf";
+      const storagePath = `projects/${project?.id ?? "unknown"}/dokumente/lv_import_${Date.now()}.${ext}`;
+
+      let fileBody: ArrayBuffer;
+      if (Platform.OS === "web") {
+        const resp = await fetch(file.uri);
+        fileBody = await resp.arrayBuffer();
+      } else {
+        const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: "base64" as any });
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        fileBody = bytes.buffer;
+      }
+
+      const { error: uploadErr } = await supabase.storage
+        .from("project-files")
+        .upload(storagePath, fileBody, {
+          contentType: file.mimeType ?? "application/octet-stream",
+          upsert: true,
+        });
+
+      if (uploadErr) {
+        setLvImportError("Upload fehlgeschlagen: " + uploadErr.message);
+        setLvImportLoading(false);
+        return;
+      }
+
+      // parse-lv Edge Function aufrufen
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const parseResp = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/parse-lv`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            storage_path: storagePath,
+            confidence_threshold: 0.8,
+          }),
+        }
+      );
+
+      const parseResult = await parseResp.json();
+
+      if (!parseResult.success) {
+        setLvImportError(parseResult.error ?? "Parsing fehlgeschlagen");
+        setLvImportLoading(false);
+        return;
+      }
+
+      setLvImportResults(parseResult.positions ?? []);
+      setLvImportSummary(parseResult.summary ?? null);
+      // Alle Positionen initial auswählen
+      setLvImportSelected(new Set((parseResult.positions ?? []).map((_: LvParsedPosition, i: number) => i)));
+      setLvImportLoading(false);
+    } catch (e) {
+      setLvImportError("Fehler: " + (e as Error).message);
+      setLvImportLoading(false);
+    }
+  }, [project?.id]);
+
+  // LV Import: Ausgewählte Positionen übernehmen
+  const handleLvImportConfirm = useCallback(() => {
+    if (!lvImportResults || !offerId) return;
+
+    // Positionen nach Gewerk gruppieren
+    const byTrade = new Map<string, LvParsedPosition[]>();
+    lvImportResults.forEach((pos, idx) => {
+      if (!lvImportSelected.has(idx)) return;
+      const trade = pos.trade ?? "Allgemein";
+      if (!byTrade.has(trade)) byTrade.set(trade, []);
+      byTrade.get(trade)!.push(pos);
+    });
+
+    // Pro Gewerk eine Sektion erstellen + Positionen hinzufügen
+    byTrade.forEach((positions, trade) => {
+      const tradeIcon = trade === "Sanitär" ? "water" : trade === "Maler" ? "color-palette" : trade === "Elektro" ? "flash" : trade === "Fliesen" ? "grid" : trade === "Boden" ? "layers" : "cube";
+      const tempRoomId = genId();
+      const newRoom: Room = {
+        id: tempRoomId,
+        icon: tradeIcon,
+        name: `${trade} (LV-Import)`,
+        positions: positions.map((p, idx) => ({
+          id: genId(),
+          nr: `${String(idx + 1).padStart(2, "0")}`,
+          title: p.title,
+          desc: p.description || "",
+          longText: p.description || "",
+          qty: p.quantity,
+          unit: p.unit,
+          basePrice: 0,
+          markup: 0,
+          positionType: "STANDARD" as PositionType,
+          catalogNr: p.catalog_code ?? undefined,
+        })),
+        collapsed: false,
+      };
+
+      setRooms((prev) => {
+        const sectionNumber = prev.length + 1;
+        // DB persist
+        (async () => {
+          const { data: sec } = await supabase
+            .from("offer_sections")
+            .insert({ offer_id: offerId, section_number: sectionNumber, title: newRoom.name, trade })
+            .select("id")
+            .single();
+
+          if (!sec) return;
+          setRooms((p) => p.map((r) => r.id === tempRoomId ? { ...r, id: sec.id } : r));
+
+          // Positionen speichern
+          for (let i = 0; i < positions.length; i++) {
+            const p = positions[i];
+            const { data: inserted } = await supabase
+              .from("offer_positions")
+              .insert({
+                offer_id: offerId,
+                section_id: sec.id,
+                position_number: i + 1,
+                title: p.title,
+                description: p.description || null,
+                long_text: p.description || null,
+                unit: p.unit,
+                unit_price: 0,
+                quantity: p.quantity,
+                catalog_code: p.catalog_code ?? null,
+                source: "lv_import",
+                sort_order: i + 1,
+              })
+              .select("id")
+              .single();
+
+            if (inserted) {
+              setRooms((prev2) => prev2.map((r) => ({
+                ...r,
+                positions: r.positions.map((pos) =>
+                  pos.id === newRoom.positions[i]?.id ? { ...pos, id: inserted.id } : pos
+                ),
+              })));
+            }
+          }
+          flashSaved();
+        })();
+
+        return [...prev, newRoom];
+      });
+    });
+
+    setLvImportVisible(false);
+    setLvImportResults(null);
+    if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [lvImportResults, lvImportSelected, offerId, flashSaved]);
+
   // ── Titel verschieben (optimistisch + DB persist) ──
   const moveRoom = useCallback((roomId: string, direction: "up" | "down") => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1714,7 +1984,7 @@ export default function OfferEditorScreen() {
 
     // Totals aktualisieren
     const totalNet = rooms.reduce((s, r) =>
-      s + r.positions.reduce((ps, p) => ps + p.basePrice * (1 + p.markup / 100) * p.qty, 0), 0);
+      s + r.positions.reduce((ps, p) => p.positionType !== "STANDARD" ? ps : ps + p.basePrice * (1 + p.markup / 100) * p.qty, 0), 0);
     const vatRate = 19;
     const totalVat = totalNet * (vatRate / 100);
     const totalGross = totalNet + totalVat;
@@ -2450,8 +2720,11 @@ export default function OfferEditorScreen() {
                     const total = ep * pos.qty;
                     const dynamicNr = `${roomNrStr}.${String(pi + 1).padStart(2, "0")}`;
 
+                    const posTypeInfo = POSITION_TYPE_OPTIONS.find((o) => o.value === pos.positionType);
+                    const isNonStandard = pos.positionType !== "STANDARD";
+
                     return (
-                      <View key={pos.id} style={[s.posRow, pi === 0 && { borderTopWidth: 0 }]}>
+                      <View key={pos.id} style={[s.posRow, pi === 0 && { borderTopWidth: 0 }, isNonStandard && { opacity: 0.7 }]}>
                         <View style={s.posLeftCol}>
                           <Text style={s.posNr}>{dynamicNr}</Text>
                           <Pressable
@@ -2464,10 +2737,17 @@ export default function OfferEditorScreen() {
                           >
                             <Text style={s.qtyBadgeText}>{pos.qty.toString().replace(".", ",")} {pos.unit}</Text>
                           </Pressable>
+                          {isNonStandard && posTypeInfo && (
+                            <View style={{ backgroundColor: posTypeInfo.color + "20", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 4 }}>
+                              <Text style={{ color: posTypeInfo.color, fontSize: 10, fontFamily: "Inter_600SemiBold" }}>{posTypeInfo.short}</Text>
+                            </View>
+                          )}
                         </View>
                         <View style={s.posCenter}>
                           <Pressable onPress={() => { setEditFocus("title"); setEditPosition(pos); setEditPosRoomId(room.id); }}>
-                            <Text style={s.posTitle} numberOfLines={1}>{pos.title}</Text>
+                            <Text style={s.posTitle} numberOfLines={1}>
+                              {isNonStandard && posTypeInfo ? `[${posTypeInfo.label}] ` : ""}{pos.title}
+                            </Text>
                           </Pressable>
                           {!!(pos.longText || pos.desc) && (
                             <Pressable onPress={() => { setEditFocus("longText"); setEditPosition(pos); setEditPosRoomId(room.id); }}>
@@ -2648,6 +2928,7 @@ export default function OfferEditorScreen() {
               {[
                 { icon: "document-text", label: "Vorschau" },
                 { icon: "cloud-upload", label: "PDF speichern", action: () => handlePreview("save") },
+                { icon: "download", label: "Aus LV importieren", action: () => handleLvImport() },
                 { icon: "save", label: "Speichern", action: () => setSaveVisible(true) },
               ].map((item) => (
                 <Pressable
@@ -2696,9 +2977,153 @@ export default function OfferEditorScreen() {
         onClose={() => setSaveVisible(false)}
         onSave={handleSave}
       />
+
+      {/* LV Import Modal */}
+      <Modal visible={lvImportVisible} transparent animationType="slide" statusBarTranslucent>
+        <View style={lvStyles.overlay}>
+          <View style={[lvStyles.sheet, { paddingTop: topInset + 16, paddingBottom: bottomInset + 16 }]}>
+            {/* Header */}
+            <View style={lvStyles.header}>
+              <Text style={lvStyles.headerTitle}>Aus LV importieren</Text>
+              <Pressable
+                onPress={() => { setLvImportVisible(false); setLvImportResults(null); setLvImportError(""); }}
+                style={({ pressed }) => [lvStyles.closeBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Ionicons name="close" size={22} color={Colors.raw.zinc400} />
+              </Pressable>
+            </View>
+
+            {/* Loading */}
+            {lvImportLoading && (
+              <View style={lvStyles.center}>
+                <ActivityIndicator size="large" color={Colors.raw.amber500} />
+                <Text style={lvStyles.loadingText}>LV wird analysiert...</Text>
+                <Text style={lvStyles.loadingSubtext}>Format erkennen, Positionen extrahieren, Katalog matchen</Text>
+              </View>
+            )}
+
+            {/* Error */}
+            {lvImportError ? (
+              <View style={lvStyles.center}>
+                <Ionicons name="alert-circle" size={48} color={Colors.raw.rose500} />
+                <Text style={lvStyles.errorText}>{lvImportError}</Text>
+                <Pressable
+                  onPress={() => { setLvImportVisible(false); setLvImportError(""); }}
+                  style={lvStyles.retryBtn}
+                >
+                  <Text style={lvStyles.retryBtnText}>Schliessen</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {/* Results */}
+            {lvImportResults && !lvImportLoading && (
+              <>
+                {/* Summary */}
+                {lvImportSummary && (
+                  <View style={lvStyles.summary}>
+                    <View style={lvStyles.summaryItem}>
+                      <Text style={lvStyles.summaryNumber}>{lvImportSummary.total}</Text>
+                      <Text style={lvStyles.summaryLabel}>Positionen</Text>
+                    </View>
+                    <View style={lvStyles.summaryItem}>
+                      <Text style={[lvStyles.summaryNumber, { color: Colors.raw.emerald500 }]}>{lvImportSummary.matched}</Text>
+                      <Text style={lvStyles.summaryLabel}>Zugeordnet</Text>
+                    </View>
+                    <View style={lvStyles.summaryItem}>
+                      <Text style={[lvStyles.summaryNumber, { color: Colors.raw.amber500 }]}>{lvImportSummary.needs_review}</Text>
+                      <Text style={lvStyles.summaryLabel}>Prüfen</Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Position list */}
+                <FlatList
+                  data={lvImportResults}
+                  keyExtractor={(_, i) => String(i)}
+                  style={{ flex: 1 }}
+                  renderItem={({ item, index }) => {
+                    const selected = lvImportSelected.has(index);
+                    const confColor = item.confidence >= 0.8 ? Colors.raw.emerald500 : item.confidence >= 0.5 ? Colors.raw.amber500 : Colors.raw.rose500;
+                    return (
+                      <Pressable
+                        onPress={() => {
+                          setLvImportSelected((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(index)) next.delete(index); else next.add(index);
+                            return next;
+                          });
+                        }}
+                        style={[lvStyles.posItem, !selected && { opacity: 0.4 }]}
+                      >
+                        <View style={lvStyles.posCheck}>
+                          <Ionicons name={selected ? "checkbox" : "square-outline"} size={22} color={selected ? Colors.raw.amber500 : Colors.raw.zinc600} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <Text style={lvStyles.posNr}>{item.position_nr}</Text>
+                            {item.trade && <Text style={lvStyles.posTrade}>{item.trade}</Text>}
+                            <View style={[lvStyles.confBadge, { backgroundColor: confColor + "20" }]}>
+                              <Text style={[lvStyles.confText, { color: confColor }]}>{Math.round(item.confidence * 100)}%</Text>
+                            </View>
+                          </View>
+                          <Text style={lvStyles.posTitle} numberOfLines={2}>{item.title}</Text>
+                          <Text style={lvStyles.posQty}>{item.quantity} {item.unit}</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  }}
+                />
+
+                {/* Confirm */}
+                <View style={lvStyles.confirmRow}>
+                  <Text style={lvStyles.confirmCount}>{lvImportSelected.size} von {lvImportResults.length} ausgewählt</Text>
+                  <Pressable
+                    onPress={handleLvImportConfirm}
+                    style={({ pressed }) => [lvStyles.confirmBtn, { opacity: pressed ? 0.9 : 1 }]}
+                  >
+                    <Ionicons name="checkmark-circle" size={20} color={Colors.raw.zinc950} />
+                    <Text style={lvStyles.confirmBtnText}>Übernehmen</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
+
+const lvStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)" },
+  sheet: { flex: 1, backgroundColor: Colors.raw.zinc900, marginTop: 40, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 16 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  headerTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.raw.white },
+  closeBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  loadingText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.raw.white, marginTop: 8 },
+  loadingSubtext: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc400, textAlign: "center" },
+  errorText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.rose400, textAlign: "center", marginTop: 8 },
+  retryBtn: { backgroundColor: Colors.raw.zinc800, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, marginTop: 12 },
+  retryBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.white },
+  summary: { flexDirection: "row", backgroundColor: Colors.raw.zinc800, borderRadius: 12, padding: 16, marginBottom: 12, justifyContent: "space-around" },
+  summaryItem: { alignItems: "center" },
+  summaryNumber: { fontFamily: "Inter_700Bold", fontSize: 24, color: Colors.raw.white },
+  summaryLabel: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400, marginTop: 2 },
+  posItem: { flexDirection: "row", alignItems: "flex-start", backgroundColor: Colors.raw.zinc800 + "80", borderRadius: 10, padding: 12, marginBottom: 8, gap: 10 },
+  posCheck: { paddingTop: 2 },
+  posNr: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.amber500 },
+  posTrade: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.raw.zinc400, backgroundColor: Colors.raw.zinc700, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
+  confBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 },
+  confText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
+  posTitle: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.white, marginTop: 4 },
+  posQty: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400, marginTop: 2 },
+  confirmRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.raw.zinc700 },
+  confirmCount: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc400 },
+  confirmBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: Colors.raw.amber500, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10 },
+  confirmBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.zinc950 },
+});
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.raw.zinc950 },

@@ -386,18 +386,27 @@ function DocumentRow({
   storagePath,
   externalUrl,
   icon,
+  onPress,
+  rightIcon,
 }: {
   name: string;
   subtitle?: string;
   storagePath?: string | null;
   externalUrl?: string | null;
   icon?: string;
+  onPress?: () => void;
+  rightIcon?: "navigate" | "download";
 }) {
   const hasPdf = !!storagePath || !!externalUrl;
+  const isClickable = !!onPress || hasPdf;
 
   const handlePress = async () => {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    if (onPress) {
+      onPress();
+      return;
     }
     if (externalUrl) {
       Linking.openURL(externalUrl);
@@ -415,7 +424,7 @@ function DocumentRow({
   return (
     <Pressable
       onPress={handlePress}
-      disabled={!hasPdf}
+      disabled={!isClickable}
       style={({ pressed }) => [
         docStyles.row,
         { opacity: pressed ? 0.8 : 1 },
@@ -424,17 +433,19 @@ function DocumentRow({
       <Ionicons
         name={(icon as any) || "document-text"}
         size={20}
-        color={hasPdf ? Colors.raw.amber500 : Colors.raw.zinc700}
+        color={isClickable ? Colors.raw.amber500 : Colors.raw.zinc700}
       />
       <View style={docStyles.textCol}>
-        <Text style={[docStyles.name, !hasPdf && { color: Colors.raw.zinc600 }]}>{name}</Text>
+        <Text style={[docStyles.name, !isClickable && { color: Colors.raw.zinc600 }]}>{name}</Text>
         {subtitle && <Text style={docStyles.subtitle}>{subtitle}</Text>}
       </View>
-      {hasPdf ? (
+      {rightIcon === "navigate" ? (
+        <Feather name="chevron-right" size={16} color={Colors.raw.zinc500} />
+      ) : hasPdf ? (
         <Feather name="download" size={16} color={Colors.raw.amber500} />
-      ) : (
+      ) : !onPress ? (
         <Text style={docStyles.noPdf}>Kein PDF</Text>
-      )}
+      ) : null}
     </Pressable>
   );
 }
@@ -918,8 +929,9 @@ function DocumentManagerModal({
                   <DocumentRow
                     key={offer.offer_number}
                     name={`Angebot ${offer.offer_number}`}
-                    subtitle={offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? undefined}
-                    storagePath={offer.pdf_storage_path}
+                    subtitle={`${offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? "—"}${offer.total_net ? ` · €${Number(offer.total_net).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : ""}`}
+                    onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: offer.id } })}
+                    rightIcon="navigate"
                     icon="document-text"
                   />
                 ))}
@@ -1296,6 +1308,7 @@ export default function ProjectDetailScreen() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showDocManager, setShowDocManager] = useState(false);
   const [autoPlanLoading, setAutoPlanLoading] = useState(false);
+  const [pipelineRun, setPipelineRun] = useState<{ status: string; agents_completed: string[]; current_agent: string | null; completed_at: string | null } | null>(null);
   const { isOnline, addToSyncQueue } = useOffline();
 
   const handleCapturePhoto = useCallback(async () => {
@@ -1369,6 +1382,17 @@ export default function ProjectDetailScreen() {
 
     const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
     setTotalCosts(costs);
+
+    // Pipeline-Status laden (letzte Autoplanung)
+    const { data: lastRun } = await supabase
+      .from("pipeline_runs")
+      .select("status, agents_completed, current_agent, completed_at")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setPipelineRun(lastRun ?? null);
+
     setLoading(false);
   }, [id]);
 
@@ -1545,6 +1569,30 @@ export default function ProjectDetailScreen() {
                   Planung starten
                 </Text>
               </Pressable>
+            )}
+            {/* Pipeline-Status Badge */}
+            {pipelineRun && (
+              <View style={{
+                flexDirection: "row", alignItems: "center", gap: 4,
+                backgroundColor: pipelineRun.status === "completed" ? Colors.raw.emerald500 + "18" : pipelineRun.status === "running" ? Colors.raw.amber500 + "18" : Colors.raw.rose500 + "18",
+                paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, marginLeft: 8,
+              }}>
+                <Ionicons
+                  name={pipelineRun.status === "completed" ? "checkmark-circle" : pipelineRun.status === "running" ? "sync" : "alert-circle"}
+                  size={14}
+                  color={pipelineRun.status === "completed" ? Colors.raw.emerald500 : pipelineRun.status === "running" ? Colors.raw.amber500 : Colors.raw.rose500}
+                />
+                <Text style={{
+                  fontFamily: "Inter_500Medium", fontSize: 11,
+                  color: pipelineRun.status === "completed" ? Colors.raw.emerald500 : pipelineRun.status === "running" ? Colors.raw.amber500 : Colors.raw.rose500,
+                }}>
+                  {pipelineRun.status === "completed"
+                    ? `${pipelineRun.agents_completed?.length ?? 0}/5 Agenten`
+                    : pipelineRun.status === "running"
+                    ? `${pipelineRun.current_agent ?? "..."}`
+                    : "Pipeline gestoppt"}
+                </Text>
+              </View>
             )}
           </View>
           <Text style={styles.heroAddress}>
@@ -1825,8 +1873,9 @@ export default function ProjectDetailScreen() {
             <DocumentRow
               key={offer.offer_number}
               name={`Angebot ${offer.offer_number}`}
-              subtitle={offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? undefined}
-              storagePath={offer.pdf_storage_path}
+              subtitle={`${offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? "—"}${offer.total_net ? ` · €${Number(offer.total_net).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : ""}`}
+              onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: offer.id } })}
+              rightIcon="navigate"
               icon="document-text"
             />
           ))}
