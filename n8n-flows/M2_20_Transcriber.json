@@ -1,0 +1,272 @@
+{
+  "name": "M2_20_Transcriber",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m2-20-transcriber",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract site_capture_id from event payload\nconst body = $input.first().json.body || $input.first().json;\nconst payload = body.payload || body;\nconst siteCaptureId = payload.site_capture_id || payload.payload?.site_capture_id;\nconst projectId = body.project_id || payload.project_id;\n\nif (!siteCaptureId) {\n  throw new Error('site_capture_id fehlt im Event-Payload');\n}\n\nreturn [{ json: { siteCaptureId, projectId } }];"
+      },
+      "id": "parse-event",
+      "name": "Parse Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sc.id, sc.project_id, sc.status, sc.checklist_data,\n       ia.storage_path as audio_path\nFROM site_captures sc\nLEFT JOIN inspection_attachments ia ON ia.site_capture_id = sc.id\nWHERE sc.id = '{{ $json.siteCaptureId }}'\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "fetch-capture",
+      "name": "Fetch Site Capture",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [660, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-cred",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get audio storage path from event payload (uploaded directly, not via inspection_attachments)\nconst input = $input.first().json;\nconst siteCaptureId = $('Parse Event').first().json.siteCaptureId;\nconst projectId = $('Parse Event').first().json.projectId;\n\n// Audio path comes from the event payload (set by completeSiteCapture)\nconst eventPayload = $('Webhook').first().json.body?.payload || $('Webhook').first().json.payload || {};\nconst audioPath = eventPayload.audio_storage_path;\n\nif (!audioPath) {\n  throw new Error('Kein audio_storage_path im Event. Wurde eine Aufnahme gemacht?');\n}\n\nreturn [{ json: { siteCaptureId, projectId, audioPath } }];"
+      },
+      "id": "resolve-audio",
+      "name": "Resolve Audio Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://yetwntwayhmzmhhgdkli.supabase.co/storage/v1/object/sign/project-files/' + $json.audioPath }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "expiresIn",
+              "value": "3600"
+            }
+          ]
+        }
+      },
+      "id": "sign-url",
+      "name": "Sign Storage URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "supabase-service-key",
+          "name": "Supabase Service Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.signedURL }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-audio",
+      "name": "Download Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "whisper-1"
+            },
+            {
+              "name": "language",
+              "value": "de"
+            },
+            {
+              "name": "response_format",
+              "value": "verbose_json"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "whisper-api",
+      "name": "Whisper Transcription",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-api-key",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const whisperResult = $input.first().json;\nconst transcript = whisperResult.text || '';\nconst duration = whisperResult.duration || 0;\nconst segments = whisperResult.segments || [];\n\nconst siteCaptureId = $('Resolve Audio Path').first().json.siteCaptureId;\nconst projectId = $('Resolve Audio Path').first().json.projectId;\n\nreturn [{\n  json: {\n    siteCaptureId,\n    projectId,\n    transcript,\n    duration,\n    segmentCount: segments.length\n  }\n}];"
+      },
+      "id": "process-result",
+      "name": "Process Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE site_captures\nSET transcript_raw = '{{ $json.transcript.replace(/'/g, \"''\") }}',\n    status = 'processing'\nWHERE id = '{{ $json.siteCaptureId }}';",
+        "options": {}
+      },
+      "id": "save-transcript",
+      "name": "Save Transcript",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1980, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-cred",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (event_type, project_id, source_system, source_flow, payload)\nVALUES (\n  'SITE_CAPTURE_TRANSCRIBED',\n  '{{ $json.projectId }}',\n  'n8n',\n  'M2_20_Transcriber',\n  '{{ JSON.stringify({ site_capture_id: $json.siteCaptureId, transcript_length: $json.transcript.length, duration_seconds: $json.duration, segment_count: $json.segmentCount }).replace(/'/g, \"''\") }}'::jsonb\n);",
+        "options": {}
+      },
+      "id": "emit-event",
+      "name": "Emit SITE_CAPTURE_TRANSCRIBED",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2200, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-cred",
+          "name": "Supabase BG"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO flow_logs (flow_name, status, message, payload)\nVALUES (\n  'M2_20_Transcriber',\n  'success',\n  'Transkription abgeschlossen',\n  '{{ JSON.stringify({ site_capture_id: $json.siteCaptureId, transcript_chars: $json.transcript.length, duration_s: $json.duration }).replace(/'/g, \"''\") }}'::jsonb\n);",
+        "options": {}
+      },
+      "id": "log-success",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2420, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-cred",
+          "name": "Supabase BG"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "Parse Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Event": {
+      "main": [
+        [{ "node": "Fetch Site Capture", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Site Capture": {
+      "main": [
+        [{ "node": "Resolve Audio Path", "type": "main", "index": 0 }]
+      ]
+    },
+    "Resolve Audio Path": {
+      "main": [
+        [{ "node": "Sign Storage URL", "type": "main", "index": 0 }]
+      ]
+    },
+    "Sign Storage URL": {
+      "main": [
+        [{ "node": "Download Audio", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download Audio": {
+      "main": [
+        [{ "node": "Whisper Transcription", "type": "main", "index": 0 }]
+      ]
+    },
+    "Whisper Transcription": {
+      "main": [
+        [{ "node": "Process Transcript", "type": "main", "index": 0 }]
+      ]
+    },
+    "Process Transcript": {
+      "main": [
+        [{ "node": "Save Transcript", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Transcript": {
+      "main": [
+        [{ "node": "Emit SITE_CAPTURE_TRANSCRIBED", "type": "main", "index": 0 }]
+      ]
+    },
+    "Emit SITE_CAPTURE_TRANSCRIBED": {
+      "main": [
+        [{ "node": "Log Success", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": [
+    { "name": "M2_Baustelle" },
+    { "name": "Audio" },
+    { "name": "KI" }
+  ]
+}

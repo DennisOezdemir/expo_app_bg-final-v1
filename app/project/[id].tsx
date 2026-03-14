@@ -2060,6 +2060,7 @@ export default function ProjectDetailScreen() {
             <Text style={styles.modalTitle}>Begehung erstellen</Text>
             <Text style={styles.modalSubtitle}>Art der Begehung w{"\u00E4"}hlen</Text>
             {[
+              { key: "baustellenaufnahme", label: "Baustellenaufnahme", icon: "scan", desc: "Neue Baustelle erfassen (ohne Angebot)" },
               { key: "erstbegehung", label: "Erstbegehung", icon: "eye", desc: "Erstmalige Begutachtung vor Ort" },
               { key: "zwischenbegehung", label: "Zwischenbegehung", icon: "sync", desc: "Kontrolle w\u00E4hrend der Bauphase" },
               { key: "abnahme", label: "Abnahme", icon: "checkmark-circle", desc: "Finale Abnahme nach Fertigstellung" },
@@ -2070,7 +2071,9 @@ export default function ProjectDetailScreen() {
                 onPress={() => {
                   if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowBegehungPicker(false);
-                  if (offers.length > 1) {
+                  if (item.key === "baustellenaufnahme") {
+                    router.push({ pathname: "/begehung/baustellenaufnahme", params: { projectId: id || "" } });
+                  } else if (offers.length > 1) {
                     setBegehungType(item.key);
                     setShowOfferPicker(true);
                   } else {
