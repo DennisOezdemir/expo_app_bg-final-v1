@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   FlatList,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -2091,6 +2092,51 @@ export default function OfferEditorScreen() {
     }, 1500);
   }, [offerId, rooms]);
 
+  // ── Angebot löschen (Soft-Delete) ──
+  const handleDeleteOffer = useCallback(() => {
+    if (!offerId) return;
+
+    const doDelete = async () => {
+      try {
+        // Soft-delete: deleted_at setzen
+        const { error } = await supabase
+          .from("offers")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", offerId);
+        if (error) throw error;
+
+        // Auch alle offer_positions soft-deleten
+        await supabase
+          .from("offer_positions")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("offer_id", offerId)
+          .is("deleted_at", null);
+
+        // Zurück navigieren
+        router.back();
+      } catch (err: any) {
+        if (Platform.OS === "web") {
+          window.alert(err.message || "Angebot konnte nicht gelöscht werden");
+        }
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm("Angebot wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.")) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        "Angebot löschen",
+        "Angebot wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+        [
+          { text: "Abbrechen", style: "cancel" },
+          { text: "Löschen", style: "destructive", onPress: doDelete },
+        ]
+      );
+    }
+  }, [offerId]);
+
   // ── Vorschau: HTML generieren und im neuen Tab öffnen ──
   const handlePreview = useCallback(async (mode: "preview" | "save" = "preview") => {
     if (mode === "save") {
@@ -3020,6 +3066,23 @@ export default function OfferEditorScreen() {
                   <Text style={s.menuItemText}>{item.label}</Text>
                 </Pressable>
               ))}
+
+              {/* Trennlinie + Löschen (nur wenn offerId existiert) */}
+              {offerId && (
+                <>
+                  <View style={{ height: 1, backgroundColor: Colors.raw.zinc800, marginVertical: 4 }} />
+                  <Pressable
+                    onPress={() => {
+                      setMenuVisible(false);
+                      handleDeleteOffer();
+                    }}
+                    style={({ pressed }) => [s.menuItem, { opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <Ionicons name="trash" size={18} color={Colors.raw.rose500} />
+                    <Text style={[s.menuItemText, { color: Colors.raw.rose500 }]}>Angebot löschen</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           </Pressable>
         </Modal>

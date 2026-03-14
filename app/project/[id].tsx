@@ -388,6 +388,7 @@ function DocumentRow({
   icon,
   onPress,
   rightIcon,
+  onLongPress,
 }: {
   name: string;
   subtitle?: string;
@@ -396,6 +397,7 @@ function DocumentRow({
   icon?: string;
   onPress?: () => void;
   rightIcon?: "navigate" | "download";
+  onLongPress?: () => void;
 }) {
   const hasPdf = !!storagePath || !!externalUrl;
   const isClickable = !!onPress || hasPdf;
@@ -424,6 +426,7 @@ function DocumentRow({
   return (
     <Pressable
       onPress={handlePress}
+      onLongPress={onLongPress}
       disabled={!isClickable}
       style={({ pressed }) => [
         docStyles.row,
@@ -931,6 +934,7 @@ function DocumentManagerModal({
                     name={`Angebot ${offer.offer_number}`}
                     subtitle={`${offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? "—"}${offer.total_net ? ` · €${Number(offer.total_net).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : ""}`}
                     onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: offer.id } })}
+                    onLongPress={() => handleDeleteOffer(offer.id, offer.offer_number)}
                     rightIcon="navigate"
                     icon="document-text"
                   />
@@ -1335,6 +1339,46 @@ export default function ProjectDetailScreen() {
     }
   }, [id, photoUploading, isOnline, addToSyncQueue]);
 
+  // ── Angebot löschen (Soft-Delete) ──
+  const handleDeleteOffer = useCallback(async (offerId: string, offerNumber: string) => {
+    const doDelete = async () => {
+      try {
+        const { error } = await supabase
+          .from("offers")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", offerId);
+        if (error) throw error;
+
+        await supabase
+          .from("offer_positions")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("offer_id", offerId)
+          .is("deleted_at", null);
+
+        setOffers(prev => prev.filter(o => o.id !== offerId));
+      } catch (err: any) {
+        if (Platform.OS === "web") {
+          window.alert(err.message || "Angebot konnte nicht gelöscht werden");
+        }
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm(`Angebot ${offerNumber} wirklich löschen?`)) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        "Angebot löschen",
+        `Angebot ${offerNumber} wirklich löschen?`,
+        [
+          { text: "Abbrechen", style: "cancel" },
+          { text: "Löschen", style: "destructive", onPress: doDelete },
+        ]
+      );
+    }
+  }, []);
+
   const fetchData = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -1344,7 +1388,8 @@ export default function ProjectDetailScreen() {
       supabase
         .from("offers")
         .select("id, offer_number, total_net, status, pdf_storage_path")
-        .eq("project_id", id),
+        .eq("project_id", id)
+        .is("deleted_at", null),
       supabase
         .from("project_messages")
         .select("id, message_type, text, sender_id, created_at")
@@ -1882,6 +1927,7 @@ export default function ProjectDetailScreen() {
               name={`Angebot ${offer.offer_number}`}
               subtitle={`${offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? "—"}${offer.total_net ? ` · €${Number(offer.total_net).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : ""}`}
               onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: offer.id } })}
+              onLongPress={() => handleDeleteOffer(offer.id, offer.offer_number)}
               rightIcon="navigate"
               icon="document-text"
             />
