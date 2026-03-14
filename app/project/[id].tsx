@@ -522,6 +522,7 @@ function DocumentManagerModal({
   const [files, setFiles] = useState<FileData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const filesOffsetRef = useRef(0);
   const scrollRef = useRef<ScrollView>(null);
   const [showNewFolder, setShowNewFolder] = useState(false);
@@ -953,7 +954,7 @@ function DocumentManagerModal({
               </View>
             )}
 
-            {/* Folders */}
+            {/* Folders - Grid Layout */}
             <View style={dmStyles.section}>
               <View style={dmStyles.sectionHeader}>
                 <Text style={dmStyles.sectionTitle}>Ordner</Text>
@@ -962,7 +963,7 @@ function DocumentManagerModal({
                   style={({ pressed }) => [dmStyles.addFolderBtn, { opacity: pressed ? 0.7 : 1 }]}
                 >
                   <Ionicons name="add" size={18} color={Colors.raw.amber500} />
-                  <Text style={dmStyles.addFolderText}>Neuer Ordner</Text>
+                  <Text style={dmStyles.addFolderText}>Neu</Text>
                 </Pressable>
               </View>
 
@@ -986,107 +987,113 @@ function DocumentManagerModal({
                 </View>
               )}
 
-              {/* "Alle" option */}
-              <Pressable
-                onPress={() => setActiveFolder(null)}
-                style={[dmStyles.folderRow, !activeFolder && dmStyles.folderActive]}
-              >
-                <Ionicons name="folder-open" size={20} color={!activeFolder ? Colors.raw.amber500 : Colors.raw.zinc500} />
-                <Text style={[dmStyles.folderName, !activeFolder && { color: Colors.raw.amber500 }]}>
-                  Alle Dateien
-                </Text>
-                {files.length > 0 ? (
-                  <View style={dmStyles.folderBadge}>
-                    <Text style={dmStyles.folderBadgeText}>{files.length}</Text>
-                  </View>
-                ) : (
-                  <Text style={dmStyles.folderCountEmpty}>0</Text>
-                )}
-              </Pressable>
+              {/* 3-Column Grid */}
+              <View style={dmStyles.folderGrid}>
+                {/* "Alle Dateien" tile */}
+                <Pressable
+                  onPress={() => { setActiveFolder(null); setOpenFolderId("__all__"); }}
+                  style={({ pressed }) => [dmStyles.folderTile, { opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <Ionicons name="folder" size={64} color={files.length > 0 ? "#22c55e" : "#a855f7"} />
+                  <Text style={dmStyles.folderTileName} numberOfLines={2}>Alle Dateien</Text>
+                </Pressable>
 
-              {folders.map((folder) => {
-                const isOpen = activeFolder === folder.id;
-                const folderFiles = files.filter((f) => f.folder_id === folder.id);
-                return (
-                  <View key={folder.id}>
-                    <Pressable
-                      onPress={() => setActiveFolder(isOpen ? null : folder.id)}
-                      onLongPress={() => deleteFolder(folder.id, folder.name)}
-                      style={[dmStyles.folderRow, isOpen && dmStyles.folderActive]}
-                    >
-                      <Ionicons
-                        name={isOpen ? "folder-open" : "folder"}
-                        size={20}
-                        color={isOpen ? Colors.raw.amber500 : Colors.raw.zinc500}
-                      />
-                      <Text style={[dmStyles.folderName, isOpen && { color: Colors.raw.amber500 }]}>
-                        {folder.name}
-                      </Text>
-                      {folder.file_count > 0 ? (
-                        <View style={dmStyles.folderBadge}>
-                          <Text style={dmStyles.folderBadgeText}>{folder.file_count}</Text>
-                        </View>
-                      ) : (
-                        <Text style={dmStyles.folderCountEmpty}>0</Text>
-                      )}
-                      <Ionicons
-                        name={isOpen ? "chevron-down" : "chevron-forward"}
-                        size={18}
-                        color={isOpen ? Colors.raw.amber500 : Colors.raw.zinc600}
-                      />
-                    </Pressable>
-                    {isOpen && (
-                      <View style={dmStyles.folderContent}>
-                        {folderFiles.length === 0 ? (
-                          <Pressable onPress={pickAndUploadFile} disabled={uploading} style={dmStyles.emptyDropZoneSmall}>
-                            <Ionicons name="cloud-upload-outline" size={24} color={Colors.raw.zinc600} />
-                            <Text style={dmStyles.emptyText}>Ordner ist leer</Text>
-                            <Text style={dmStyles.dropHint}>
-                              {Platform.OS === "web" ? "Drag & Drop oder Klick" : "Tippen zum Hochladen"}
-                            </Text>
-                          </Pressable>
-                        ) : (
-                          folderFiles.map((file) => (
-                            <Pressable
-                              key={file.id}
-                              onPress={() => openFile(file)}
-                              style={({ pressed }) => [dmStyles.fileRow, dmStyles.fileRowIndented, { opacity: pressed ? 0.8 : 1 }]}
-                            >
-                              <Ionicons
-                                name={
-                                  file.mime_type?.startsWith("image/") ? "image" :
-                                  file.mime_type === "application/pdf" ? "document-text" : "document"
-                                }
-                                size={18}
-                                color={Colors.raw.amber500}
-                              />
-                              <View style={dmStyles.fileInfo}>
-                                <Text style={dmStyles.fileName} numberOfLines={1}>{file.file_name}</Text>
-                                <Text style={dmStyles.fileMeta}>
-                                  {formatSize(file.file_size_bytes)}
-                                  {file.created_at ? ` · ${new Date(file.created_at).toLocaleDateString("de-DE")}` : ""}
-                                </Text>
-                              </View>
-                              <Feather name="download" size={16} color={Colors.raw.zinc500} />
-                            </Pressable>
-                          ))
-                        )}
-                        <Pressable
-                          onPress={pickAndUploadFile}
-                          disabled={uploading}
-                          style={({ pressed }) => [dmStyles.uploadInFolderBtn, { opacity: pressed || uploading ? 0.6 : 1 }]}
-                        >
-                          <Ionicons name="cloud-upload" size={14} color={Colors.raw.amber500} />
-                          <Text style={dmStyles.uploadInlineBtnText}>Hochladen</Text>
-                        </Pressable>
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
+                {/* Folder tiles */}
+                {folders.map((folder) => (
+                  <Pressable
+                    key={folder.id}
+                    onPress={() => { setActiveFolder(folder.id); setOpenFolderId(folder.id); }}
+                    onLongPress={() => deleteFolder(folder.id, folder.name)}
+                    style={({ pressed }) => [dmStyles.folderTile, { opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <Ionicons name="folder" size={64} color={folder.file_count > 0 ? "#22c55e" : "#a855f7"} />
+                    <Text style={dmStyles.folderTileName} numberOfLines={2}>{folder.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
           </ScrollView>
         )}
+
+        {/* Bottom Sheet for Folder Contents */}
+        <Modal
+            visible={!!openFolderId}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setOpenFolderId(null)}
+          >
+            <Pressable style={dmStyles.sheetOverlay} onPress={() => setOpenFolderId(null)}>
+              <Pressable style={dmStyles.sheetContent} onPress={(e) => e.stopPropagation()}>
+                <View style={dmStyles.sheetHandle} />
+                <View style={dmStyles.sheetHeader}>
+                  <Text style={dmStyles.sheetTitle}>
+                    {openFolderId === "__all__" ? "Alle Dateien" : folders.find(f => f.id === openFolderId)?.name || "Ordner"}
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      onPress={() => { pickAndUploadFile(); }}
+                      disabled={uploading}
+                      style={({ pressed }) => [dmStyles.sheetAction, { opacity: pressed || uploading ? 0.6 : 1 }]}
+                    >
+                      {uploading ? (
+                        <ActivityIndicator size="small" color={Colors.raw.amber500} />
+                      ) : (
+                        <Ionicons name="cloud-upload" size={20} color={Colors.raw.amber500} />
+                      )}
+                    </Pressable>
+                    <Pressable onPress={() => setOpenFolderId(null)} style={dmStyles.sheetClose}>
+                      <Ionicons name="close" size={24} color={Colors.raw.zinc400} />
+                    </Pressable>
+                  </View>
+                </View>
+
+                <ScrollView style={dmStyles.sheetScroll} contentContainerStyle={dmStyles.sheetScrollContent}>
+                  {(() => {
+                    const sheetFiles = openFolderId === "__all__"
+                      ? files
+                      : files.filter(f => f.folder_id === openFolderId);
+
+                    if (sheetFiles.length === 0) {
+                      return (
+                        <Pressable onPress={pickAndUploadFile} disabled={uploading} style={dmStyles.emptyDropZoneSmall}>
+                          <Ionicons name="cloud-upload-outline" size={32} color={Colors.raw.zinc600} />
+                          <Text style={dmStyles.emptyText}>Ordner ist leer</Text>
+                          <Text style={dmStyles.dropHint}>
+                            {Platform.OS === "web" ? "Drag & Drop oder Klick" : "Tippen zum Hochladen"}
+                          </Text>
+                        </Pressable>
+                      );
+                    }
+
+                    return sheetFiles.map((file) => (
+                      <Pressable
+                        key={file.id}
+                        onPress={() => openFile(file)}
+                        style={({ pressed }) => [dmStyles.fileRow, { opacity: pressed ? 0.8 : 1 }]}
+                      >
+                        <Ionicons
+                          name={
+                            file.mime_type?.startsWith("image/") ? "image" :
+                            file.mime_type === "application/pdf" ? "document-text" : "document"
+                          }
+                          size={20}
+                          color={Colors.raw.amber500}
+                        />
+                        <View style={dmStyles.fileInfo}>
+                          <Text style={dmStyles.fileName} numberOfLines={1}>{file.file_name}</Text>
+                          <Text style={dmStyles.fileMeta}>
+                            {formatSize(file.file_size_bytes)}
+                            {file.created_at ? ` · ${new Date(file.created_at).toLocaleDateString("de-DE")}` : ""}
+                          </Text>
+                        </View>
+                        <Feather name="download" size={16} color={Colors.raw.zinc500} />
+                      </Pressable>
+                    ));
+                  })()}
+                </ScrollView>
+              </Pressable>
+            </Pressable>
+          </Modal>
       </View>
     </Modal>
   );
@@ -1265,6 +1272,86 @@ const dmStyles = StyleSheet.create({
   fileInfo: { flex: 1 },
   fileName: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc300 },
   fileMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc600, marginTop: 2 },
+
+  // Grid Layout
+  folderGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+    marginTop: 8,
+  },
+  folderTile: {
+    width: "30%",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  folderTileName: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.raw.zinc300,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 14,
+  },
+
+  // Bottom Sheet
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  sheetContent: {
+    backgroundColor: Colors.raw.zinc900,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "70%",
+    paddingBottom: 34,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: Colors.raw.zinc700,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  sheetTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.raw.white,
+  },
+  sheetAction: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.raw.amber500 + "18",
+    borderRadius: 10,
+  },
+  sheetClose: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetScroll: {
+    flex: 1,
+  },
+  sheetScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 20,
+  },
 });
 
 // --- Skeleton ---
