@@ -108,7 +108,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const inv = $json;\nconst eventData = $('Parse Event Data').first().json;\n\n// Use contact from event payload (freshly created) or from supplier record\nconst contactId = eventData.lexware_contact_id || inv.lexware_contact_id || null;\n\n// Category mapping - verified UUIDs from Lexware posting-categories API\nconst catMap = {\n  'SUBCONTRACTOR': 'efa82f43-fd85-11e1-a21f-0800200c9a66', // Fremdleistungen\n  'MATERIAL': '97938aa5-c5a7-4d31-bdac-a19209ba432e'        // Wareneinkauf\n};\nconst categoryId = catMap[inv.expense_cat] || 'efa82f42-fd85-11e1-a21f-0800200c9a66';\n\nconst formatDate = (d) => d ? d.substring(0, 10) + 'T00:00:00.000+01:00' : null;\n\nconst voucher = {\n  type: 'purchaseinvoice',\n  voucherNumber: inv.invoice_number,\n  voucherDate: formatDate(inv.invoice_date),\n  totalGrossAmount: parseFloat(inv.total_gross),\n  totalTaxAmount: parseFloat(inv.vat_amount || 0),\n  taxType: 'gross',\n  remark: 'Importiert aus BauGenius',\n  voucherItems: [{\n    amount: parseFloat(inv.total_gross),\n    taxAmount: parseFloat(inv.vat_amount || 0),\n    taxRatePercent: parseFloat(inv.vat_percent || 19),\n    categoryId: categoryId\n  }]\n};\nif (inv.due_date) voucher.dueDate = formatDate(inv.due_date);\nif (contactId) voucher.contactId = contactId;\n\nreturn { json: { voucher_payload: voucher, voucher_json: JSON.stringify(voucher), invoice_id: inv.id, invoice_number: inv.invoice_number } }"
+        "jsCode": "const inv = $json;\nconst eventData = $('Parse Event Data').first().json;\n\n// Use contact from event payload (freshly created) or from supplier record\nconst contactId = eventData.lexware_contact_id || inv.lexware_contact_id || null;\n\n// Category mapping - verified UUIDs from Lexware posting-categories API\nconst catMap = {\n  'SUBCONTRACTOR': 'efa82f43-fd85-11e1-a21f-0800200c9a66', // Fremdleistungen\n  'MATERIAL': '97938aa5-c5a7-4d31-bdac-a19209ba432e'        // Wareneinkauf\n};\nconst categoryId = catMap[inv.expense_cat] || 'efa82f42-fd85-11e1-a21f-0800200c9a66';\n\nconst formatDate = (d) => d ? d.substring(0, 10) + 'T00:00:00.000+01:00' : null;\n\nconst voucher = {\n  type: 'purchaseinvoice',\n  voucherNumber: inv.invoice_number,\n  voucherDate: formatDate(inv.invoice_date),\n  totalGrossAmount: parseFloat(inv.total_gross),\n  totalTaxAmount: parseFloat(inv.vat_amount || 0),\n  taxType: 'gross',\n  remark: 'Importiert aus BauGenius',\n  voucherItems: [{\n    amount: parseFloat(inv.total_gross),\n    taxAmount: parseFloat(inv.vat_amount || 0),\n    taxRatePercent: parseFloat(inv.vat_percent || 19),\n    categoryId: categoryId\n  }]\n};\nif (inv.due_date) voucher.dueDate = formatDate(inv.due_date);\nif (contactId) voucher.contactId = contactId;\n\nreturn { json: { voucher_payload: voucher, voucher_json: JSON.stringify(voucher), invoice_id: inv.id, invoice_number: inv.invoice_number, pdf_storage_path: inv.pdf_storage_path || '' } }"
       },
       "id": "21cc9eda-fccc-408e-b375-1497a6998d91",
       "name": "Build Voucher Payload",
@@ -197,7 +197,7 @@
     {
       "parameters": {
         "chatId": "6088921678",
-        "text": "=\u2705 *Lexware Push erfolgreich*\n\ud83d\udcc4 {{ $('Build Voucher Payload').item.json.invoice_number }}\n\ud83d\udd17 `{{ $('Create Lexware Voucher').item.json.body.id }}`",
+        "text": "=✅ *Lexware Push erfolgreich*\n📄 {{ $('Build Voucher Payload').item.json.invoice_number }}\n🔗 `{{ $('Create Lexware Voucher').item.json.body.id }}`",
         "additionalFields": {
           "disable_web_page_preview": true,
           "parse_mode": "Markdown"
@@ -258,7 +258,7 @@
     {
       "parameters": {
         "chatId": "6088921678",
-        "text": "=\u26a0\ufe0f *Lexware Push fehlgeschlagen*\n\ud83d\udcc4 {{ $('Build Voucher Payload').item.json.invoice_number }}",
+        "text": "=⚠️ *Lexware Push fehlgeschlagen*\n📄 {{ $('Build Voucher Payload').item.json.invoice_number }}",
         "additionalFields": {
           "disable_web_page_preview": true,
           "parse_mode": "Markdown"
@@ -322,7 +322,7 @@
           "conditions": [
             {
               "id": "has-pdf",
-              "leftValue": "={{ $('Load Invoice').first().json.pdf_storage_path }}",
+              "leftValue": "={{ $('Build Voucher Payload').first().json.pdf_storage_path }}",
               "rightValue": "",
               "operator": {
                 "type": "string",
@@ -336,7 +336,7 @@
         "options": {}
       },
       "id": "a1b2c3d4-pdf-check-node-0001",
-      "name": "\ud83d\udcc4 Has PDF?",
+      "name": "📄 Has PDF?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
@@ -346,7 +346,7 @@
     },
     {
       "parameters": {
-        "url": "=https://yetwntwayhmzmhhgdkli.supabase.co/storage/v1/object/authenticated/{{ $('Load Invoice').first().json.pdf_storage_path }}",
+        "url": "=https://yetwntwayhmzmhhgdkli.supabase.co/storage/v1/object/authenticated/{{ $('Build Voucher Payload').first().json.pdf_storage_path }}",
         "options": {
           "response": {
             "response": {
@@ -358,7 +358,7 @@
         "genericAuthType": "httpHeaderAuth"
       },
       "id": "a1b2c3d4-pdf-download-node-02",
-      "name": "\ud83d\udce5 Download PDF",
+      "name": "📥 Download PDF",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -399,7 +399,7 @@
         }
       },
       "id": "a1b2c3d4-pdf-upload-node-003",
-      "name": "\ud83d\udce4 Upload PDF to Lexware",
+      "name": "📤 Upload PDF to Lexware",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -493,7 +493,7 @@
       "main": [
         [
           {
-            "node": "\ud83d\udcc4 Has PDF?",
+            "node": "📄 Has PDF?",
             "type": "main",
             "index": 0
           }
@@ -567,11 +567,11 @@
         []
       ]
     },
-    "\ud83d\udcc4 Has PDF?": {
+    "📄 Has PDF?": {
       "main": [
         [
           {
-            "node": "\ud83d\udce5 Download PDF",
+            "node": "📥 Download PDF",
             "type": "main",
             "index": 0
           }
@@ -585,11 +585,11 @@
         ]
       ]
     },
-    "\ud83d\udce5 Download PDF": {
+    "📥 Download PDF": {
       "main": [
         [
           {
-            "node": "\ud83d\udce4 Upload PDF to Lexware",
+            "node": "📤 Upload PDF to Lexware",
             "type": "main",
             "index": 0
           }
@@ -603,7 +603,7 @@
         ]
       ]
     },
-    "\ud83d\udce4 Upload PDF to Lexware": {
+    "📤 Upload PDF to Lexware": {
       "main": [
         [
           {
