@@ -60,6 +60,7 @@ interface OfferData {
   total_net: number | null;
   status: string | null;
   pdf_storage_path: string | null;
+  internal_notes: string | null;
 }
 
 interface InspectionData {
@@ -357,12 +358,15 @@ function NextBegehungPrompt({ type, catalogLabel, projectId, offerId }: { type: 
     if (offerId) params.offerId = offerId;
     router.push({ pathname: "/begehung/[type]", params });
   };
-  const typeLabel = type === "zwischenbegehung" ? "Zwischenbegehung" : "Abnahme";
+  const typeLabel =
+    type === "erstbegehung" ? "Erstbegehung" :
+    type === "zwischenbegehung" ? "Zwischenbegehung" : "Abnahme";
+  const marginLeft = type === "abnahme" ? 48 : type === "zwischenbegehung" ? 24 : 0;
   return (
     <Pressable
       onPress={handlePress}
       style={({ pressed }) => ({
-        marginLeft: type === "abnahme" ? 48 : 24,
+        marginLeft,
         paddingVertical: 12,
         paddingHorizontal: 14,
         backgroundColor: Colors.raw.zinc900,
@@ -375,7 +379,7 @@ function NextBegehungPrompt({ type, catalogLabel, projectId, offerId }: { type: 
       })}
     >
       <Text style={{ color: Colors.raw.amber500, fontSize: 13, fontWeight: "600" }}>
-        {typeLabel} {catalogLabel} starten
+        {typeLabel}{catalogLabel ? ` ${catalogLabel}` : ""} starten
       </Text>
       <Text style={{ color: Colors.raw.zinc400, fontSize: 12, marginTop: 2 }}>
         Möchtest du die {typeLabel} jetzt machen?
@@ -1522,7 +1526,7 @@ export default function ProjectDetailScreen() {
     const [offersRes, messagesRes, costsRes, inspectionsRes, photosCountRes, sagaOrdersRes, docFilesCountRes] = await Promise.all([
       supabase
         .from("offers")
-        .select("id, offer_number, total_net, status, pdf_storage_path")
+        .select("id, offer_number, total_net, status, pdf_storage_path, internal_notes")
         .eq("project_id", id)
         .is("deleted_at", null),
       supabase
@@ -1925,40 +1929,59 @@ export default function ProjectDetailScreen() {
               <Ionicons name="add" size={18} color={Colors.raw.zinc950} />
             </Pressable>
           </View>
-          {inspections.length > 0 ? (
-            (() => {
-              // Group by offer_id to build cascade: EB → ZB → AB
-              const offerGroups = new Map<string, InspectionData[]>();
-              const noOffer: InspectionData[] = [];
-              inspections.forEach((ins) => {
-                const key = ins.offer_id || "__none__";
-                if (key === "__none__") { noOffer.push(ins); return; }
-                if (!offerGroups.has(key)) offerGroups.set(key, []);
-                offerGroups.get(key)!.push(ins);
-              });
-              const allGroups = [...offerGroups.entries(), ...noOffer.map((ins) => [ins.id, [ins]] as [string, InspectionData[]])];
-              return allGroups.map(([groupKey, groupIns]) => {
-                const eb = groupIns.find((i) => i.protocol_type === "erstbegehung");
-                const zb = groupIns.find((i) => i.protocol_type === "zwischenbegehung");
-                const ab = groupIns.find((i) => i.protocol_type === "abnahme");
-                const label = eb?.catalog_label || zb?.catalog_label || ab?.catalog_label || null;
-                const ebDone = eb && (eb.finalized_at || eb.status === "completed");
-                const zbDone = zb && (zb.finalized_at || zb.status === "completed");
-                return (
-                  <View key={groupKey}>
-                    {eb && (
+          {(() => {
+            // Group inspections by offer_id
+            const inspByOffer = new Map<string, InspectionData[]>();
+            const noOfferInsps: InspectionData[] = [];
+            inspections.forEach((ins) => {
+              if (!ins.offer_id) { noOfferInsps.push(ins); return; }
+              if (!inspByOffer.has(ins.offer_id)) inspByOffer.set(ins.offer_id, []);
+              inspByOffer.get(ins.offer_id)!.push(ins);
+            });
+
+            // Derive catalog label from offer internal_notes (e.g. "WABS · ..." or "AV-2024 · ...")
+            const labelFromOffer = (offer: OfferData): string | null => {
+              if (!offer.internal_notes) return null;
+              const notes = offer.internal_notes.toUpperCase();
+              if (notes.includes("WABS")) return "WABS";
+              if (notes.includes("AV")) return "AV";
+              return null;
+            };
+
+            const rows: React.ReactNode[] = [];
+
+            // Loop through offers: show full cascade or EB prompt
+            for (const offer of offers) {
+              const groupIns = inspByOffer.get(offer.id) || [];
+              const eb = groupIns.find((i) => i.protocol_type === "erstbegehung");
+              const zb = groupIns.find((i) => i.protocol_type === "zwischenbegehung");
+              const ab = groupIns.find((i) => i.protocol_type === "abnahme");
+              const label = eb?.catalog_label || zb?.catalog_label || ab?.catalog_label || labelFromOffer(offer);
+              const ebDone = eb && (eb.finalized_at || eb.status === "completed");
+              const zbDone = zb && (zb.finalized_at || zb.status === "completed");
+
+              if (!eb) {
+                rows.push(
+                  <NextBegehungPrompt key={`eb-${offer.id}`} type="erstbegehung" catalogLabel={label || ""} projectId={id!} offerId={offer.id} />
+                );
+              } else {
+                rows.push(
+                  <BegehungRow
+                    key={eb.id}
+                    name="Erstbegehung"
+                    status={mapInspectionStatus(eb.status, eb.finalized_at)}
+                    date={eb.finalized_at ? formatDate(eb.finalized_at) : formatDate(eb.inspection_date)}
+                    projectId={id!}
+                    protocolId={eb.id}
+                    catalogLabel={label}
+                  />
+                );
+                if (ebDone) {
+                  if (zb) {
+                    rows.push(
                       <BegehungRow
-                        name={`Erstbegehung`}
-                        status={mapInspectionStatus(eb.status, eb.finalized_at)}
-                        date={eb.finalized_at ? formatDate(eb.finalized_at) : formatDate(eb.inspection_date)}
-                        projectId={id!}
-                        protocolId={eb.id}
-                        catalogLabel={label}
-                      />
-                    )}
-                    {ebDone && zb && (
-                      <BegehungRow
-                        name={`Zwischenbegehung`}
+                        key={zb.id}
+                        name="Zwischenbegehung"
                         status={mapInspectionStatus(zb.status, zb.finalized_at)}
                         date={zb.finalized_at ? formatDate(zb.finalized_at) : formatDate(zb.inspection_date)}
                         projectId={id!}
@@ -1966,42 +1989,56 @@ export default function ProjectDetailScreen() {
                         catalogLabel={label}
                         indent
                       />
-                    )}
-                    {ebDone && !zb && (
-                      <NextBegehungPrompt type="zwischenbegehung" catalogLabel={label || ""} projectId={id!} offerId={eb.offer_id || undefined} />
-                    )}
-                    {zbDone && ab && (
-                      <BegehungRow
-                        name={`Abnahme`}
-                        status={mapInspectionStatus(ab.status, ab.finalized_at)}
-                        date={ab.finalized_at ? formatDate(ab.finalized_at) : formatDate(ab.inspection_date)}
-                        projectId={id!}
-                        protocolId={ab.id}
-                        catalogLabel={label}
-                        indent
-                      />
-                    )}
-                    {zbDone && !ab && (
-                      <NextBegehungPrompt type="abnahme" catalogLabel={label || ""} projectId={id!} offerId={zb?.offer_id || eb?.offer_id || undefined} />
-                    )}
-                    {!eb && groupIns.map((ins) => (
-                      <BegehungRow
-                        key={ins.id}
-                        name={mapBegehungType(ins.protocol_type)}
-                        status={mapInspectionStatus(ins.status, ins.finalized_at)}
-                        date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.inspection_date)}
-                        projectId={id!}
-                        protocolId={ins.id}
-                        catalogLabel={ins.catalog_label}
-                      />
-                    ))}
-                  </View>
-                );
-              });
-            })()
-          ) : (
-            <Text style={styles.emptySection}>Keine Begehungen vorhanden</Text>
-          )}
+                    );
+                    if (zbDone) {
+                      if (ab) {
+                        rows.push(
+                          <BegehungRow
+                            key={ab.id}
+                            name="Abnahme"
+                            status={mapInspectionStatus(ab.status, ab.finalized_at)}
+                            date={ab.finalized_at ? formatDate(ab.finalized_at) : formatDate(ab.inspection_date)}
+                            projectId={id!}
+                            protocolId={ab.id}
+                            catalogLabel={label}
+                            indent
+                          />
+                        );
+                      } else {
+                        rows.push(
+                          <NextBegehungPrompt key={`ab-${offer.id}`} type="abnahme" catalogLabel={label || ""} projectId={id!} offerId={zb.offer_id || eb.offer_id || undefined} />
+                        );
+                      }
+                    }
+                  } else {
+                    rows.push(
+                      <NextBegehungPrompt key={`zb-${offer.id}`} type="zwischenbegehung" catalogLabel={label || ""} projectId={id!} offerId={eb.offer_id || undefined} />
+                    );
+                  }
+                }
+              }
+            }
+
+            // Inspections with no offer_id (legacy / manual)
+            noOfferInsps.forEach((ins) => {
+              rows.push(
+                <BegehungRow
+                  key={ins.id}
+                  name={mapBegehungType(ins.protocol_type)}
+                  status={mapInspectionStatus(ins.status, ins.finalized_at)}
+                  date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.inspection_date)}
+                  projectId={id!}
+                  protocolId={ins.id}
+                  catalogLabel={ins.catalog_label}
+                />
+              );
+            });
+
+            if (rows.length === 0) {
+              return <Text style={styles.emptySection}>Keine Begehungen vorhanden</Text>;
+            }
+            return <>{rows}</>;
+          })()}
         </SectionCard>
 
         {/* Fotos */}
