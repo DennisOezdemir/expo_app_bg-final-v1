@@ -17,6 +17,8 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { PipelineBadge } from "@/components/PipelineProgress";
+import { fetchPipelineStatusBatch, type PipelineRunStatus } from "@/lib/api/pipeline";
 
 const SCREEN_W = Dimensions.get("window").width;
 const NAME_COL_W = 76;
@@ -988,6 +990,7 @@ export default function PlanungScreen() {
   const [autoPlanning, setAutoPlanning] = useState<string | null>(null);
   const [phases, setPhases] = useState<any[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedProject[]>([]);
+  const [pipelineStatuses, setPipelineStatuses] = useState<Record<string, PipelineRunStatus | "not_started">>({});
 
   const monday = useMemo(() => getMonday(weekOffset), [weekOffset]);
   const weekDays = useMemo(() => getWeekDays(monday), [monday]);
@@ -1043,18 +1046,23 @@ export default function PlanungScreen() {
         );
       const phasedIds = new Set((allPhasedProjects || []).map((p: any) => p.project_id));
 
-      setUnassigned(
-        unassignedData
-          .filter((p: any) => !projectsWithPhases.has(p.id) && !phasedIds.has(p.id))
-          .map((p: any) => ({
-            id: p.project_number || p.id,
-            projectId: p.id,
-            name: p.object_street || p.name || "",
-            note: p.planned_start
-              ? `ab ${new Date(p.planned_start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`
-              : "kein Startdatum",
-          }))
-      );
+      const filteredUnassigned = unassignedData
+        .filter((p: any) => !projectsWithPhases.has(p.id) && !phasedIds.has(p.id))
+        .map((p: any) => ({
+          id: p.project_number || p.id,
+          projectId: p.id,
+          name: p.object_street || p.name || "",
+          note: p.planned_start
+            ? `ab ${new Date(p.planned_start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`
+            : "kein Startdatum",
+        }));
+      setUnassigned(filteredUnassigned);
+
+      // Fetch pipeline status for unassigned projects
+      const unassignedIds = filteredUnassigned.map((p) => p.projectId);
+      if (unassignedIds.length > 0) {
+        fetchPipelineStatusBatch(unassignedIds).then(setPipelineStatuses).catch(() => {});
+      }
     }
 
     setLoading(false);
@@ -1372,13 +1380,17 @@ export default function PlanungScreen() {
                 </View>
                 {unassigned.map((p) => (
                   <View key={p.id} style={s.unassignedRow}>
-                    <View style={{ flex: 1 }}>
+                    <Pressable
+                      onPress={() => router.push(`/project/${p.projectId}` as any)}
+                      style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.7 : 1 }]}
+                    >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Text style={s.unassignedId}>{p.id}</Text>
                         <Text style={s.unassignedName}>{p.name}</Text>
+                        <PipelineBadge status={pipelineStatuses[p.projectId] || "not_started"} />
                       </View>
                       <Text style={s.unassignedNote}>{p.note}</Text>
-                    </View>
+                    </Pressable>
                     <Pressable
                       onPress={() => handleAutoPlan(p.projectId)}
                       disabled={autoPlanning === p.projectId}
@@ -1418,13 +1430,17 @@ export default function PlanungScreen() {
                 </View>
                 {unassigned.map((p) => (
                   <View key={p.id} style={s.unassignedRow}>
-                    <View style={{ flex: 1 }}>
+                    <Pressable
+                      onPress={() => router.push(`/project/${p.projectId}` as any)}
+                      style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.7 : 1 }]}
+                    >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Text style={s.unassignedId}>{p.id}</Text>
                         <Text style={s.unassignedName}>{p.name}</Text>
+                        <PipelineBadge status={pipelineStatuses[p.projectId] || "not_started"} />
                       </View>
                       <Text style={s.unassignedNote}>{p.note}</Text>
-                    </View>
+                    </Pressable>
                     <Pressable
                       onPress={() => handleAutoPlan(p.projectId)}
                       disabled={autoPlanning === p.projectId}
