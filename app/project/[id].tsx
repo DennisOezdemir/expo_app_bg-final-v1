@@ -27,6 +27,7 @@ import Colors from "@/constants/colors";
 import { ScreenState } from "@/components/ScreenState";
 import { supabase } from "@/lib/supabase";
 import { mapDbStatus, type ProjectStatus } from "@/lib/status";
+import { generateProtokollPdf, getProtokollPdfDownloadUrl } from "@/lib/api/protokoll-pdf";
 import { captureAndUploadPhoto } from "@/lib/photo-capture";
 import { useOffline } from "@/contexts/OfflineContext";
 import { useProjectDetail } from "@/hooks/queries/useProjectDetail";
@@ -431,6 +432,58 @@ const bgStyles = StyleSheet.create({
     color: Colors.raw.amber500,
   },
 });
+
+// PDF-Button für abgeschlossene Begehungen
+function ProtokollPdfButton({
+  label,
+  isLoading,
+  hasExisting,
+  onPress,
+  indent = 0,
+}: {
+  label: string;
+  isLoading: boolean;
+  hasExisting: boolean;
+  onPress: () => void;
+  indent?: number;
+}) {
+  return (
+    <Pressable
+      onPress={isLoading ? undefined : onPress}
+      style={({ pressed }) => ({
+        marginLeft: indent,
+        marginTop: 4,
+        marginBottom: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        backgroundColor: Colors.raw.zinc800,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: hasExisting ? Colors.raw.emerald500 + "60" : Colors.raw.zinc700,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        opacity: pressed || isLoading ? 0.7 : 1,
+      })}
+    >
+      {isLoading ? (
+        <ActivityIndicator size={14} color={Colors.raw.amber500} />
+      ) : (
+        <Ionicons
+          name={hasExisting ? "document-text" : "document-text-outline"}
+          size={16}
+          color={hasExisting ? Colors.raw.emerald500 : Colors.raw.amber500}
+        />
+      )}
+      <Text style={{ color: hasExisting ? Colors.raw.emerald500 : Colors.raw.amber500, fontSize: 13, fontWeight: "600", flex: 1 }}>
+        {isLoading ? "PDF wird erstellt..." : label}
+      </Text>
+      {hasExisting && !isLoading && (
+        <Ionicons name="cloud-download-outline" size={14} color={Colors.raw.emerald500} />
+      )}
+    </Pressable>
+  );
+}
 
 function DocumentRow({
   name,
@@ -1453,6 +1506,8 @@ export default function ProjectDetailScreen() {
   const [showDocManager, setShowDocManager] = useState(false);
   const [autoPlanLoading, setAutoPlanLoading] = useState(false);
   const [pipelineRun, setPipelineRun] = useState<{ status: string; agents_completed: string[]; current_agent: string | null; completed_at: string | null } | null>(null);
+  const [protokollPdfLoading, setProtokollPdfLoading] = useState<string | null>(null); // protocol_id being generated
+  const [monteurSprache, setMonteurSprache] = useState<"DE" | "TR" | "RU">("DE");
   const { isOnline, addToSyncQueue } = useOffline();
 
   const handleCapturePhoto = useCallback(async () => {
@@ -1614,6 +1669,38 @@ export default function ProjectDetailScreen() {
       setAutoPlanLoading(false);
     }
   }, [id, autoPlanLoading, refetchProject, fetchData]);
+
+  // ── Protokoll-PDF generieren ──
+  const handleProtokollPdf = useCallback(async (
+    protocolId: string,
+    protocolType: "erstbegehung" | "zwischenbegehung" | "abnahme"
+  ) => {
+    if (protokollPdfLoading) return;
+    setProtokollPdfLoading(protocolId);
+    try {
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+      const result = await generateProtokollPdf(protocolId, protocolType);
+      const downloadUrl = await getProtokollPdfDownloadUrl(result.storagePath);
+      // Inspections-Liste aktualisieren (pdf_storage_path gesetzt)
+      setInspections((prev) =>
+        prev.map((ins) =>
+          ins.id === protocolId ? { ...ins, pdf_storage_path: result.storagePath } : ins
+        )
+      );
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await Linking.openURL(downloadUrl);
+      } else {
+        window.open(downloadUrl, "_blank");
+      }
+    } catch (e: any) {
+      showAlert("PDF-Fehler", e.message || "PDF-Generierung fehlgeschlagen");
+    } finally {
+      setProtokollPdfLoading(null);
+    }
+  }, [protokollPdfLoading]);
 
   useEffect(() => {
     const loadClientName = async () => {
@@ -1885,6 +1972,61 @@ export default function ProjectDetailScreen() {
           </View>
         </SectionCard>
 
+        {/* Monteurauftrag Sprachauswahl */}
+        <SectionCard style={{ paddingVertical: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="language" size={18} color={Colors.raw.zinc400} />
+              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc300 }}>
+                Monteurauftrag-Sprache
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              {(["DE", "TR", "RU"] as const).map((lang) => (
+                <Pressable
+                  key={lang}
+                  onPress={() => setMonteurSprache(lang)}
+                  style={({ pressed }) => ({
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 8,
+                    borderWidth: 1.5,
+                    borderColor: monteurSprache === lang ? Colors.raw.amber500 : Colors.raw.zinc700,
+                    backgroundColor: monteurSprache === lang ? Colors.raw.amber500 + "20" : "transparent",
+                    opacity: pressed ? 0.7 : 1,
+                    minWidth: 44,
+                    alignItems: "center",
+                  })}
+                >
+                  <Text style={{
+                    fontFamily: "Inter_700Bold",
+                    fontSize: 12,
+                    color: monteurSprache === lang ? Colors.raw.amber500 : Colors.raw.zinc500,
+                  }}>
+                    {lang === "DE" ? "🇩🇪 DE" : lang === "TR" ? "🇹🇷 TR" : "🇷🇺 RU"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          {monteurSprache === "RU" && (
+            <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Ionicons name="information-circle-outline" size={14} color={Colors.raw.zinc500} />
+              <Text style={{ fontSize: 11, color: Colors.raw.zinc500, flex: 1 }}>
+                Russische Übersetzungen werden vorbereitet
+              </Text>
+            </View>
+          )}
+          {monteurSprache === "TR" && (
+            <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Ionicons name="checkmark-circle-outline" size={14} color={Colors.raw.emerald500} />
+              <Text style={{ fontSize: 11, color: Colors.raw.zinc500, flex: 1 }}>
+                627/1833 Positionen auf Türkisch verfügbar
+              </Text>
+            </View>
+          )}
+        </SectionCard>
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1905,7 +2047,13 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<Ionicons name="clipboard" size={24} color={Colors.raw.amber500} />}
             label="Auftrag"
-            onPress={() => router.push({ pathname: "/auftrag/[id]", params: { id: id || "1" } })}
+            onPress={() => {
+              if (monteurSprache === "RU") {
+                showAlert("Russisch noch nicht verfügbar", "Übersetzungen werden vorbereitet. Bitte wähle Deutsch oder Türkisch.");
+                return;
+              }
+              router.push({ pathname: "/auftrag/[id]", params: { id: id || "1", lang: monteurSprache } });
+            }}
           />
           <QuickAction
             icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
@@ -1977,7 +2125,6 @@ export default function ProjectDetailScreen() {
               const ab = groupIns.find((i) => i.protocol_type === "abnahme");
               const label = eb?.catalog_label || zb?.catalog_label || ab?.catalog_label || labelFromOffer(offer);
               const ebDone = eb && (eb.finalized_at || eb.status === "completed");
-              const zbDone = zb && (zb.finalized_at || zb.status === "completed");
 
               if (!eb) {
                 rows.push(
@@ -1996,6 +2143,17 @@ export default function ProjectDetailScreen() {
                   />
                 );
                 if (ebDone) {
+                  // EB-Protokoll PDF Button
+                  rows.push(
+                    <ProtokollPdfButton
+                      key={`eb-pdf-${eb.id}`}
+                      label="EB-Protokoll PDF"
+                      isLoading={protokollPdfLoading === eb.id}
+                      hasExisting={!!eb.pdf_storage_path}
+                      onPress={() => handleProtokollPdf(eb.id, "erstbegehung")}
+                      indent={0}
+                    />
+                  );
                   if (zb) {
                     rows.push(
                       <BegehungRow
@@ -2009,7 +2167,19 @@ export default function ProjectDetailScreen() {
                         indent
                       />
                     );
-                    if (zbDone) {
+                    const zbDoneLocal = zb && (zb.finalized_at || zb.status === "completed");
+                    if (zbDoneLocal) {
+                      // ZB-Protokoll PDF Button
+                      rows.push(
+                        <ProtokollPdfButton
+                          key={`zb-pdf-${zb.id}`}
+                          label="ZB-Protokoll PDF"
+                          isLoading={protokollPdfLoading === zb.id}
+                          hasExisting={!!zb.pdf_storage_path}
+                          onPress={() => handleProtokollPdf(zb.id, "zwischenbegehung")}
+                          indent={24}
+                        />
+                      );
                       if (ab) {
                         rows.push(
                           <BegehungRow
@@ -2023,6 +2193,20 @@ export default function ProjectDetailScreen() {
                             indent
                           />
                         );
+                        const abDoneLocal = ab && (ab.finalized_at || ab.status === "completed");
+                        if (abDoneLocal) {
+                          // AB-Protokoll PDF Button
+                          rows.push(
+                            <ProtokollPdfButton
+                              key={`ab-pdf-${ab.id}`}
+                              label="Abnahme-Protokoll PDF"
+                              isLoading={protokollPdfLoading === ab.id}
+                              hasExisting={!!ab.pdf_storage_path}
+                              onPress={() => handleProtokollPdf(ab.id, "abnahme")}
+                              indent={48}
+                            />
+                          );
+                        }
                       } else {
                         rows.push(
                           <NextBegehungPrompt key={`ab-${offer.id}`} type="abnahme" catalogLabel={label || ""} projectId={id!} offerId={zb.offer_id || eb.offer_id || undefined} />
@@ -2040,6 +2224,7 @@ export default function ProjectDetailScreen() {
 
             // Inspections with no offer_id (legacy / manual)
             noOfferInsps.forEach((ins) => {
+              const insDone = ins.finalized_at || ins.status === "completed";
               rows.push(
                 <BegehungRow
                   key={ins.id}
@@ -2051,6 +2236,18 @@ export default function ProjectDetailScreen() {
                   catalogLabel={ins.catalog_label}
                 />
               );
+              if (insDone) {
+                rows.push(
+                  <ProtokollPdfButton
+                    key={`legacy-pdf-${ins.id}`}
+                    label={`${mapBegehungType(ins.protocol_type)}-Protokoll PDF`}
+                    isLoading={protokollPdfLoading === ins.id}
+                    hasExisting={!!ins.pdf_storage_path}
+                    onPress={() => handleProtokollPdf(ins.id, ins.protocol_type as "erstbegehung" | "zwischenbegehung" | "abnahme")}
+                    indent={0}
+                  />
+                );
+              }
             });
 
             if (rows.length === 0) {
