@@ -70,6 +70,8 @@ interface InspectionData {
   finalized_at: string | null;
   created_at: string;
   pdf_storage_path: string | null;
+  offer_id: string | null;
+  catalog_label: string | null;
 }
 
 interface SagaOrderData {
@@ -291,30 +293,40 @@ function formatTime(dateStr: string | null): string {
   return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
-function BegehungRow({ name, status, date, projectId, protocolId }: { name: string; status: BegehungStatus; date: string; projectId: string; protocolId?: string }) {
+function BegehungRow({ name, status, date, projectId, protocolId, catalogLabel, indent }: { name: string; status: BegehungStatus; date: string; projectId: string; protocolId?: string; catalogLabel?: string | null; indent?: boolean }) {
   const cfg = BEGEHUNG_CONFIG[status];
   const typeMap: Record<string, string> = {
     Erstbegehung: "erstbegehung",
     Zwischenbegehung: "zwischenbegehung",
     Abnahme: "abnahme",
   };
+  const baseName = name.split(" ")[0]; // "Erstbegehung" from "Erstbegehung AV"
   const handlePress = () => {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    const params: any = { type: typeMap[name] || "zwischenbegehung", projectId };
+    const params: any = { type: typeMap[baseName] || "zwischenbegehung", projectId };
     if (protocolId) params.protocolId = protocolId;
     router.push({ pathname: "/begehung/[type]", params });
   };
+  const catalogBadgeColor = catalogLabel === "WABS" ? Colors.raw.amber500 : catalogLabel === "AV" ? "#6366f1" : Colors.raw.zinc600;
   return (
     <Pressable
       onPress={handlePress}
-      style={({ pressed }) => [bgStyles.row, { opacity: pressed ? 0.8 : 1 }]}
+      style={({ pressed }) => [bgStyles.row, { opacity: pressed ? 0.8 : 1, marginLeft: indent ? 24 : 0 }]}
     >
       <View style={bgStyles.left}>
+        {indent && <View style={{ width: 2, height: 20, backgroundColor: Colors.raw.zinc700, marginRight: 8 }} />}
         <View style={[bgStyles.dot, { backgroundColor: cfg.dot }]} />
-        <View>
-          <Text style={bgStyles.name}>{name}</Text>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={bgStyles.name}>{baseName}</Text>
+            {catalogLabel && (
+              <View style={{ backgroundColor: catalogBadgeColor, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>{catalogLabel}</Text>
+              </View>
+            )}
+          </View>
           <Text style={bgStyles.meta}>
             {date ? `${date} \u2022 ` : ""}
             {cfg.label}
@@ -332,6 +344,42 @@ function BegehungRow({ name, status, date, projectId, protocolId }: { name: stri
       {status === "offen" && (
         <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
       )}
+    </Pressable>
+  );
+}
+
+function NextBegehungPrompt({ type, catalogLabel, projectId, offerId }: { type: string; catalogLabel: string; projectId: string; offerId?: string }) {
+  const handlePress = () => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    const params: any = { type, projectId };
+    if (offerId) params.offerId = offerId;
+    router.push({ pathname: "/begehung/[type]", params });
+  };
+  const typeLabel = type === "zwischenbegehung" ? "Zwischenbegehung" : "Abnahme";
+  return (
+    <Pressable
+      onPress={handlePress}
+      style={({ pressed }) => ({
+        marginLeft: type === "abnahme" ? 48 : 24,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        backgroundColor: Colors.raw.zinc900,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: Colors.raw.amber500 + "40",
+        marginTop: 4,
+        marginBottom: 4,
+        opacity: pressed ? 0.8 : 1,
+      })}
+    >
+      <Text style={{ color: Colors.raw.amber500, fontSize: 13, fontWeight: "600" }}>
+        {typeLabel} {catalogLabel} starten
+      </Text>
+      <Text style={{ color: Colors.raw.zinc400, fontSize: 12, marginTop: 2 }}>
+        Möchtest du die {typeLabel} jetzt machen?
+      </Text>
     </Pressable>
   );
 }
@@ -1489,7 +1537,7 @@ export default function ProjectDetailScreen() {
         .eq("project_id", id),
       supabase
         .from("inspection_protocols")
-        .select("id, protocol_type, status, inspection_date, finalized_at, created_at, pdf_storage_path")
+        .select("id, protocol_type, status, inspection_date, finalized_at, created_at, pdf_storage_path, offer_id, catalog_label")
         .eq("project_id", id)
         .order("created_at", { ascending: true }),
       supabase
@@ -1734,6 +1782,21 @@ export default function ProjectDetailScreen() {
           <Text style={styles.heroClient}>
             {clientName}
           </Text>
+          {/* Katalog-Badges */}
+          {project.price_catalog && (
+            <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
+              {project.price_catalog.includes("WABS") && (
+                <View style={{ backgroundColor: Colors.raw.amber500, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text style={{ color: "#000", fontSize: 11, fontWeight: "700" }}>WABS</Text>
+                </View>
+              )}
+              {project.price_catalog.includes("AV") && (
+                <View style={{ backgroundColor: "#6366f1", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>AV</Text>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Progress */}
           <View style={styles.progressRow}>
@@ -1863,16 +1926,79 @@ export default function ProjectDetailScreen() {
             </Pressable>
           </View>
           {inspections.length > 0 ? (
-            inspections.map((ins) => (
-              <BegehungRow
-                key={ins.id}
-                name={mapBegehungType(ins.protocol_type)}
-                status={mapInspectionStatus(ins.status, ins.finalized_at)}
-                date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.inspection_date)}
-                projectId={id!}
-                protocolId={ins.id}
-              />
-            ))
+            (() => {
+              // Group by offer_id to build cascade: EB → ZB → AB
+              const offerGroups = new Map<string, InspectionData[]>();
+              const noOffer: InspectionData[] = [];
+              inspections.forEach((ins) => {
+                const key = ins.offer_id || "__none__";
+                if (key === "__none__") { noOffer.push(ins); return; }
+                if (!offerGroups.has(key)) offerGroups.set(key, []);
+                offerGroups.get(key)!.push(ins);
+              });
+              const allGroups = [...offerGroups.entries(), ...noOffer.map((ins) => [ins.id, [ins]] as [string, InspectionData[]])];
+              return allGroups.map(([groupKey, groupIns]) => {
+                const eb = groupIns.find((i) => i.protocol_type === "erstbegehung");
+                const zb = groupIns.find((i) => i.protocol_type === "zwischenbegehung");
+                const ab = groupIns.find((i) => i.protocol_type === "abnahme");
+                const label = eb?.catalog_label || zb?.catalog_label || ab?.catalog_label || null;
+                const ebDone = eb && (eb.finalized_at || eb.status === "completed");
+                const zbDone = zb && (zb.finalized_at || zb.status === "completed");
+                return (
+                  <View key={groupKey}>
+                    {eb && (
+                      <BegehungRow
+                        name={`Erstbegehung`}
+                        status={mapInspectionStatus(eb.status, eb.finalized_at)}
+                        date={eb.finalized_at ? formatDate(eb.finalized_at) : formatDate(eb.inspection_date)}
+                        projectId={id!}
+                        protocolId={eb.id}
+                        catalogLabel={label}
+                      />
+                    )}
+                    {ebDone && zb && (
+                      <BegehungRow
+                        name={`Zwischenbegehung`}
+                        status={mapInspectionStatus(zb.status, zb.finalized_at)}
+                        date={zb.finalized_at ? formatDate(zb.finalized_at) : formatDate(zb.inspection_date)}
+                        projectId={id!}
+                        protocolId={zb.id}
+                        catalogLabel={label}
+                        indent
+                      />
+                    )}
+                    {ebDone && !zb && (
+                      <NextBegehungPrompt type="zwischenbegehung" catalogLabel={label || ""} projectId={id!} offerId={eb.offer_id || undefined} />
+                    )}
+                    {zbDone && ab && (
+                      <BegehungRow
+                        name={`Abnahme`}
+                        status={mapInspectionStatus(ab.status, ab.finalized_at)}
+                        date={ab.finalized_at ? formatDate(ab.finalized_at) : formatDate(ab.inspection_date)}
+                        projectId={id!}
+                        protocolId={ab.id}
+                        catalogLabel={label}
+                        indent
+                      />
+                    )}
+                    {zbDone && !ab && (
+                      <NextBegehungPrompt type="abnahme" catalogLabel={label || ""} projectId={id!} offerId={zb?.offer_id || eb?.offer_id || undefined} />
+                    )}
+                    {!eb && groupIns.map((ins) => (
+                      <BegehungRow
+                        key={ins.id}
+                        name={mapBegehungType(ins.protocol_type)}
+                        status={mapInspectionStatus(ins.status, ins.finalized_at)}
+                        date={ins.finalized_at ? formatDate(ins.finalized_at) : formatDate(ins.inspection_date)}
+                        projectId={id!}
+                        protocolId={ins.id}
+                        catalogLabel={ins.catalog_label}
+                      />
+                    ))}
+                  </View>
+                );
+              });
+            })()
           ) : (
             <Text style={styles.emptySection}>Keine Begehungen vorhanden</Text>
           )}

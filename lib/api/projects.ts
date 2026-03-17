@@ -82,6 +82,7 @@ export async function fetchProjectDetail(projectId: string): Promise<ProjectDeta
       notes,
       client_id,
       source,
+      price_catalog,
       created_at
     `)
     .eq("id", projectId)
