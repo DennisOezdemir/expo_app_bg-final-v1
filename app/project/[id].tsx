@@ -1671,6 +1671,18 @@ export default function ProjectDetailScreen() {
     );
   }
 
+  // Fortschritt dynamisch aus Begehungen ableiten (überschreibt DB-Wert)
+  const ebDoneAll = inspections.some(
+    (i) => i.protocol_type === "erstbegehung" && (i.finalized_at || i.status === "completed")
+  );
+  const zbDoneAll = inspections.some(
+    (i) => i.protocol_type === "zwischenbegehung" && (i.finalized_at || i.status === "completed")
+  );
+  const abDoneAll = inspections.some(
+    (i) => i.protocol_type === "abnahme" && (i.finalized_at || i.status === "completed")
+  );
+  const dynamicProgress = abDoneAll ? 100 : zbDoneAll ? 66 : ebDoneAll ? 33 : (project.progress_percent ?? 0);
+
   // Compute financials
   const angebotValue = offers.reduce((sum, o) => sum + (Number(o.total_net) || 0), 0);
   const ergebnisValue = angebotValue - totalCosts;
@@ -1809,7 +1821,7 @@ export default function ProjectDetailScreen() {
                 style={[
                   styles.progressBarFill,
                   {
-                    width: `${project.progress_percent ?? 0}%`,
+                    width: `${dynamicProgress}%`,
                     backgroundColor: PROJECT_STATUS_CONFIG[mapDbStatus(project.status)].color,
                   },
                 ]}
@@ -1821,7 +1833,7 @@ export default function ProjectDetailScreen() {
                 { color: PROJECT_STATUS_CONFIG[mapDbStatus(project.status)].color },
               ]}
             >
-              {project.progress_percent ?? 0}%
+              {dynamicProgress}%
             </Text>
           </View>
 
@@ -1938,6 +1950,13 @@ export default function ProjectDetailScreen() {
               if (!inspByOffer.has(ins.offer_id)) inspByOffer.set(ins.offer_id, []);
               inspByOffer.get(ins.offer_id)!.push(ins);
             });
+
+            // Wenn genau ein Angebot und Begehungen ohne offer_id → diesem Angebot zuweisen
+            // (Begehungen die vor dem offer_id-Feature erstellt wurden)
+            if (offers.length === 1 && noOfferInsps.length > 0 && inspByOffer.size === 0) {
+              inspByOffer.set(offers[0].id, noOfferInsps);
+              noOfferInsps.length = 0;
+            }
 
             // Derive catalog label from offer internal_notes (e.g. "WABS · ..." or "AV-2024 · ...")
             const labelFromOffer = (offer: OfferData): string | null => {
