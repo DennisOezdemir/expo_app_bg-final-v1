@@ -872,6 +872,8 @@ export default function FreigabeDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState("");
   const [rejectionVisible, setRejectionVisible] = useState(false);
+  const [plannedDateInput, setPlannedDateInput] = useState("");
+  const [savingDate, setSavingDate] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [acting, setActing] = useState(false);
   const [pdfPath, setPdfPath] = useState<string | null>(null);
@@ -980,6 +982,15 @@ export default function FreigabeDetailScreen() {
   const handleDataUpdate = useCallback((updates: Partial<ApprovalDetail>) => {
     setData((prev) => (prev ? { ...prev, ...updates } : prev));
   }, []);
+
+  // Sync termin input when data loads
+  useEffect(() => {
+    if (data?.requestData?.planned_date) {
+      setPlannedDateInput(
+        new Date(data.requestData.planned_date).toLocaleDateString("de-DE")
+      );
+    }
+  }, [data?.requestData?.planned_date]);
 
   const handleApprove = useCallback(async () => {
     if (!data || acting) return;
@@ -1098,10 +1109,27 @@ export default function FreigabeDetailScreen() {
       : "FREIGEBEN";
 
   const handleBegehungStart = () => {
-    router.push({
-      pathname: "/begehung/[type]",
-      params: { type: "erstbegehung", projectId: data.projectId },
-    });
+    const params: any = { type: "erstbegehung", projectId: data.projectId };
+    if (data.requestData?.offer_id) params.offerId = data.requestData.offer_id;
+    router.push({ pathname: "/begehung/[type]", params });
+  };
+
+  const handleSavePlannedDate = async () => {
+    setSavingDate(true);
+    try {
+      const parts = plannedDateInput.trim().split(".");
+      let isoDate: string | null = null;
+      if (parts.length === 3) {
+        isoDate = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+      }
+      const updatedData = { ...(data.requestData || {}), planned_date: isoDate };
+      await supabase.from("approvals").update({ request_data: updatedData }).eq("id", data.id);
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      console.error("Save planned date failed:", e);
+    } finally {
+      setSavingDate(false);
+    }
   };
 
   return (
@@ -1190,15 +1218,64 @@ export default function FreigabeDetailScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                 <Ionicons name="eye" size={22} color={Colors.raw.amber500} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.zinc200 }}>
-                    Erstbegehung durchführen
-                  </Text>
-                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500, marginTop: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.zinc200 }}>
+                      Erstbegehung durchführen
+                    </Text>
+                    {data.requestData?.catalog_label ? (
+                      <View style={{
+                        paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6,
+                        backgroundColor: data.requestData.catalog_label === "WABS"
+                          ? "rgba(245,158,11,0.2)" : "rgba(99,102,241,0.2)",
+                      }}>
+                        <Text style={{ fontFamily: "Inter_700Bold", fontSize: 11, color: Colors.raw.zinc200 }}>
+                          {data.requestData.catalog_label}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500 }}>
                     Vor-Ort-Begehung um Monteure, Material und Umfang zu klären
                   </Text>
                 </View>
               </View>
             </Card>
+
+            <SectionLabel label="TERMIN PLANEN" />
+            <Card>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Ionicons name="calendar-outline" size={18} color={Colors.raw.zinc500} />
+                <TextInput
+                  style={{ flex: 1, fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.zinc200 }}
+                  placeholder="TT.MM.JJJJ"
+                  placeholderTextColor={Colors.raw.zinc600}
+                  value={plannedDateInput}
+                  onChangeText={setPlannedDateInput}
+                  keyboardType="numbers-and-punctuation"
+                />
+                <Pressable
+                  onPress={handleSavePlannedDate}
+                  disabled={savingDate}
+                  style={({ pressed }) => ({
+                    paddingHorizontal: 14, paddingVertical: 8,
+                    backgroundColor: Colors.raw.amber500,
+                    borderRadius: 8,
+                    opacity: savingDate ? 0.5 : pressed ? 0.8 : 1,
+                  })}
+                >
+                  {savingDate
+                    ? <ActivityIndicator size="small" color="#000" />
+                    : <Text style={{ fontFamily: "Inter_700Bold", fontSize: 13, color: "#000" }}>Speichern</Text>
+                  }
+                </Pressable>
+              </View>
+              {data.requestData?.planned_date ? (
+                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.emerald500, marginTop: 8 }}>
+                  ✓ Termin gesetzt: {new Date(data.requestData.planned_date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}
+                </Text>
+              ) : null}
+            </Card>
+
             {data.summary ? (
               <>
                 <SectionLabel label="AUFTRAGSDETAILS" />
@@ -1226,38 +1303,64 @@ export default function FreigabeDetailScreen() {
           onChangeText={setComment}
           testID="comment-input"
         />
-        <View style={s.actionButtons}>
-          <Pressable
-            onPress={handleReject}
-            disabled={acting}
-            style={({ pressed }) => [
-              s.rejectButton,
-              { opacity: acting ? 0.4 : pressed ? 0.8 : 1, transform: [{ scale: pressed && !acting ? 0.97 : 1 }] },
-            ]}
-            testID="detail-reject-button"
-          >
-            <Ionicons name="close" size={22} color={Colors.raw.rose400} />
-            <Text style={s.rejectText}>Nein</Text>
-          </Pressable>
-          <Pressable
-            onPress={data.uiType === "begehung" ? handleBegehungStart : handleApprove}
-            disabled={acting}
-            style={({ pressed }) => [
-              s.approveButton,
-              { opacity: acting ? 0.4 : pressed ? 0.9 : 1, transform: [{ scale: pressed && !acting ? 0.97 : 1 }] },
-            ]}
-            testID="detail-approve-button"
-          >
-            {acting ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="checkmark" size={24} color="#fff" />
-                <Text style={s.approveText}>{approveLabel}</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
+        {data.uiType === "begehung" ? (
+          <View style={s.actionButtons}>
+            <Pressable
+              onPress={() => {/* scroll to termin input — focus handled by card above */}}
+              style={({ pressed }) => [
+                s.rejectButton,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <Ionicons name="calendar-outline" size={20} color={Colors.raw.amber500} />
+              <Text style={[s.rejectText, { color: Colors.raw.amber500 }]}>Termin oben</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleBegehungStart}
+              style={({ pressed }) => [
+                s.approveButton,
+                { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
+              ]}
+              testID="detail-approve-button"
+            >
+              <Ionicons name="play" size={22} color="#fff" />
+              <Text style={s.approveText}>JETZT STARTEN</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={s.actionButtons}>
+            <Pressable
+              onPress={handleReject}
+              disabled={acting}
+              style={({ pressed }) => [
+                s.rejectButton,
+                { opacity: acting ? 0.4 : pressed ? 0.8 : 1, transform: [{ scale: pressed && !acting ? 0.97 : 1 }] },
+              ]}
+              testID="detail-reject-button"
+            >
+              <Ionicons name="close" size={22} color={Colors.raw.rose400} />
+              <Text style={s.rejectText}>Nein</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleApprove}
+              disabled={acting}
+              style={({ pressed }) => [
+                s.approveButton,
+                { opacity: acting ? 0.4 : pressed ? 0.9 : 1, transform: [{ scale: pressed && !acting ? 0.97 : 1 }] },
+              ]}
+              testID="detail-approve-button"
+            >
+              {acting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={24} color="#fff" />
+                  <Text style={s.approveText}>{approveLabel}</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        )}
       </View>
 
       <RejectionSheet

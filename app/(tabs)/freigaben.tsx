@@ -49,12 +49,18 @@ interface Approval {
   title: string;
   projectCode: string;
   projectAddress: string;
+  projectId: string;
   amount: string;
   detail: string;
   createdAgo: string;
+  daysOld: number;
   supplier?: string;
   reason?: string;
   tradesSummary?: { trade: string; count: number; problems: number }[];
+  // Begehung-specific
+  catalogLabel?: string;
+  offerId?: string;
+  plannedDate?: string | null;
 }
 
 const TYPE_CONFIG: Record<
@@ -126,6 +132,8 @@ function mapDbApproval(row: ApprovalRow): Approval {
     scheduleDetail = `${data.phases} Phasen, ${data.assigned || 0} Monteure zugewiesen`;
   }
 
+  const daysOld = Math.floor((Date.now() - new Date(row.requested_at).getTime()) / 86400000);
+
   return {
     id: row.id,
     type: uiType,
@@ -133,12 +141,17 @@ function mapDbApproval(row: ApprovalRow): Approval {
     title: TYPE_CONFIG[uiType]?.label || "Freigabe",
     projectCode: project?.project_number || "–",
     projectAddress: [project?.object_street, project?.object_city].filter(Boolean).join(", ") || project?.name || "–",
+    projectId: (Array.isArray(row.projects) ? row.projects[0] : row.projects)?.id || "",
     amount: data.amount ? `€${data.amount}` : "",
     detail: summary || scheduleDetail || detailFromData,
     createdAgo: formatTimeAgo(row.requested_at),
+    daysOld,
     supplier,
     reason: row.feedback_reason || reasonFromData,
     tradesSummary,
+    catalogLabel: typeof data.catalog_label === "string" ? data.catalog_label : undefined,
+    offerId: typeof data.offer_id === "string" ? data.offer_id : undefined,
+    plannedDate: typeof data.planned_date === "string" ? data.planned_date : null,
   };
 }
 
@@ -179,6 +192,7 @@ function SwipeableCard({
   const { width } = useWindowDimensions();
   const SWIPE_THRESHOLD = width * 0.3;
   const cfg = TYPE_CONFIG[approval.type];
+  const urgencyColor = approval.daysOld >= 5 ? Colors.raw.rose500 : approval.daysOld >= 3 ? Colors.raw.amber500 : Colors.raw.emerald500;
 
   const handleApprove = useCallback(() => {
     if (Platform.OS !== "web") {
@@ -270,7 +284,14 @@ function SwipeableCard({
               <TypeIcon type={approval.type} size={20} />
               <Text style={cardStyles.headerLabel}>{cfg.label}</Text>
             </View>
-            <View style={[cardStyles.typeDot, { backgroundColor: cfg.color }]} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              {approval.type === "begehung" && approval.catalogLabel ? (
+                <View style={[cardStyles.catalogBadge, approval.catalogLabel === "WABS" ? cardStyles.badgeWABS : cardStyles.badgeAV]}>
+                  <Text style={cardStyles.catalogBadgeText}>{approval.catalogLabel}</Text>
+                </View>
+              ) : null}
+              <View style={[cardStyles.typeDot, { backgroundColor: approval.type === "begehung" ? urgencyColor : cfg.color }]} />
+            </View>
           </View>
 
           <View style={cardStyles.projectInfo}>
@@ -318,46 +339,92 @@ function SwipeableCard({
             </View>
           )}
 
-          <Text style={cardStyles.created}>{approval.createdAgo}</Text>
+          {approval.type === "begehung" ? (
+            <View style={cardStyles.plannedRow}>
+              <View style={[cardStyles.urgencyDot, { backgroundColor: urgencyColor }]} />
+              <Text style={[cardStyles.plannedText, { color: urgencyColor }]}>
+                {approval.plannedDate
+                  ? `Termin: ${new Date(approval.plannedDate).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}`
+                  : approval.daysOld >= 5
+                  ? `Überfällig — seit ${approval.daysOld} Tagen`
+                  : approval.daysOld >= 3
+                  ? `Ausstehend — seit ${approval.daysOld} Tagen`
+                  : approval.createdAgo}
+              </Text>
+            </View>
+          ) : (
+            <Text style={cardStyles.created}>{approval.createdAgo}</Text>
+          )}
 
-          <Pressable
-            onPress={onViewDetails}
-            style={({ pressed }) => [
-              cardStyles.detailsButton,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-            testID="details-button"
-          >
-            <Ionicons name="document-text-outline" size={16} color={Colors.raw.amber500} />
-            <Text style={cardStyles.detailsButtonText}>Details ansehen</Text>
-          </Pressable>
+          {approval.type !== "begehung" && (
+            <Pressable
+              onPress={onViewDetails}
+              style={({ pressed }) => [
+                cardStyles.detailsButton,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+              testID="details-button"
+            >
+              <Ionicons name="document-text-outline" size={16} color={Colors.raw.amber500} />
+              <Text style={cardStyles.detailsButtonText}>Details ansehen</Text>
+            </Pressable>
+          )}
 
-          <View style={cardStyles.actions}>
-            <Pressable
-              onPress={handleReject}
-              disabled={disabled}
-              style={({ pressed }) => [
-                cardStyles.rejectButton,
-                { opacity: disabled ? 0.4 : pressed ? 0.8 : 1, transform: [{ scale: pressed && !disabled ? 0.97 : 1 }] },
-              ]}
-              testID="reject-button"
-            >
-              <Ionicons name="close" size={20} color={Colors.raw.rose400} />
-              <Text style={cardStyles.rejectText}>Nein</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleApprove}
-              disabled={disabled}
-              style={({ pressed }) => [
-                cardStyles.approveButton,
-                { opacity: disabled ? 0.4 : pressed ? 0.9 : 1, transform: [{ scale: pressed && !disabled ? 0.97 : 1 }] },
-              ]}
-              testID="approve-button"
-            >
-              <Ionicons name="checkmark" size={22} color="#fff" />
-              <Text style={cardStyles.approveText}>FREIGEBEN</Text>
-            </Pressable>
-          </View>
+          {approval.type === "begehung" ? (
+            <View style={cardStyles.actions}>
+              <Pressable
+                onPress={onViewDetails}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  cardStyles.rejectButton,
+                  { opacity: disabled ? 0.4 : pressed ? 0.8 : 1 },
+                ]}
+                testID="termin-button"
+              >
+                <Ionicons name="calendar-outline" size={18} color={Colors.raw.amber500} />
+                <Text style={[cardStyles.rejectText, { color: Colors.raw.amber500 }]}>Termin</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleApprove}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  cardStyles.approveButton,
+                  { opacity: disabled ? 0.4 : pressed ? 0.9 : 1, transform: [{ scale: pressed && !disabled ? 0.97 : 1 }] },
+                ]}
+                testID="approve-button"
+              >
+                <Ionicons name="play" size={20} color="#fff" />
+                <Text style={cardStyles.approveText}>JETZT STARTEN</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={cardStyles.actions}>
+              <Pressable
+                onPress={handleReject}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  cardStyles.rejectButton,
+                  { opacity: disabled ? 0.4 : pressed ? 0.8 : 1, transform: [{ scale: pressed && !disabled ? 0.97 : 1 }] },
+                ]}
+                testID="reject-button"
+              >
+                <Ionicons name="close" size={20} color={Colors.raw.rose400} />
+                <Text style={cardStyles.rejectText}>Nein</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleApprove}
+                disabled={disabled}
+                style={({ pressed }) => [
+                  cardStyles.approveButton,
+                  { opacity: disabled ? 0.4 : pressed ? 0.9 : 1, transform: [{ scale: pressed && !disabled ? 0.97 : 1 }] },
+                ]}
+                testID="approve-button"
+              >
+                <Ionicons name="checkmark" size={22} color="#fff" />
+                <Text style={cardStyles.approveText}>FREIGEBEN</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </Animated.View>
     </GestureDetector>
@@ -497,6 +564,39 @@ const cardStyles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     gap: 10,
+  },
+  plannedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  urgencyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  plannedText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+  },
+  catalogBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  badgeWABS: {
+    backgroundColor: "rgba(245, 158, 11, 0.2)",
+  },
+  badgeAV: {
+    backgroundColor: "rgba(99, 102, 241, 0.2)",
+  },
+  catalogBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+    color: Colors.raw.zinc200,
+    letterSpacing: 0.5,
   },
   rejectButton: {
     flexDirection: "row",
@@ -676,7 +776,15 @@ export default function FreigabenScreen() {
                   isTop={stackIndex === 0}
                   stackIndex={stackIndex}
                   disabled={!isOnline || actionInFlight !== null}
-                  onApprove={() => handleApprove(approval.id)}
+                  onApprove={() => {
+                    if (approval.type === "begehung") {
+                      const params: any = { type: "erstbegehung", projectId: approval.projectId };
+                      if (approval.offerId) params.offerId = approval.offerId;
+                      router.push({ pathname: "/begehung/[type]", params });
+                    } else {
+                      handleApprove(approval.id);
+                    }
+                  }}
                   onReject={() => handleReject(approval.id)}
                   onViewDetails={() => router.push(`/freigabe/${approval.id}` as any)}
                 />
