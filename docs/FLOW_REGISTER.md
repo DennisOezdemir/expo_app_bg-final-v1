@@ -1,316 +1,159 @@
-# 🦁 BAUGENIUS FLOW-REGISTER v2.4
+# BAUGENIUS FLOW-REGISTER
 
-> **Stand:** 18.01.2026  
-> **Version:** 2.4  
-> **Architektur:** Event-Driven State Machine  
-> **Update:** MX_00 v2 Dynamic Router ✅ | Migrations 026/027 ✅
+> **Stand:** 2026-03-17 (konsolidiert aus v2.4 + Live-API-Dump 27.02.)
+> **n8n:** `https://n8n.srv1045913.hstgr.cloud`
+> **Architektur:** Event-Driven State Machine
+> **Flows:** 42 aktiv | 62 inaktiv/archiviert | 104 gesamt
 
 ---
 
-## 🏗️ ARCHITEKTUR-PRINZIPIEN
+## ARCHITEKTUR-PRINZIPIEN
 
 ### Event-Driven (Kernprinzip)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Flows kommunizieren NUR über die events Tabelle                │
-│  Kein Execute Workflow! Keine direkten Abhängigkeiten!          │
-└─────────────────────────────────────────────────────────────────┘
+Flows kommunizieren NUR ueber die events Tabelle.
+Kein Execute Workflow! Keine direkten Abhaengigkeiten!
 
-Flow A ──► INSERT events (TYPE_X) ──► MX_00_Router ──► Flow B
+Flow A --> INSERT events (TYPE_X) --> MX_00_Router --> Flow B
 ```
 
 ### Belt & Suspenders
 
-| Primär                          | Backup             |
-| ------------------------------- | ------------------ |
-| Supabase Webhook → n8n (sofort) | Sweeper alle 5 Min |
+| Primaer | Backup |
+|---------|--------|
+| Supabase Webhook -> n8n (sofort) | MX_04 Dispatch Doctor (15 Min) |
 
 ### One Task per Flow
 
-Jeder Flow macht EINE Aufgabe, dann Event für den nächsten.
+Jeder Flow macht EINE Aufgabe, dann Event fuer den naechsten.
 
 ---
 
-## 📧 GMAIL-ROUTING (NEU 28.12.)
-
-### Label-Struktur
+## GMAIL-ROUTING
 
 ```
 Gmail Labels/
-├── 01_Eingang                    ← Catch-All
-├── 02_Geschaeft_Projekte
-│   └── Auftraege                 ← M1_01 hört hier! (NEU)
-├── 03_Finanzen                   ← M4_02 hört hier
-│   └── Verarbeitet
-├── 04_Tools_Systeme
-├── 05_Marketing_Info
-└── 06_Wichtig_Action
++-- 01_Eingang                     <-- Catch-All
++-- 02_Geschaeft_Projekte
+|   +-- Auftraege                  <-- MX_03 Superchat Intake
++-- 03_Finanzen                    <-- M4_01b / M6_01
+|   +-- Verarbeitet
++-- 04_Tools_Systeme
++-- 05_Marketing_Info
++-- 06_Wichtig_Action
 ```
 
-### Routing-Regeln
+---
 
-| Email-Quelle                      | Gmail-Filter   | Label                             | n8n Flow  |
-| --------------------------------- | -------------- | --------------------------------- | --------- |
-| `th.larsen@topteam2000.de` (SAGA) | Absender       | `02_Geschaeft_Projekte/Auftraege` | **M1_01** |
-| Test mit "auftrag" im Betreff     | Betreff        | `02_Geschaeft_Projekte/Auftraege` | **M1_01** |
-| Bekannte Lieferanten              | Absender-Liste | `03_Finanzen`                     | **M4_02** |
-| Unbekannt + "Rechnung/MwSt/IBAN"  | Keywords       | `03_Finanzen`                     | **M4_02** |
+## AKTIVE FLOWS
 
-### Dokumentation
+### M1: Intake (6 Flows)
 
-→ Siehe `EMAIL_ROUTING_FIX.md` für Setup-Anleitung
+| Flow | ID | Letztes Update |
+|------|----|----------------|
+| **M1_02_PDF_Parser_Vision** | `8KDtJKgrTI` | 2026-02-11 |
+| **M1_03_Position_Extractor_V3** | `eVbTku3Jsy` | 2026-01-19 |
+| **M1_04a_Prepare_Drive** | `kdXetd4FMC` | 2026-01-13 |
+| **M1_04b_Create_Project_Tree** | `P0ETfL7Zoz` | 2026-01-03 |
+| **M1_04c_Sync_Initial_Files** | `RNifQ36Twy` | 2026-01-03 |
+| **M1_05_Notification** | `ixnrOVeJhF` | 2026-01-03 |
+
+### M2: Baustelle (7 Flows)
+
+| Flow | ID | Letztes Update |
+|------|----|----------------|
+| **M2_01_Monteur_Auftrag_PDF** | `v2b5w05D-C` | 2026-01-17 |
+| **M2_02_Sync_ZB_Progress** | `TQoWuDki_q` | 2026-02-20 |
+| **M2_03_Generate_Protocol_PDF** | `lDrZnW4bYM` | 2026-02-20 |
+| **M2_04_Inspection_Finalize** | `fkP3zcOg0W` | 2026-02-11 |
+| **M2_10_Sub_Order_Generator** | `Kqp7EajcP0` | 2026-01-17 |
+| **M2_10a_Schedule_Approve** | `t3HR7lIWYU` | 2026-02-20 |
+| **M2_10b_Schedule_Notification** | `DKR3TSn8J7` | 2026-02-20 |
+
+### M4: Material (10 Flows)
+
+| Flow | ID | Letztes Update |
+|------|----|----------------|
+| **M4_01_Material_Planner** | `tywkXZoNvD` | 2026-01-28 |
+| **M4_01a_Receipt_Intake** | `sw2yaCHpua` | 2026-02-02 |
+| **M4_01b_Receipt_Processor_V2_MX02** | `WSy5sWWXY2` | 2026-02-02 |
+| **M4_03a_Order_Approve** | `INJkwNIVjA` | 2026-02-23 |
+| **M4_03b_Order_Suggester** | `UlyBjJpyUs` | 2026-02-23 |
+| **M4_05_Material_List_Generator** | `S5gFkRmPiZ` | 2026-02-11 |
+| **M4_06_Order_Agent** | `fPY6wSReqQ` | 2026-02-23 |
+| **M4_07_Order_Send** | `BOkKFTEUCy` | 2026-02-23 |
+| **M4_08_Schedule_Order_Trigger** | `Ycs3lFXe5J` | 2026-02-23 |
+| **M4_10_MagicPlan_Parser** | `Tjbz4nIiHl` | 2026-01-25 |
+
+### M5: Freigabe (1 Flow)
+
+| Flow | ID | Letztes Update |
+|------|----|----------------|
+| **M5_01_Approval_Dispatcher** | `zCs5Hwy9Nm` | 2026-02-11 |
+
+### M6: Finance (9 Flows)
+
+| Flow | ID | Letztes Update |
+|------|----|----------------|
+| **M6_01_Invoice_Processor** | `NKVnbTeEpf` | 2026-02-10 |
+| **M6_02a_Lexware_Push_Prepare** | `B4IOCwfxNg` | 2026-02-18 |
+| **M6_02b_Lexware_Contact_Sync** | `ilYyrjOQoG` | 2026-02-18 |
+| **M6_02c_Lexware_Push_Voucher** | `6C8MshufHT` | 2026-02-19 |
+| **M6_03_Lexware_Pull_Sales** | `AjRF0GnZVa` | 2026-02-18 |
+| **M6_04a_Lexware_Webhook_Router** | `RbUQUOpAzY` | 2026-02-18 |
+| **M6_04b_Lexware_Payment_Handler** | `ORyFbRUD5E` | 2026-02-18 |
+| **M6_04c_Lexware_Invoice_Sync** | `HK788ajphA` | 2026-02-18 |
+| **M6_04d_Lexware_Voucher_Status** | `pkJmfUhp9V` | 2026-02-18 |
+
+### MX: Infrastructure (8 Flows)
+
+| Flow | ID | Letztes Update |
+|------|----|----------------|
+| **MX_00_Event_Router v2** | `eNHx0TACVc` | 2026-01-17 |
+| **MX_01_Error_Handler_v2** | `zAFieMcnwA` | 2026-02-26 |
+| **MX_02_Folder_Manager** | `ZcAhUCdoux` | 2026-01-03 |
+| **MX_03_V2_Superchat_Intake** | `9eBOez2Q0v` | 2026-02-23 |
+| **MX_04_Dispatch_Doctor** | `wT9ubypWwa` | 2026-02-11 |
+| **MX_05_Attachment_Processor** | `qAiKaCpDUF` | 2026-01-28 |
+| **MX_07_Flow_Monitor** | `GBkSxBPeJU` | 2026-02-23 |
+| **MX_AI_Analyze_With_Fallback** | `FuXYPv6Jtv` | 2026-02-23 |
 
 ---
 
-## 📦 MODUL 1: INTAKE (Auftragseingang)
+## EVENT-ROUTING
 
-> **Status:** 🟢 100% FERTIG 🎉  
-> **Ziel:** SAGA-Mail → Projekt in DB → Drive-Ordner → Telegram-Notification
-
-### Event-Kette (KOMPLETT)
-
-```
-📧 Email kommt an (Label: 02_Geschaeft_Projekte/Auftraege)
-       ↓
-┌──────────────────────┐
-│ M1_01_Email_Trigger  │ Gmail Poll (5 Min)
-└──────────┬───────────┘
-           ↓
-┌──────────────────────┐
-│ M1_02_PDF_Parser     │ Claude Vision → Kopfdaten extrahieren
-└──────────┬───────────┘
-           ↓ INSERT events (PROJECT_CREATED)
-           ↓
-┌──────────────────────┐
-│ MX_00_Event_Router   │ Zentraler Dispatcher (v2 Dynamic)
-└──────────┬───────────┘
-           ↓ Webhook an M1_04a
-           ↓
-┌──────────────────────┐
-│ M1_04a_Prepare_Drive │ Jahresordner prüfen/erstellen        ✅
-└──────────┬───────────┘
-           ↓ INSERT events (DRIVE_YEAR_READY)
-           ↓
-┌──────────────────────┐
-│ M1_04b_Create_Tree   │ Projektordner + 9 Subfolders         ✅
-└──────────┬───────────┘
-           ↓ INSERT events (DRIVE_TREE_CREATED)
-           ↓
-┌──────────────────────┐
-│ M1_04c_Sync_Files    │ PDF aus Storage → Drive              ✅
-└──────────┬───────────┘
-           ↓ INSERT events (DRIVE_SETUP_COMPLETE)
-           ↓
-┌──────────────────────┐
-│ M1_05_Notification   │ Telegram: "Neuer Auftrag!"           ✅
-└──────────┬───────────┘
-           ↓ INSERT events (NOTIFICATION_SENT)
-           ↓
-       📱 FERTIG!
-```
-
-### Flow-Status Modul 1
-
-| Flow                           | n8n ID             | Trigger                                  | Output Event           | Status |
-| ------------------------------ | ------------------ | ---------------------------------------- | ---------------------- | ------ |
-| **M1_01_Email_Trigger**        | -                  | Gmail: `02_Geschaeft_Projekte/Auftraege` | → M1_02 (Execute)      | ✅     |
-| **M1_02_PDF_Parser**           | -                  | Execute von M1_01                        | `PROJECT_CREATED`      | ✅     |
-| **M1_04a_Prepare_Drive**       | -                  | `PROJECT_CREATED`                        | `DRIVE_YEAR_READY`     | ✅     |
-| **M1_04b_Create_Project_Tree** | -                  | `DRIVE_YEAR_READY`                       | `DRIVE_TREE_CREATED`   | ✅     |
-| **M1_04c_Sync_Initial_Files**  | `RNifQ36TwyKqKxOJ` | `DRIVE_TREE_CREATED`                     | `DRIVE_SETUP_COMPLETE` | ✅     |
-| **M1_05_Notification**         | `ixnrOVeJhF3veYwJ` | `DRIVE_SETUP_COMPLETE`                   | `NOTIFICATION_SENT`    | ✅     |
-
-### Webhook URLs (Modul 1)
-
-| Flow   | Production URL                                                          |
-| ------ | ----------------------------------------------------------------------- |
-| M1_04a | `https://n8n.srv1045913.hstgr.cloud/webhook/m1-04a-prepare-drive`       |
-| M1_04b | `https://n8n.srv1045913.hstgr.cloud/webhook/m1-04b-create-project-tree` |
-| M1_04c | `https://n8n.srv1045913.hstgr.cloud/webhook/m1-04c-sync-initial-files`  |
-| M1_05  | `https://n8n.srv1045913.hstgr.cloud/webhook/m1-05-notification`         |
+| Event | Ziel-Flow | Aktiv |
+|-------|-----------|-------|
+| `DOC_CLASSIFIED_PROJECT_ORDER` | MX_05 Attachment Processor | Ja |
+| `DOC_CLASSIFIED_INVOICE_IN` | M6_01 Invoice Processor | Ja |
+| `PROJECT_FILES_READY` | M1_02 PDF Parser | Ja |
+| `PROJECT_CREATED` | M1_04a Prepare Drive + M1_03 Positionen | Ja |
+| `DRIVE_YEAR_READY` | M1_04b Create Tree | Ja |
+| `DRIVE_TREE_CREATED` | M1_04c Sync Files | Ja |
+| `DRIVE_SETUP_COMPLETE` | M1_05 Notification | Ja |
+| `POSITIONS_EXTRACTED` | M4_01 Material Planner | Ja |
+| `PURCHASE_INVOICE_CREATED` | M6_02a Lexware Push | Ja |
+| `MONTEUR_AUFTRAG_CREATED` | M2_01 Monteur PDF | Ja |
 
 ---
 
-## 📦 MODUL 4: MATERIAL & BELEGE
-
-> **Status:** 🟢 Kern-Flows VERIFIZIERT  
-> **Ziel:** Belege scannen, kategorisieren, Lieferanten-Preise tracken
-
-### Flow-Status Modul 4
-
-| Flow                           | Trigger              | Output Event               | Status                |
-| ------------------------------ | -------------------- | -------------------------- | --------------------- |
-| **M4_01_Receipt_Scanner**      | Drive Trigger        | `PURCHASE_INVOICE_CREATED` | ✅ Verifiziert 28.12. |
-| **M4_02_Mail_Invoice_Scanner** | Gmail: `03_Finanzen` | `PURCHASE_INVOICE_CREATED` | ✅ Fertig             |
-| M4_03_Order_Suggester          | Manual               | -                          | 🔲 TODO               |
-
-### M4_02 Attachment-Filter (09.01.2026)
-
-**Problem:** E-Mails enthalten Signaturbilder + Wiegescheine → Claude Vision crashte.
-
-**Lösung:** Blacklist/Whitelist Filter in `📋 Extract Email Info`:
-
-| Filter                    | Begriffe                                                |
-| ------------------------- | ------------------------------------------------------- |
-| **Blacklist (ignoriert)** | wiegenote, wiegeschein, lieferschein, receipt, quittung |
-| **Whitelist (Prio)**      | rechnung, invoice, faktura                              |
-| **Ignoriert**             | Alle Bilder (JPG, PNG, WebP)                            |
-
-**Output:** Immer `attachment_0` (hardcoded) → `🔧 Prepare Upload` erwartet fixen Key.
-
-### Verifizierung M4_01 (28.12.2024)
-
-```sql
--- Test-Ergebnis:
-{
-  "invoice_number": "50004.0024.10",
-  "supplier_code": "SAGA",
-  "supplier_name": "SAGA Unternehmensgruppe",
-  "total_gross": "5381.56",
-  "expense_category": "SUBCONTRACTOR",
-  "positionen": 20
-}
-```
-
-**Schreibt korrekt in:**
-
-- ✅ `purchase_invoices` (Header)
-- ✅ `purchase_invoice_items` (20 Positionen)
-- ✅ `suppliers` (Matching/Auto-Create)
-- ✅ `events` (PURCHASE_INVOICE_CREATED)
-
-**Dokumentation:** `SESSION_2025-12-28_M4_01_VERIFIED.md`
-
----
-
-## 📦 MODUL 6: FINANCE (NEU 18.01.2026)
-
-> **Status:** 🟢 Schema deployed  
-> **Ziel:** Ausgangsrechnungen, Nachträge, Margenberechnung
-
-### Tabellen (Migration 026 + 027)
-
-| Tabelle                 | Zweck                                | Status  |
-| ----------------------- | ------------------------------------ | ------- |
-| `sales_invoices`        | Ausgangsrechnungen (R-YYYY-NNN)      | ✅ Live |
-| `sales_invoice_items`   | Rechnungspositionen                  | ✅ Live |
-| `change_orders`         | Nachträge VOB §2 Abs. 5 (N-YYYY-NNN) | ✅ Live |
-| `change_order_items`    | Nachtragspositionen                  | ✅ Live |
-| `change_order_evidence` | Beweisfotos mit GPS                  | ✅ Live |
-
-### Views
-
-| View                      | Berechnung                             |
-| ------------------------- | -------------------------------------- |
-| `v_project_financials`    | Angebot + Rechnungen + Kosten → Marge  |
-| `v_project_change_orders` | Approved/Pending Nachträge pro Projekt |
-
----
-
-## 📦 MODUL X: CORE (Utilities)
-
-> **Status:** 🟢 MX_00 v2 LIVE  
-> **Ziel:** Zentrale Infrastruktur-Flows
-
-### Flow-Status Modul X
-
-| Flow                      | Trigger           | Was macht er?           | Status               |
-| ------------------------- | ----------------- | ----------------------- | -------------------- |
-| **MX_00_Event_Router v2** | Webhook + Sweeper | Dynamic Dispatcher      | ✅ Live (17.01.2026) |
-| **MX_01_Error_Handler**   | Error Trigger     | Fehler in events loggen | ✅                   |
-
-### MX_00 v2 Features (17.01.2026)
-
-**Komplett neu gebaut** — alte Bugs gefixt:
-
-| Feature                  | Beschreibung                                                   |
-| ------------------------ | -------------------------------------------------------------- |
-| **5 Payload-Formate**    | Supabase Webhook, Direct POST, n8n Body, Wrapped, Event Object |
-| **Dynamic Routing**      | Liest `webhook_url` aus `event_routing` Tabelle                |
-| **Multi-Route Support**  | Ein Event kann mehrere Ziele haben                             |
-| **Error Logging**        | Schreibt in `dispatch_errors` Tabelle                          |
-| **Code-basierter Merge** | Kein Merge-Node mehr (alter Bug)                               |
-
-**n8n ID:** `eNHx0TACVcF6MIdAYIKSl`  
-**Webhook:** `https://n8n.srv1045913.hstgr.cloud/webhook/event-router`
-
-### ~~MX_00 Bekannte Bugs~~ (RESOLVED)
-
-~~Problem 1: Merge Node~~ → ✅ Durch Code Node ersetzt  
-~~Problem 2: Transform erkennt nur 1 Format~~ → ✅ 5 Formate unterstützt
-
----
-
-## 🗄️ EVENT ROUTING TABELLE
-
-```sql
-SELECT event_type, target_workflow, is_active FROM event_routing;
-```
-
-| event_type                 | target_workflow            | is_active |
-| -------------------------- | -------------------------- | --------- |
-| `PROJECT_CREATED`          | M1_04a_Prepare_Drive       | ✅        |
-| `DRIVE_YEAR_READY`         | M1_04b_Create_Project_Tree | ✅        |
-| `DRIVE_TREE_CREATED`       | M1_04c_Sync_Initial_Files  | ✅        |
-| `DRIVE_SETUP_COMPLETE`     | M1_05_Notification         | ✅        |
-| `PURCHASE_INVOICE_CREATED` | _(noch kein Ziel)_         | ❌        |
-
----
-
-## 🔧 WICHTIGE IDS & CREDENTIALS
-
-### Google Drive
-
-| Resource                    | ID                                  |
-| --------------------------- | ----------------------------------- |
-| Shared Drive "Baugenius"    | `0ABWttM9wIDiBUk9PVA`               |
-| Projekte-Ordner             | `1vUEFxFpeCtDWgD75HE9PYsmlcCMWIwy3` |
-| 2025-Ordner                 | `1S3F0S5xre4FCgP3Xo1NqHaFyGaxfMYlM` |
-| VERARBEITET-Ordner (Belege) | `1TysnhyH-VIWEsJUfr0E6w7NvLeSKTLrC` |
-
-### Telegram
-
-| Resource       | ID                              |
-| -------------- | ------------------------------- |
-| Bot Credential | `HV1wc491unUQKfmd` (BabyAgiBot) |
-| Chat ID        | `6088921678`                    |
-
-### n8n Credentials
-
-| Typ                 | Credential ID      | Name                 |
-| ------------------- | ------------------ | -------------------- |
-| Google Drive OAuth2 | `aYft6Y1rBlcl2pcf` | Google Drive account |
-| Supabase Postgres   | `qXZ2ZjK31ZDrPoDG` | Supabase Postgres    |
-| Telegram            | `HV1wc491unUQKfmd` | BabyAgiBot           |
-
-### n8n Instance
-
-- URL: `https://n8n.srv1045913.hstgr.cloud`
-- Error Workflow: `apmJoMCbOchwfqTp`
-
----
-
-## 📊 DATABASE SCHEMA (Event-System)
-
-### events Tabelle
+## EVENT-SYSTEM SCHEMA
 
 ```sql
 events (
   id UUID PRIMARY KEY,
   project_id UUID REFERENCES projects(id),
-  event_type event_type NOT NULL,  -- ENUM!
-  payload JSONB,
+  event_type TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT now(),
   processed_at TIMESTAMPTZ,  -- NULL = unverarbeitet
+  idempotency_key TEXT UNIQUE,
   source_system TEXT,
-  source_flow TEXT
+  source_flow TEXT,
+  error_log TEXT
 )
-```
 
-### event_routing Tabelle
-
-```sql
 event_routing (
   event_type TEXT PRIMARY KEY,
   target_workflow TEXT NOT NULL,
@@ -318,11 +161,7 @@ event_routing (
   description TEXT,
   is_active BOOLEAN DEFAULT true
 )
-```
 
-### dispatch_errors Tabelle (NEU)
-
-```sql
 dispatch_errors (
   id UUID PRIMARY KEY,
   event_id UUID,
@@ -335,106 +174,20 @@ dispatch_errors (
 )
 ```
 
-### workflow_steps Tabelle (Idempotenz)
+---
 
-```sql
-workflow_steps (
-  step_key TEXT PRIMARY KEY,
-  project_id UUID,
-  step_type TEXT,
-  status workflow_step_status,  -- PENDING, IN_PROGRESS, DONE, FAILED
-  payload JSONB,
-  claimed_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ
-)
-```
+## MODUL-ZUSAMMENFASSUNG
 
-### Helper Functions
-
-- `claim_workflow_step(key, project_id, type)` → Atomares Claiming
-- `complete_workflow_step(key, payload)` → Step abschließen
-- `find_or_create_client(company_name, email_domain)` → Client Matching
-- `find_or_create_supplier(...)` → Supplier Matching
+| Modul | Aktiv | Inaktiv |
+|-------|-------|---------|
+| M1: Intake | 6 | 3 |
+| M2: Baustelle | 7 | 1 |
+| M4: Material | 10 | 2 |
+| M5: Freigabe | 1 | 0 |
+| M6: Finance | 9 | 5 |
+| MX: Infrastructure | 8 | 4 |
+| Sonstige | 1 | 47 |
 
 ---
 
-## 📁 ORDNERSTRUKTUR IN N8N
-
-```
-n8n Workflows/
-├── 📁 M1_Intake/
-│   ├── M1_01_Email_Trigger         ✅
-│   ├── M1_02_PDF_Parser            ✅
-│   ├── M1_04a_Prepare_Drive        ✅
-│   ├── M1_04b_Create_Project_Tree  ✅
-│   ├── M1_04c_Sync_Initial_Files   ✅
-│   └── M1_05_Notification          ✅  🎉 KOMPLETT!
-│
-├── 📁 M4_Material/
-│   ├── M4_01_Receipt_Scanner       ✅ Verifiziert 28.12.
-│   └── M4_02_Mail_Invoice_Scanner  ✅
-│
-└── 📁 MX_Core/
-    ├── MX_00_Event_Router v2       ✅ Live 17.01.2026
-    └── MX_01_Error_Handler         ✅
-```
-
----
-
-## 📊 STATUS-LEGENDE
-
-| Symbol | Bedeutung                 |
-| ------ | ------------------------- |
-| ✅     | Fertig & getestet         |
-| ⚠️     | Bug bekannt / Fix pending |
-| 🟡     | In Arbeit                 |
-| 🔲     | TODO                      |
-| ❌     | Deaktiviert               |
-
----
-
-## 🔄 MIGRATIONS-LISTE
-
-| Nr      | Datei                            | Beschreibung                              | Status        |
-| ------- | -------------------------------- | ----------------------------------------- | ------------- |
-| 001-009 | ...                              | Basis-Schema                              | ✅            |
-| 010     | event_system.sql                 | Event-System                              | ✅            |
-| 011     | workflow_steps.sql               | Workflow State Machine                    | ✅            |
-| 012     | suppliers_expense_categories.sql | Kostenkategorien                          | ✅            |
-| 013     | email_source_fields.sql          | Email-Quellfelder                         | ✅            |
-| 014     | m1_04b_project_tree.sql          | Event Routing M1_04b                      | ✅            |
-| 015     | m1_04c_sync_files.sql            | Event Routing M1_04c                      | ✅            |
-| ...     | ...                              | ...                                       | ✅            |
-| 026     | sales_invoices.sql               | Ausgangsrechnungen + v_project_financials | ✅ 18.01.2026 |
-| 027     | change_orders.sql                | Nachträge VOB + Evidence                  | ✅ 18.01.2026 |
-
----
-
-## 📄 SESSION-DOKUMENTATIONEN
-
-| Datei                                          | Datum  | Inhalt                     |
-| ---------------------------------------------- | ------ | -------------------------- |
-| `SESSION_2025-12-23_M1_02_REBUILD.md`          | 23.12. | PDF Parser Rebuild         |
-| `SESSION_2025-12-24_WORKFLOW_STATE_MACHINE.md` | 24.12. | State Machine Architektur  |
-| `SESSION_2025-12-27_M4_02_MAIL_SCANNER.md`     | 27.12. | Mail Invoice Scanner       |
-| `SESSION_2025-12-28_M1_04b.md`                 | 28.12. | Project Tree Flow          |
-| `SESSION_2025-12-28_M1_04c.md`                 | 28.12. | Sync Files Flow            |
-| `SESSION_2025-12-28_M1_05.md`                  | 28.12. | Notification Flow          |
-| `SESSION_2025-12-28_E2E_TEST_DEBUGGING.md`     | 28.12. | E2E Test + Router Bug      |
-| `SESSION_2025-12-28_M4_01_VERIFIED.md`         | 28.12. | M4_01 Schema-Verifizierung |
-| `EMAIL_ROUTING_FIX.md`                         | 28.12. | Gmail-Filter Setup         |
-
----
-
-## 🎯 NÄCHSTE SCHRITTE
-
-| Prio | Task                                               | Blocker? |
-| ---- | -------------------------------------------------- | -------- |
-| 1    | Frontend: Realtime Updates für Projekte/Positionen | -        |
-| 2    | M5 Freigabe-Center (Chef-Inbox für Belege)         | -        |
-| 3    | M1 E2E Test durchführen                            | -        |
-| 4    | Nachtragsmanagement (Change Orders) UI             | -        |
-
----
-
-_Zuletzt aktualisiert: 01.02.2026_
+*Zuletzt aktualisiert: 2026-03-17*

@@ -1,8 +1,14 @@
-# BAUGENIUS Datenbank-Schema v1.4
+# BAUGENIUS Datenbank-Schema
 
-> **Stand:** 27.12.2024  
-> **Datenbank:** Supabase (PostgreSQL 15+)  
-> **Module:** Basis + Angebot + Protokolle + Approvals + Events + **Lieferanten & Einkauf + Kostenkategorien**
+> **Stand:** 27.12.2024 (Referenz-Dokument, nicht vollstaendig aktuell)
+> **Datenbank:** Supabase PostgreSQL | Projekt-ID: `yetwntwayhmzmhhgdkli`
+> **Aktueller Stand:** 108 Tabellen, 42 Views, ~150 Functions, 121 Migrations
+>
+> **Hinweis:** Dieses Dokument beschreibt das Basis-Schema bis Migration 012.
+> Fuer den aktuellen Stand: Supabase Dashboard oder `supabase db dump`.
+> Wichtige spaetere Erweiterungen: sales_invoices (M026), change_orders (M027),
+> inspection_protocols, schedule_phases, project_material_needs, team_members,
+> richtzeitwerte, trade_sequence_rules, approvals, classified_emails, u.v.m.
 
 ---
 

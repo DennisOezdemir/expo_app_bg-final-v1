@@ -192,6 +192,39 @@ Ziel:
 Ziel:
 - Altpfade kontrolliert abschalten
 
+## Migrationsreihenfolge
+
+### Sprint A: Architektur und Daten
+
+- Zielschema fuer `project_material_needs` festziehen
+- Mapping Alt -> Neu definieren
+- `project_materials` als Legacy markieren
+- Read-Views/RPCs fuer neues Frontend bereitstellen
+
+### Sprint B: Bauleiter-Materialcenter
+
+- Neuer Read-Pfad fuer Material-Center
+- Gewerk-/Termin-/Problemansicht
+- Detailscreen fuer Bedarfe
+
+### Sprint C: Produkt- und Lieferantenentscheidungen
+
+- Assignment auf Bedarfsebene statt Einzelmaterialzeile
+- Lern-/Suggestion-Layer anschliessen
+- Echte Statusfluesse
+
+### Sprint D: Bestellung und Abschaltung Altpfad
+
+- Mock-Bestellung ersetzen durch echte Lieferantengruppierung
+- Versand/Freigabe an echten Flow koppeln
+- Altes `project_materials`-Frontend entfernen
+
+## Risiken
+
+- **Verdeckte Abhaengigkeiten an `project_materials`:** Vor jeder Abschaltung Repo- und Flow-Audit
+- **Verlust von Lernlogik:** Lernmechanik explizit extrahieren, in Zielmodell oder Suggestion-Layer ueberfuehren
+- **MagicPlan-Mapping bleibt unscharf:** Fehlerfaelle im UI sichtbar machen, gezielte Korrekturoberflaeche
+
 ## Endfazit
 
 Die Migration sollte nicht bedeuten:

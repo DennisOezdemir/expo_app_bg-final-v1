@@ -9,7 +9,7 @@
 ## Projekt-Kontext
 
 - **Supabase** Projekt-ID: `yetwntwayhmzmhhgdkli`
-- **Stack**: React + TypeScript + Vite + Tailwind + shadcn/ui + Supabase
+- **Stack**: Expo (React Native) + TypeScript + Supabase + Express
 - **n8n**: `https://n8n.srv1045913.hstgr.cloud`
 - **Gotenberg PDF**: `https://gotenberg.srv1045913.hstgr.cloud`
 - **Sprache**: UI komplett Deutsch, Code/Kommentare Deutsch oder Englisch

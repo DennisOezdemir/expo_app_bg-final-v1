@@ -203,7 +203,10 @@ const { data } = await supabase.storage
 | Storage | Supabase Storage | PDFs, Bilder |
 | Webhooks | Supabase Database Webhooks | Event-Trigger |
 | Automation | n8n (self-hosted) | Flow-Execution |
-| Frontend | Next.js 14+ | App |
-| UI | Tailwind + shadcn/ui | Components |
+| Frontend | Expo (React Native) + TypeScript | Mobile App |
+| Server | Express.js | API-Endpunkte (Altpfad, wird reduziert) |
+| ORM | Drizzle | DB-Zugriff im Server |
 | Icons | Lucide | Icons |
-| Dev | VS Code + Cursor | IDE |
+| AI | Claude Vision (via n8n) | PDF-Parsing, Klassifizierung |
+| PDF | Gotenberg | PDF-Generierung |
+| Dev | Claude Code + Cursor | IDE |

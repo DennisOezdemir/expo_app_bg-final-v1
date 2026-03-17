@@ -1,5 +1,10 @@
-# FRONTEND â†” BACKEND MAPPING
-## BAUGENIUS UI Components â†’ Supabase Tabellen
+# FRONTEND — BACKEND MAPPING
+## BAUGENIUS UI Components -> Supabase Tabellen
+
+> **Stand:** 2026-03-17 (aktualisiert)
+> **Frontend:** ~40% Completion (siehe REPORT_2026-02-27_FRONTEND_ANALYSE.md)
+> **React Query:** Installiert, aber noch nicht genutzt
+> **Realtime:** Noch nicht implementiert
 
 ---
 
@@ -7,10 +12,10 @@
 
 | Symbol | Bedeutung |
 |--------|-----------|
-| âœ… | Backend ready, kann direkt anbinden |
-| ðŸŸ¡ | Schema existiert, Flow fehlt |
-| ðŸ”´ | Tabelle fehlt, muss erstellt werden |
-| âšª | Nur Frontend (kein Backend nÃ¶tig) |
+| OK | Backend ready, kann direkt anbinden |
+| GELB | Schema existiert, Flow fehlt oder FE-Anbindung fehlt |
+| ROT | Tabelle fehlt, muss erstellt werden |
+| FE | Nur Frontend (kein Backend noetig) |
 
 ---
 
@@ -24,7 +29,7 @@
 | KPI: Offene Angebote | `offers` | âœ… | `WHERE status = 'draft' OR status = 'sent'` |
 | KPI: Unbezahlte Rechnungen | `purchase_invoices` | âœ… | `WHERE payment_status != 'paid'` |
 | KPI: Durchschnittsmarge | Aggregation | ðŸ”´ | View `v_project_margins` erstellen |
-| Chart: Umsatz | `sales_invoices` | ðŸ”´ | Tabelle fehlt |
+| Chart: Umsatz | `sales_invoices` | OK | Tabelle existiert (Migration 026) |
 | Chart: Rechnungen Status | `purchase_invoices` | âœ… | Group by status |
 | Gewinn/Verlust | Aggregation | ðŸ”´ | View `v_profit_loss` erstellen |
 
@@ -42,9 +47,9 @@
 | Tab | Tabelle | Status | Anmerkung |
 |-----|---------|--------|-----------|
 | Ãœbersicht | `projects` + `offers` | âœ… | |
-| Baustellen-Abwicklung | `protocols` | ðŸŸ¡ | Tabelle existiert, M2 Flow fehlt |
-| Nachtragserfassung | `change_orders` | ðŸ”´ | Schema planen |
-| AktivitÃ¤ten | `project_activities` | ðŸ”´ | Event log Tabelle |
+| Baustellen-Abwicklung | `inspection_protocols` | OK | M2 Flows aktiv (7 Flows) |
+| Nachtragserfassung | `change_orders` | OK | Tabelle existiert (Migration 027) |
+| Aktivitaeten | `project_activities` | OK | 959 Eintraege vorhanden |
 | Dokumente | `project_files` | âœ… | Existiert! |
 | Chat | `project_messages` | ðŸ”´ | Wenn Chat statt Activity |
 
@@ -62,7 +67,7 @@
 | UI Component | Supabase Tabelle | Status | Anmerkung |
 |--------------|------------------|--------|-----------|
 | Eingangsrechnungen | `purchase_invoices` | âœ… | M4 âœ… |
-| Ausgangsrechnungen | `sales_invoices` | ðŸ”´ | Tabelle erstellen |
+| Ausgangsrechnungen | `sales_invoices` | OK | Tabelle existiert (Migration 026) |
 | Positionen | `purchase_invoice_items` | âœ… | |
 | Zahlungsstatus | `purchase_invoices.payment_status` | âœ… | |
 
@@ -294,4 +299,4 @@ GROUP BY p.id, o.total_net;
 
 ---
 
-*Stand: 12. Januar 2026*
+*Zuletzt aktualisiert: 2026-03-17*
