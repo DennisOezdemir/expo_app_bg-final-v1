@@ -106,7 +106,7 @@ function getTabVisibility(role: UserRole): TabVisibility {
   return {
     index: true,
     projekte: role === "gf" || role === "bauleiter",
-    freigaben: role === "gf",
+    freigaben: role === "gf" || role === "bauleiter",
     material: role === "gf" || role === "bauleiter",
     meinjob: role === "monteur",
     foto: role === "monteur",
@@ -143,7 +143,7 @@ function ClassicTabLayout() {
 
   const tabLabels: Record<UserRole, Record<string, string>> = {
     gf: { index: "Start", projekte: "Projekte", freigaben: "Freigaben", material: "Material", profil: "Profil" },
-    bauleiter: { index: "Start", projekte: "Projekte", material: "Material", profil: "Profil" },
+    bauleiter: { index: "Start", projekte: "Projekte", freigaben: "Freigaben", material: "Material", profil: "Profil" },
     monteur: { index: "Start", meinjob: "Mein Job", foto: "Foto", zeiten: "Zeiten", profil: "Profil" },
   };
 

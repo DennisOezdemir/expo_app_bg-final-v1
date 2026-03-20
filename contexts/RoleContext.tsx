@@ -19,6 +19,7 @@ interface RoleContextValue {
   resetRole: () => void;
   can: (action: RoleAction) => boolean;
   sees: (section: ViewSection) => boolean;
+  canViewScreen: (screen: ScreenName) => boolean;
 }
 
 type RoleAction =
@@ -50,6 +51,42 @@ type ViewSection =
   | "budget"
   | "all_projects";
 
+export type ScreenName =
+  | "index"
+  | "projekte"
+  | "freigaben"
+  | "material"
+  | "meinjob"
+  | "foto"
+  | "zeiten"
+  | "profil"
+  | "finanzen"
+  | "angebote"
+  | "planung"
+  | "begehung"
+  | "einstellungen"
+  | "rechnungen"
+  | "chat";
+
+/** Which roles may access each screen */
+const SCREEN_ACCESS: Record<ScreenName, Set<UserRole>> = {
+  index:          new Set(["gf", "bauleiter", "monteur"]),
+  projekte:       new Set(["gf", "bauleiter"]),
+  freigaben:      new Set(["gf", "bauleiter"]),
+  material:       new Set(["gf", "bauleiter"]),
+  meinjob:        new Set(["monteur"]),
+  foto:           new Set(["gf", "bauleiter", "monteur"]),
+  zeiten:         new Set(["monteur"]),
+  profil:         new Set(["gf", "bauleiter", "monteur"]),
+  finanzen:       new Set(["gf"]),
+  angebote:       new Set(["gf", "bauleiter"]),
+  planung:        new Set(["gf", "bauleiter"]),
+  begehung:       new Set(["gf", "bauleiter"]),
+  einstellungen:  new Set(["gf"]),
+  rechnungen:     new Set(["gf"]),
+  chat:           new Set(["gf", "bauleiter", "monteur"]),
+};
+
 const FALLBACK_USERS: Record<UserRole, RoleUser> = {
   gf: { name: "Dennis", email: "dennis@bauloewen.de", role: "gf", roleLabel: "Geschäftsführer" },
   bauleiter: { name: "Ayse", email: "ayse@bauloewen.de", role: "bauleiter", roleLabel: "Bauleiterin" },
@@ -63,7 +100,8 @@ const ROLE_PERMISSIONS: Record<UserRole, Set<RoleAction>> = {
     "view_margin", "create_mahnung",
   ]),
   bauleiter: new Set([
-    "order_material", "plan_team", "take_photos", "report_defect",
+    "approve", "reject", "order_material", "plan_team", "take_photos",
+    "report_defect", "send_offers", "view_margin",
   ]),
   monteur: new Set([
     "take_photos", "log_time", "report_defect",
@@ -77,7 +115,8 @@ const ROLE_VIEWS: Record<UserRole, Set<ViewSection>> = {
     "begehungen", "zeiterfassung", "budget", "all_projects",
   ]),
   bauleiter: new Set([
-    "material_prices", "angebote", "planung", "begehungen", "all_projects",
+    "material_prices", "angebote", "planung", "begehungen",
+    "freigaben", "budget",
   ]),
   monteur: new Set([
     "zeiterfassung",
@@ -143,6 +182,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     return ROLE_VIEWS[role].has(section);
   }, [role]);
 
+  const canViewScreen = useCallback((screen: ScreenName) => {
+    const allowed = SCREEN_ACCESS[screen];
+    return allowed ? allowed.has(role) : false;
+  }, [role]);
+
   const fallbackUser = FALLBACK_USERS[role];
 
   const user = useMemo<RoleUser>(() => {
@@ -167,7 +211,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     resetRole,
     can,
     sees,
-  }), [role, user, actualRole, isImpersonating, setRole, resetRole, can, sees]);
+    canViewScreen,
+  }), [role, user, actualRole, isImpersonating, setRole, resetRole, can, sees, canViewScreen]);
 
   return (
     <RoleContext.Provider value={value}>
