@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View, ScrollView, Platform, Pressable, Image } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Platform, Pressable, Image, RefreshControl, ActivityIndicator } from "react-native";
+import { useCallback } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
@@ -10,6 +11,8 @@ import { useRole } from "@/contexts/RoleContext";
 import { useOffline } from "@/contexts/OfflineContext";
 import { OfflineBadge } from "@/components/OfflineBanner";
 import { useDashboardMetrics } from "@/hooks/queries/useDashboardMetrics";
+import { useActivities } from "@/hooks/queries/useActivities";
+import type { Activity } from "@/lib/api/activities";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -63,20 +66,182 @@ function TileSubtext({ text, color }: { text: string; color?: string }) {
   );
 }
 
-function ActivityRow({
-  dotColor,
-  text,
-  time,
-}: {
-  dotColor: string;
-  text: string;
-  time: string;
-}) {
+// --- Activity Feed helpers ---
+
+const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string; lib: "ion" | "mci" }> = {
+  "Projekt angelegt":                { name: "folder-open",       color: Colors.raw.amber500,   lib: "ion" },
+  "AUTO PLAN COMPLETED":             { name: "calendar-check",    color: Colors.raw.emerald500, lib: "mci" },
+  "INSPECTION PROTOCOL COMPLETED":   { name: "clipboard-check",   color: Colors.raw.emerald500, lib: "mci" },
+  "GODMODE LEARNING COMPLETED":      { name: "school",            color: Colors.raw.amber400,   lib: "mci" },
+  "NOTIFICATION SENT":               { name: "send",              color: Colors.raw.blue500,    lib: "ion" },
+  "DRIVE TREE CREATED":              { name: "folder-plus",       color: Colors.raw.amber500,   lib: "mci" },
+  "DRIVE YEAR READY":                { name: "folder-check",      color: Colors.raw.emerald400, lib: "mci" },
+};
+
+const ACTIVITY_TYPE_ICON: Record<string, { name: string; color: string; lib: "ion" | "mci" }> = {
+  event:    { name: "flash",           color: Colors.raw.amber500,   lib: "ion" },
+  document: { name: "document-text",   color: Colors.raw.emerald500, lib: "ion" },
+  material: { name: "cube",            color: Colors.raw.amber400,   lib: "ion" },
+};
+
+const DEFAULT_ICON = { name: "ellipse", color: Colors.raw.zinc500, lib: "ion" as const };
+
+function getActivityIcon(activity: Activity) {
+  return ACTIVITY_ICON_MAP[activity.title] ?? ACTIVITY_TYPE_ICON[activity.activity_type] ?? DEFAULT_ICON;
+}
+
+const TITLE_LABELS: Record<string, string> = {
+  "Projekt angelegt":                "Projekt angelegt",
+  "AUTO PLAN COMPLETED":             "Autoplanung fertig",
+  "INSPECTION PROTOCOL COMPLETED":   "Begehung abgeschlossen",
+  "GODMODE LEARNING COMPLETED":      "KI-Lernlauf fertig",
+  "NOTIFICATION SENT":               "Benachrichtigung gesendet",
+  "DRIVE TREE CREATED":              "Ordner erstellt",
+  "DRIVE YEAR READY":                "Jahresordner bereit",
+};
+
+function getActivityLabel(activity: Activity): string {
+  const label = TITLE_LABELS[activity.title];
+  if (label) return label;
+  // Fallback: title formatiert
+  return activity.title
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "gerade eben";
+  if (diffMin < 60) return `vor ${diffMin} Min`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `vor ${diffH}h`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD === 1) return "gestern";
+  if (diffD < 7) return `vor ${diffD} Tagen`;
+  return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+}
+
+type DateGroup = "Heute" | "Gestern" | "Diese Woche" | "Aelter";
+
+function getDateGroup(dateStr: string): DateGroup {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
+  const weekStart = new Date(todayStart.getTime() - todayStart.getDay() * 86_400_000);
+
+  if (date >= todayStart) return "Heute";
+  if (date >= yesterdayStart) return "Gestern";
+  if (date >= weekStart) return "Diese Woche";
+  return "Aelter";
+}
+
+function groupActivities(activities: Activity[]): { group: DateGroup; items: Activity[] }[] {
+  const groups: DateGroup[] = ["Heute", "Gestern", "Diese Woche", "Aelter"];
+  const map = new Map<DateGroup, Activity[]>();
+  groups.forEach((g) => map.set(g, []));
+
+  for (const a of activities) {
+    const g = getDateGroup(a.created_at);
+    map.get(g)!.push(a);
+  }
+
+  return groups.filter((g) => map.get(g)!.length > 0).map((g) => ({ group: g, items: map.get(g)! }));
+}
+
+function ActivityRow({ activity }: { activity: Activity }) {
+  const icon = getActivityIcon(activity);
+  const label = getActivityLabel(activity);
+  const time = formatRelativeTime(activity.created_at);
+  const projectRef = activity.project_number ?? "";
+
   return (
-    <View style={styles.activityRow}>
-      <View style={[styles.activityDot, { backgroundColor: dotColor }]} />
-      <Text style={styles.activityText} numberOfLines={1}>{text}</Text>
+    <Pressable
+      style={({ pressed }) => [styles.activityRow, { opacity: pressed ? 0.7 : 1 }]}
+      onPress={() => {
+        if (Platform.OS !== "web") Haptics.selectionAsync();
+        router.push(`/projekt/${activity.project_id}` as any);
+      }}
+    >
+      <View style={[styles.activityIconWrap, { backgroundColor: icon.color + "18" }]}>
+        {icon.lib === "mci" ? (
+          <MaterialCommunityIcons name={icon.name as any} size={18} color={icon.color} />
+        ) : (
+          <Ionicons name={icon.name as any} size={18} color={icon.color} />
+        )}
+      </View>
+      <View style={styles.activityContent}>
+        <Text style={styles.activityText} numberOfLines={1}>
+          {label}
+        </Text>
+        {projectRef ? (
+          <Text style={styles.activityProject} numberOfLines={1}>
+            {projectRef}
+          </Text>
+        ) : null}
+      </View>
       <Text style={styles.activityTime}>{time}</Text>
+    </Pressable>
+  );
+}
+
+function ActivityFeed() {
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useActivities();
+
+  const allActivities = data?.pages.flat() ?? [];
+  const grouped = groupActivities(allActivities);
+
+  if (isLoading) {
+    return (
+      <View style={styles.activitySection}>
+        <Text style={styles.activityTitle}>Letzte Aktivitaet</Text>
+        <View style={[styles.activityList, { paddingVertical: 24, alignItems: "center" }]}>
+          <ActivityIndicator color={Colors.raw.amber500} />
+        </View>
+      </View>
+    );
+  }
+
+  if (allActivities.length === 0) {
+    return (
+      <View style={styles.activitySection}>
+        <Text style={styles.activityTitle}>Letzte Aktivitaet</Text>
+        <View style={[styles.activityList, { padding: 18 }]}>
+          <Text style={styles.activityProject}>Noch keine Aktivitaeten</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.activitySection}>
+      <Text style={styles.activityTitle}>Letzte Aktivitaet</Text>
+      {grouped.map(({ group, items }) => (
+        <View key={group} style={{ marginBottom: 12 }}>
+          <Text style={styles.activityGroupLabel}>{group}</Text>
+          <View style={styles.activityList}>
+            {items.map((activity) => (
+              <ActivityRow key={activity.id} activity={activity} />
+            ))}
+          </View>
+        </View>
+      ))}
+      {hasNextPage && (
+        <Pressable
+          onPress={() => fetchNextPage()}
+          style={({ pressed }) => [styles.loadMoreBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          {isFetchingNextPage ? (
+            <ActivityIndicator size="small" color={Colors.raw.amber500} />
+          ) : (
+            <Text style={styles.loadMoreText}>Mehr laden</Text>
+          )}
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -169,14 +334,7 @@ function GFHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["
         </View>
       </View>
 
-      <View style={styles.activitySection}>
-        <Text style={styles.activityTitle}>Letzte Aktivität</Text>
-        <View style={styles.activityList}>
-          <ActivityRow dotColor={Colors.raw.emerald500} text="BL-2026-003: Material bestellt" time="vor 2h" />
-          <ActivityRow dotColor={Colors.raw.amber500} text={`${openOffers} Angebote offen`} time="live" />
-          <ActivityRow dotColor={Colors.raw.rose500} text={`${pendingApprovals} Freigaben warten`} time="live" />
-        </View>
-      </View>
+      <ActivityFeed />
     </>
   );
 }
@@ -253,14 +411,7 @@ function BauleiterHome({ metrics }: { metrics: ReturnType<typeof useDashboardMet
         </View>
       </View>
 
-      <View style={styles.activitySection}>
-        <Text style={styles.activityTitle}>Letzte Aktivität</Text>
-        <View style={styles.activityList}>
-          <ActivityRow dotColor={Colors.raw.emerald500} text="BL-2026-003: Material bestellt" time="vor 2h" />
-          <ActivityRow dotColor={Colors.raw.amber500} text={`${activeProjects} Projekte in Arbeit`} time="live" />
-          <ActivityRow dotColor="#3b82f6" text={`${openInspections} Begehungen offen`} time="live" />
-        </View>
-      </View>
+      <ActivityFeed />
     </>
   );
 }
@@ -337,7 +488,12 @@ export default function StartScreen() {
   const bottomInset = Platform.OS === "web" ? 84 : 90;
   const { role, user, isImpersonating } = useRole();
   const { isOnline, getCacheAge } = useOffline();
-  const { data: metrics } = useDashboardMetrics();
+  const { data: metrics, refetch: refetchMetrics } = useDashboardMetrics();
+  const { refetch: refetchActivities, isRefetching } = useActivities();
+
+  const onRefresh = useCallback(async () => {
+    await Promise.all([refetchMetrics(), refetchActivities()]);
+  }, [refetchMetrics, refetchActivities]);
 
   const greetings: Record<string, { greeting: string; subtitle: string }> = {
     gf: { greeting: `Moin ${user.name}`, subtitle: "3 Dinge brauchen dich" },
@@ -360,6 +516,14 @@ export default function StartScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={onRefresh}
+            tintColor={Colors.raw.amber500}
+            colors={[Colors.raw.amber500]}
+          />
+        }
       >
         <View style={styles.greetingSection}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 4 }}>
@@ -543,30 +707,59 @@ const styles = StyleSheet.create({
     borderColor: Colors.raw.zinc800,
     overflow: "hidden",
   },
+  activityGroupLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
   activityRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: Colors.raw.zinc800,
     gap: 12,
+    minHeight: 52,
   },
-  activityDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  activityIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityContent: {
+    flex: 1,
   },
   activityText: {
     fontFamily: "Inter_500Medium",
     fontSize: 14,
     color: Colors.raw.zinc300,
-    flex: 1,
+  },
+  activityProject: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc500,
+    marginTop: 2,
   },
   activityTime: {
     fontFamily: "Inter_400Regular",
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.raw.zinc600,
+  },
+  loadMoreBtn: {
+    alignItems: "center",
+    paddingVertical: 14,
+    marginTop: 8,
+  },
+  loadMoreText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.amber500,
   },
   projectBanner: {
     backgroundColor: Colors.raw.zinc900,
