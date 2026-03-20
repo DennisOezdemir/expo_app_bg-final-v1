@@ -18,7 +18,7 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { PipelineBadge } from "@/components/PipelineProgress";
-import { fetchPipelineStatusBatch, type PipelineRunStatus } from "@/lib/api/pipeline";
+import { fetchPipelineStatusBatch, checkPipelineReadiness, type PipelineRunStatus, type ReadinessResult } from "@/lib/api/pipeline";
 
 const SCREEN_W = Dimensions.get("window").width;
 const NAME_COL_W = 76;
@@ -1123,8 +1123,7 @@ export default function PlanungScreen() {
     setWeekOffset((o) => o + 1);
   }, []);
 
-  const handleAutoPlan = useCallback(async (projectId: string) => {
-    setAutoPlanning(projectId);
+  const doAutoPlan = useCallback(async (projectId: string) => {
     try {
       const { data, error } = await supabase.rpc("auto_plan_full", {
         p_project_id: projectId,
@@ -1160,6 +1159,37 @@ export default function PlanungScreen() {
       setAutoPlanning(null);
     }
   }, [fetchData]);
+
+  const handleAutoPlan = useCallback(async (projectId: string) => {
+    setAutoPlanning(projectId);
+    try {
+      const readiness = await checkPipelineReadiness(projectId);
+      if (!readiness.ready) {
+        const missing = readiness.items
+          .filter((i) => !i.ok)
+          .map((i) => `• ${i.label}: ${i.hint}`)
+          .join("\n");
+        setAutoPlanning(null);
+        Alert.alert(
+          "Noch nicht bereit",
+          `Um die Autoplanung zu starten brauche ich noch:\n\n${missing}`,
+        );
+        return;
+      }
+      // Readiness OK — ask for confirmation
+      Alert.alert(
+        "Autoplanung starten?",
+        "Alle Informationen sind vorhanden. Soll die Autoplanung jetzt gestartet werden?",
+        [
+          { text: "Abbrechen", style: "cancel", onPress: () => setAutoPlanning(null) },
+          { text: "Ja, starten", onPress: () => doAutoPlan(projectId) },
+        ],
+      );
+    } catch (e: any) {
+      setAutoPlanning(null);
+      Alert.alert("Fehler", e.message || "Prüfung fehlgeschlagen");
+    }
+  }, [doAutoPlan]);
 
   const handleConfirmProposed = useCallback(async (projectId: string) => {
     const { data, error } = await supabase.rpc("confirm_proposed_phases", {

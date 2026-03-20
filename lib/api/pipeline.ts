@@ -70,6 +70,78 @@ export async function fetchPipelineSteps(runId: string): Promise<PipelineStep[]>
   return (data ?? []) as PipelineStep[];
 }
 
+// --- Readiness check ---
+
+export interface ReadinessItem {
+  key: string;
+  label: string;
+  ok: boolean;
+  hint: string;
+}
+
+export interface ReadinessResult {
+  ready: boolean;
+  items: ReadinessItem[];
+}
+
+export async function checkPipelineReadiness(projectId: string): Promise<ReadinessResult> {
+  const [projectRes, offersRes, inspectionsRes] = await Promise.all([
+    supabase
+      .from("projects")
+      .select("planned_start, planned_end")
+      .eq("id", projectId)
+      .single(),
+    supabase
+      .from("offers")
+      .select("id, offer_positions(id)")
+      .eq("project_id", projectId)
+      .is("deleted_at", null),
+    supabase
+      .from("inspection_protocols")
+      .select("id", { count: "exact", head: true })
+      .eq("project_id", projectId)
+      .or("status.eq.completed,finalized_at.not.is.null")
+  ]);
+
+  const project = projectRes.data;
+  const offers = offersRes.data ?? [];
+  const offerCount = offers.length;
+  const positionCount = offers.reduce((sum, o: any) => sum + (o.offer_positions?.length ?? 0), 0);
+  const inspectionDoneCount = inspectionsRes.count ?? 0;
+
+  const items: ReadinessItem[] = [
+    {
+      key: "inspection",
+      label: "Aufmaß / Erstbegehung",
+      ok: inspectionDoneCount > 0,
+      hint: "Erstbegehung abschließen, damit Positionen vorhanden sind",
+    },
+    {
+      key: "offer",
+      label: "Angebot mit Positionen",
+      ok: offerCount > 0 && positionCount > 0,
+      hint: offerCount === 0
+        ? "Ein Angebot erstellen"
+        : "Positionen zum Angebot hinzufügen",
+    },
+    {
+      key: "dates",
+      label: "Start- und Enddatum",
+      ok: !!project?.planned_start && !!project?.planned_end,
+      hint: !project?.planned_start && !project?.planned_end
+        ? "Start- und Enddatum im Projekt eintragen"
+        : !project?.planned_start
+        ? "Startdatum eintragen"
+        : "Enddatum eintragen",
+    },
+  ];
+
+  return {
+    ready: items.every((i) => i.ok),
+    items,
+  };
+}
+
 export async function startAutoPlan(projectId: string): Promise<{ success: boolean; error?: string; schedule?: any; material?: any }> {
   const { data, error } = await supabase.rpc("auto_plan_full", { p_project_id: projectId });
   if (error) throw error;

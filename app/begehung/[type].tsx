@@ -281,6 +281,11 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
   const [finalized, setFinalized] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+  const [plannedStart, setPlannedStart] = useState("");
+  const [plannedEnd, setPlannedEnd] = useState("");
+  const [showDateModal, setShowDateModal] = useState(false);
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -328,6 +333,19 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
     })();
     return () => { cancelled = true; };
   }, [projectId, protocolId]);
+
+  // Load existing planned dates
+  useEffect(() => {
+    supabase
+      .from("projects")
+      .select("planned_start, planned_end")
+      .eq("id", projectId)
+      .single()
+      .then(({ data }) => {
+        if (data?.planned_start) setPlannedStart(data.planned_start.substring(0, 10));
+        if (data?.planned_end) setPlannedEnd(data.planned_end.substring(0, 10));
+      });
+  }, [projectId]);
 
   const toggleRoom = useCallback((roomId: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -466,6 +484,15 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
       });
       await insertInspectionProtocolItems(protocol.id, items as any[]);
       await updateOfferPositions(positionUpdates);
+
+      // Save planned dates (use editStart/editEnd which are current in the modal)
+      if (editStart || editEnd) {
+        await supabase.from("projects").update({
+          planned_start: editStart || null,
+          planned_end: editEnd || null,
+        }).eq("id", projectId);
+      }
+
       await updateProjectInspectionState(projectId, { status: "IN_PROGRESS" });
       await emitInspectionCompletedEvent({
         projectId,
@@ -483,7 +510,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
     } finally {
       setFinalizing(false);
     }
-  }, [rooms, posStates, mehrleistungen, type, projectId]);
+  }, [rooms, posStates, mehrleistungen, type, projectId, editStart, editEnd]);
 
   const filteredCatalogEntries = useMemo(() => {
     const catalog = CATALOGS[selectedCatalog];
@@ -631,7 +658,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
         {finalized ? (
           <View style={s.finalizedBanner}><Ionicons name="lock-closed" size={20} color={Colors.raw.emerald500} /><View style={s.finalizedBannerText}><Text style={s.finalizedTitle}>Festgeschrieben</Text><Text style={s.finalizedDesc}>Die Leistungen wurden erfasst und k{"\u00F6"}nnen nicht mehr ge{"\u00E4"}ndert werden.</Text></View></View>
         ) : (
-          <Pressable style={({ pressed }) => [s.finalizeBtn, { opacity: pressed ? 0.85 : 1 }]} onPress={() => setShowFinalizeConfirm(true)} testID="finalize-button">
+          <Pressable style={({ pressed }) => [s.finalizeBtn, { opacity: pressed ? 0.85 : 1 }]} onPress={() => { setEditStart(plannedStart); setEditEnd(plannedEnd); setShowFinalizeConfirm(true); }} testID="finalize-button">
             <Ionicons name="lock-closed" size={18} color={Colors.raw.zinc950} /><Text style={s.finalizeBtnText}>Leistungen festschreiben</Text>
           </Pressable>
         )}
@@ -655,19 +682,64 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
       />
 
       <Modal visible={showFinalizeConfirm} transparent animationType="fade" onRequestClose={() => setShowFinalizeConfirm(false)}>
-        <Pressable style={s.confirmOverlay} onPress={() => setShowFinalizeConfirm(false)}>
+        <View style={s.confirmOverlay}>
           <View style={s.confirmCard}>
             <View style={s.confirmIconWrap}><Ionicons name="lock-closed" size={28} color={Colors.raw.amber500} /></View>
             <Text style={s.confirmTitle}>Leistungen festschreiben?</Text>
-            <Text style={s.confirmDesc}>Nach dem Festschreiben k{"\u00F6"}nnen die erfassten Leistungen nicht mehr ge{"\u00E4"}ndert werden.{"\n\n"}{summary.confirmed} best{"\u00E4"}tigt {"\u00B7"} {summary.rejected} abgelehnt {"\u00B7"} {summary.unchecked} offen</Text>
-            <View style={s.confirmBtns}>
+            <Text style={s.confirmDesc}>{summary.confirmed} best{"\u00E4"}tigt {"\u00B7"} {summary.rejected} abgelehnt {"\u00B7"} {summary.unchecked} offen</Text>
+
+            {/* Datum-Eingabe */}
+            <View style={s.dateSection}>
+              <Text style={s.dateSectionTitle}>Bauphase Zeitraum</Text>
+              <Text style={s.dateSectionHint}>Pflichtfeld f{"\u00FC"}r die Autoplanung</Text>
+              <View style={s.dateRow}>
+                <View style={s.dateCol}>
+                  <Text style={s.dateLbl}>Start</Text>
+                  <TextInput
+                    style={s.dateInp}
+                    value={editStart}
+                    onChangeText={setEditStart}
+                    placeholder="2026-04-01"
+                    placeholderTextColor={Colors.raw.zinc600}
+                  />
+                </View>
+                <View style={s.dateCol}>
+                  <Text style={s.dateLbl}>Ende</Text>
+                  <TextInput
+                    style={s.dateInp}
+                    value={editEnd}
+                    onChangeText={setEditEnd}
+                    placeholder="2026-04-15"
+                    placeholderTextColor={Colors.raw.zinc600}
+                  />
+                </View>
+              </View>
+            </View>
+
+            {!editStart || !editEnd ? (
+              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.rose500, textAlign: "center", marginTop: 8 }}>
+                Bitte beide Daten eintragen um festzuschreiben
+              </Text>
+            ) : null}
+
+            <View style={[s.confirmBtns, { marginTop: 16 }]}>
               <Pressable style={({ pressed }) => [s.confirmCancelBtn, { opacity: pressed ? 0.7 : 1 }]} onPress={() => setShowFinalizeConfirm(false)}><Text style={s.confirmCancelText}>Abbrechen</Text></Pressable>
-              <Pressable style={({ pressed }) => [s.confirmSubmitBtn, { opacity: pressed ? 0.85 : 1 }]} onPress={handleFinalize} disabled={finalizing} testID="confirm-finalize">
-                {finalizing ? <ActivityIndicator size="small" color={Colors.raw.zinc950} /> : <Text style={s.confirmSubmitText}>Festschreiben</Text>}
+              <Pressable
+                style={({ pressed }) => [s.confirmSubmitBtn, (!editStart || !editEnd) && { backgroundColor: Colors.raw.zinc700 }, { opacity: pressed && editStart && editEnd ? 0.85 : 1 }]}
+                onPress={() => {
+                  if (!editStart || !editEnd) return;
+                  setPlannedStart(editStart);
+                  setPlannedEnd(editEnd);
+                  handleFinalize();
+                }}
+                disabled={finalizing || !editStart || !editEnd}
+                testID="confirm-finalize"
+              >
+                {finalizing ? <ActivityIndicator size="small" color={Colors.raw.zinc950} /> : <Text style={[s.confirmSubmitText, (!editStart || !editEnd) && { color: Colors.raw.zinc500 }]}>Festschreiben</Text>}
               </Pressable>
             </View>
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
   );
@@ -1727,6 +1799,14 @@ const s = StyleSheet.create({
   freeSubmitDisabled: { opacity: 0.4 },
   freeSubmitText: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.zinc950 },
   finalizeBtnDisabled: { backgroundColor: Colors.raw.zinc800, borderWidth: 1, borderColor: Colors.raw.zinc700 },
+  dateSection: { backgroundColor: Colors.raw.zinc900, borderRadius: 14, borderWidth: 1, borderColor: Colors.raw.zinc800, padding: 16, marginTop: 20, marginHorizontal: 4 },
+  dateSectionTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white, marginBottom: 4 },
+  dateSectionHint: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, marginBottom: 14 },
+  dateRow: { flexDirection: "row", gap: 12 },
+  dateCol: { flex: 1 },
+  dateLbl: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.zinc400, marginBottom: 6 },
+  dateInp: { backgroundColor: Colors.raw.zinc800, borderRadius: 10, borderWidth: 1, borderColor: Colors.raw.zinc700, paddingHorizontal: 12, paddingVertical: 10, fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.white },
+  dateValue: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.white, marginTop: 2 },
   abnahmeSummary: { paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.raw.zinc800 + "80", gap: 8 },
   abnahmeSummaryText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc400 },
   abnahmeRoomSection: { marginTop: 16 },
