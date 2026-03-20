@@ -92,19 +92,32 @@ Gmail Labels/
 |------|----|----------------|
 | **M5_01_Approval_Dispatcher** | `zCs5Hwy9Nm` | 2026-02-11 |
 
-### M6: Finance (9 Flows)
+### M6: Finance (8 aktiv, 3 deaktiviert, 1 neu)
 
-| Flow | ID | Letztes Update |
-|------|----|----------------|
-| **M6_01_Invoice_Processor** | `NKVnbTeEpf` | 2026-02-10 |
-| **M6_02a_Lexware_Push_Prepare** | `B4IOCwfxNg` | 2026-02-18 |
-| **M6_02b_Lexware_Contact_Sync** | `ilYyrjOQoG` | 2026-02-18 |
-| **M6_02c_Lexware_Push_Voucher** | `6C8MshufHT` | 2026-02-19 |
-| **M6_03_Lexware_Pull_Sales** | `AjRF0GnZVa` | 2026-02-18 |
-| **M6_04a_Lexware_Webhook_Router** | `RbUQUOpAzY` | 2026-02-18 |
-| **M6_04b_Lexware_Payment_Handler** | `ORyFbRUD5E` | 2026-02-18 |
-| **M6_04c_Lexware_Invoice_Sync** | `HK788ajphA` | 2026-02-18 |
-| **M6_04d_Lexware_Voucher_Status** | `pkJmfUhp9V` | 2026-02-18 |
+| Flow | ID | Letztes Update | Status |
+|------|----|----------------|--------|
+| **M6_01_Invoice_Processor v2** | `NKVnbTeEpf` | 2026-03-20 | aktiv |
+| ~~M6_02a_Lexware_Push_Prepare~~ | `B4IOCwfxNg` | 2026-02-18 | deaktiviert (ersetzt durch Email-Forward in M6_01) |
+| ~~M6_02b_Lexware_Contact_Sync~~ | `ilYyrjOQoG` | 2026-02-18 | deaktiviert |
+| ~~M6_02c_Lexware_Push_Voucher~~ | `6C8MshufHT` | 2026-02-19 | deaktiviert |
+| **M6_03_Lexware_Pull_Sales** | `AjRF0GnZVa` | 2026-02-18 | aktiv |
+| **M6_04a_Lexware_Webhook_Router** | `RbUQUOpAzY` | 2026-02-18 | aktiv |
+| **M6_04b_Lexware_Payment_Handler** | `ORyFbRUD5E` | 2026-02-18 | aktiv |
+| **M6_04c_Lexware_Invoice_Sync** | `HK788ajphA` | 2026-02-18 | aktiv |
+| **M6_04d_Lexware_Voucher_Status** | `pkJmfUhp9V` | 2026-02-18 | aktiv |
+| **M6_10_Lexware_Reconciliation** | NEU | 2026-03-20 | aktiv |
+
+#### M6_01 v2 Aenderungen (2026-03-20):
+- Multi-Attachment: Loop ueber alle file_ids statt nur [0]
+- Gutschrift-Erkennung: besser zuhause / Betreff "Gutschrift" → CREDIT_NOTE
+- Projektzuordnung: Claude Vision extrahiert BL-Nummer + Adresse → fn_match_project_by_reference
+- Email-Forward: PDF automatisch an bauloewen@inbox.lexware.email
+
+#### M6_10 Reconciliation (NEU 2026-03-20):
+- Cron taeglich 06:00 — Lexware API Pull → DB Abgleich → Status-Sync
+- Lexware = Source of Truth fuer payment_status, paid_amount, due_date
+- Fehlende Belege werden erneut an Lexware gemailt (max 5/Tag)
+- Telegram-Report mit Statistiken
 
 ### MX: Infrastructure (8 Flows)
 
@@ -133,7 +146,8 @@ Gmail Labels/
 | `DRIVE_TREE_CREATED` | M1_04c Sync Files | Ja |
 | `DRIVE_SETUP_COMPLETE` | M1_05 Notification | Ja |
 | `POSITIONS_EXTRACTED` | M4_01 Material Planner | Ja |
-| `PURCHASE_INVOICE_CREATED` | M6_02a Lexware Push | Ja |
+| `PURCHASE_INVOICE_CREATED` | ~~M6_02a Lexware Push~~ | Nein (ersetzt durch Email-Forward in M6_01) |
+| `RECONCILIATION_COMPLETED` | (Event-Log only) | Ja |
 | `MONTEUR_AUFTRAG_CREATED` | M2_01 Monteur PDF | Ja |
 
 ---
