@@ -264,6 +264,8 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [resolvedOfferId, setResolvedOfferId] = useState<string | null>(offerId || null);
+  const [catalogLabel, setCatalogLabel] = useState<string | null>(null);
 
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
   const [posStates, setPosStates] = useState<Record<string, PosState>>({});
@@ -303,6 +305,28 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
         }
         if (fetchedRooms.length === 0) {
           setLoadError("Kein Angebot mit Positionen gefunden");
+        }
+
+        // Resolve offerId + catalog label for protocol creation
+        if (offerId) {
+          setResolvedOfferId(offerId);
+          const { data: offerInfo } = await supabase.from("offers").select("internal_notes").eq("id", offerId).single();
+          if (offerInfo?.internal_notes) {
+            const notes = offerInfo.internal_notes.toUpperCase();
+            if (notes.includes("WABS")) setCatalogLabel("WABS");
+            else if (notes.includes("AV")) setCatalogLabel("AV");
+          }
+        } else {
+          // Fallback: first offer
+          const { data: firstOffer } = await supabase.from("offers").select("id, internal_notes").eq("project_id", projectId).is("deleted_at", null).order("created_at").limit(1).single();
+          if (firstOffer) {
+            setResolvedOfferId(firstOffer.id);
+            if (firstOffer.internal_notes) {
+              const notes = firstOffer.internal_notes.toUpperCase();
+              if (notes.includes("WABS")) setCatalogLabel("WABS");
+              else if (notes.includes("AV")) setCatalogLabel("AV");
+            }
+          }
         }
 
         // Load saved protocol data if viewing a finalized inspection
@@ -440,6 +464,8 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
         totalItems,
         completedItems,
         itemsWithIssues,
+        offerId: resolvedOfferId,
+        catalogLabel,
       });
 
       let sortOrder = 0;
@@ -510,7 +536,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
     } finally {
       setFinalizing(false);
     }
-  }, [rooms, posStates, mehrleistungen, type, projectId, editStart, editEnd]);
+  }, [rooms, posStates, mehrleistungen, type, projectId, editStart, editEnd, resolvedOfferId, catalogLabel]);
 
   const filteredCatalogEntries = useMemo(() => {
     const catalog = CATALOGS[selectedCatalog];

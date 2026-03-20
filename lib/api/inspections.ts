@@ -21,6 +21,8 @@ interface ProtocolInsertInput {
   completedItems: number;
   itemsWithIssues?: number;
   signaturePath?: string | null;
+  offerId?: string | null;
+  catalogLabel?: string | null;
 }
 
 interface ProtocolItemInsertInput {
@@ -91,6 +93,8 @@ export async function createInspectionProtocol(input: ProtocolInsertInput): Prom
       completed_items: input.completedItems,
       items_with_issues: input.itemsWithIssues ?? 0,
       signature_path: input.signaturePath ?? null,
+      offer_id: input.offerId ?? null,
+      catalog_label: input.catalogLabel ?? null,
     })
     .select("id, protocol_number")
     .single();
