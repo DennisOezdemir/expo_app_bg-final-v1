@@ -619,7 +619,7 @@ function AddPositionSheet({
                 <View style={apStyles.tabs}>
                   {([
                     { key: "katalog" as AddTab, icon: "search", label: "Katalog" },
-                    { key: "jumbos" as AddTab, icon: "rocket", label: "Jumbos" },
+                    { key: "jumbos" as AddTab, icon: "rocket", label: "Leistungspakete" },
                     { key: "letzte" as AddTab, icon: "time", label: "Letzte" },
                     { key: "frei" as AddTab, icon: "create", label: "Frei" },
                   ]).map((t) => (
@@ -842,7 +842,7 @@ function AddPositionSheet({
                       </View>
                     ) : (
                       <View>
-                        <Text style={apStyles.sectionLabel}>Vorgefertigte Angebotstemplates</Text>
+                        <Text style={apStyles.sectionLabel}>Vorgefertigte Leistungspakete</Text>
                         {JUMBO_TEMPLATES.map((jt) => (
                           <Pressable
                             key={jt.id}
