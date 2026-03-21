@@ -1,4 +1,7 @@
 # BauGenius Frontend-Analyse Report
+
+> **HISTORISCH** — Dieser Report spiegelt den Stand vom 27.02.2026 wider.
+
 > **Datum:** 2026-02-27 | **Stack:** Expo + React Native + TypeScript
 
 ---
