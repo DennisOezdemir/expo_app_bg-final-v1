@@ -10,6 +10,7 @@ export const queryKeys = {
   },
   dashboard: {
     metrics: () => ["dashboard", "metrics"] as const,
+    actions: () => ["dashboard", "actions"] as const,
   },
   projects: {
     all: ["projects"] as const,
@@ -78,7 +79,6 @@ export const queryKeys = {
     byProject: (projectId: string) => ["changeOrders", "project", projectId] as const,
     detail: (id: string) => ["changeOrders", "detail", id] as const,
   },
-<<<<<<< HEAD
   materials: {
     all: ["materials"] as const,
     projects: () => ["materials", "projects"] as const,
