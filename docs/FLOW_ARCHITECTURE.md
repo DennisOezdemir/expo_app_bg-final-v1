@@ -1,5 +1,11 @@
 # BauGenius Flow-Architektur
 
+> **Stand:** 2026-03-21 | **Flows:** 44 aktiv | 77 inaktiv/archiviert | 121 gesamt
+> **Vollstaendige Flow-Liste mit IDs:** siehe `FLOW_REGISTER.md`
+> **Architektur:** Event-Driven State Machine (Staffellauf-Prinzip)
+
+---
+
 ## 1. Gesamtübersicht (Wer ruft wen?)
 
 ```mermaid

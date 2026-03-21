@@ -1,4 +1,7 @@
 # BauGenius Flow-Analyse Report
+
+> **HISTORISCH** — Dieser Report spiegelt den Stand vom 27.02.2026 wider. Fuer den aktuellen Stand siehe `FLOW_REGISTER.md` (44 aktive Flows, Stand 2026-03-21).
+
 > **Datum:** 2026-02-27 | **Quelle:** n8n API (42 aktive Flows) + Handover-Docs
 
 ---

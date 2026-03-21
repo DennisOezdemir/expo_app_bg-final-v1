@@ -1,4 +1,7 @@
 # BauGenius Supabase Backend-Analyse Report
+
+> **HISTORISCH** — Dieser Report spiegelt den Stand vom 27.02.2026 wider. Fuer den aktuellen Stand siehe `DATABASE_SCHEMA.md` (124 Tabellen, Stand 2026-03-21).
+
 > **Datum:** 2026-02-27 | **Projekt-ID:** yetwntwayhmzmhhgdkli
 
 ---
