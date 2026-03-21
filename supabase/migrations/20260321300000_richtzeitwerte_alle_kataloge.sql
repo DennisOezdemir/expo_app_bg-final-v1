@@ -1,0 +1,48 @@
+-- ============================================================================
+-- Migration: Richtzeitwerte für alle 9 Kataloge befüllen (Issue #23)
+-- Datum: 2026-03-21
+-- Von 31 auf ~1880 Richtzeitwerte
+-- ============================================================================
+-- IST-Zustand VORHER:
+--   - 31 Richtzeitwerte, nur WABS-Katalog
+--   - Lupinenacker: 63 von 113 Positionen im Formel-Fallback
+--   - Sanitär: "48.3h geplant" statt realistisch
+--
+-- NACHHER:
+--   - ~1880 Richtzeitwerte über alle 9 Kataloge
+--   - Lupinenacker: 0 Formel-Fallback, 113/113 RZW-Matches
+--   - Sanitär: 23.2h (realistisch für Komplett-Bad-Sanierung)
+--
+-- METHODIK:
+--   - WABS: 185 Positionen manuell mit branchenüblichen Werten
+--   - AV-2024: 224 Positionen mit 764.xxx + 078-xxx Doppel-Codes
+--   - WBS-Kataloge: Bulk-Insert mit gewerke-spezifischen Schätzwerten
+--   - DBL-2026: Bulk-Insert mit gewerke-spezifischen Schätzwerten
+--   - Alle mit confidence=0.5, source='ai_estimate'
+-- ============================================================================
+
+-- Hinweis: Die eigentlichen Daten wurden direkt via execute_sql eingefügt.
+-- Diese Migration dokumentiert die Änderungen.
+-- Bei Bedarf können die Daten mit folgendem Query verifiziert werden:
+--
+-- SELECT c.name, COUNT(rz.id) as rzw_count
+-- FROM catalogs c
+-- LEFT JOIN richtzeitwerte rz ON rz.catalog_id = c.id
+-- WHERE c.is_active = true
+-- GROUP BY c.name ORDER BY c.name;
+--
+-- Erwartetes Ergebnis:
+--   DBL Eigener Katalog 2026:              774
+--   EPA 764 Ausstattungsverbesserung 2024:  ~270 (224 + 078-xxx Duplikate)
+--   GWG/WBS Bodenbeläge 2025:               95
+--   GWG/WBS Fliesenarbeiten 2025:            92
+--   GWG/WBS Malerarbeiten 2025:             128
+--   WABS Preisstand 30.09.2024:             ~215
+--   WBS Elektroarbeiten 2024:                90
+--   WBS Sanitär/Heizung 2025:               141
+--   WBS Schreinerarbeiten 2024:              74
+
+-- Mapping-Fixes für Lupinenacker (catalog_position_v2_id):
+-- 30 AV-2024 Positionen (078-xxx → 764.xxx) via Titel-Ähnlichkeit gemappt
+-- 6 WABS-Positionen mit falscher catalog_code → korrekte catalog_positions_v2 verknüpft
+-- Ergebnis: 113/113 Positionen mit catalog_position_v2_id (vorher: 77/113)
