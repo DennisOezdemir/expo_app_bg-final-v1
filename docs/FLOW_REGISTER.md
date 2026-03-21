@@ -220,11 +220,34 @@ dispatch_errors (
 Alle 44 aktiven Flows sind als JSON in `n8n-workflows/` versioniert.
 6 deaktivierte/ersetzte Flows liegen in `n8n-workflows/_archive/`.
 
-Export-Befehl fuer Aktualisierung:
+### Export-Befehle
+
+Einzelner Flow:
 ```bash
 curl -s "https://n8n.srv1045913.hstgr.cloud/api/v1/workflows/{ID}" \
   -H "X-N8N-API-KEY: $N8N_API_KEY" > n8n-workflows/{NAME}.json
 ```
+
+Alle aktiven Flows:
+```bash
+curl -s "https://n8n.srv1045913.hstgr.cloud/api/v1/workflows?active=true&limit=200" \
+  -H "X-N8N-API-KEY: $N8N_API_KEY" | python3 -c "
+import json, sys, re
+data = json.load(sys.stdin)
+for wf in data.get('data', []):
+    name = re.sub(r'[^a-zA-Z0-9_-]', '_', wf['name'])
+    with open(f'n8n-workflows/{name}.json', 'w') as f:
+        json.dump(wf, f)
+    print(f'  {name}.json ({wf[\"id\"]})')
+"
+```
+
+### API-Zugang
+
+- **REST API** erfordert `X-N8N-API-KEY` Header (nicht identisch mit MCP JWT)
+- API-Key erstellen: n8n UI > Settings > API > Create API Key
+- Aktueller Key: Umgebungsvariable `$N8N_API_KEY` setzen (laeuft 2026-03-28 ab)
+- MCP JWT (in `.claude/mcp.json`) funktioniert NUR fuer den MCP Server, NICHT fuer REST
 
 ---
 
