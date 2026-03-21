@@ -5,53 +5,107 @@ import {
   ScrollView,
   Platform,
   Pressable,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons, Feather } from "@expo/vector-icons";
-import { useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { useTeamMember, useMonteurAufgaben } from "@/hooks/queries/useMonteurAufgaben";
+import { useTodayEntries } from "@/hooks/queries/useZeiterfassung";
+import { useRealtimeInvalidation } from "@/hooks/realtime/useRealtimeInvalidation";
+import { queryKeys } from "@/lib/query-keys";
+import type { MonteurAufgabe } from "@/lib/api/monteur";
 
-interface Task {
-  id: string;
-  label: string;
-  room: string;
-  done: boolean;
+/** Ampelfarbe: Grün = läuft/ok, Gelb = bald fällig, Rot = überfällig */
+function getAmpelColor(aufgabe: MonteurAufgabe): string {
+  const today = new Date().toISOString().split("T")[0];
+  const end = aufgabe.end_date;
+  const start = aufgabe.start_date;
+
+  if (aufgabe.status === "in_progress") return Colors.raw.emerald500;
+  if (end < today) return Colors.raw.rose500; // überfällig
+  // Bald fällig: Endtermin ist heute oder morgen
+  const endDate = new Date(end);
+  const todayDate = new Date(today);
+  const diffDays = Math.ceil((endDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 1) return Colors.raw.amber500;
+  if (start <= today) return Colors.raw.emerald500; // läuft
+  return Colors.raw.zinc500; // noch nicht gestartet
 }
 
-const TASKS: Task[] = [
-  { id: "1", label: "Wände spachteln", room: "Wohnzimmer", done: false },
-  { id: "2", label: "Decke grundieren", room: "Flur", done: false },
-  { id: "3", label: "Raufaser kleben", room: "Schlafzimmer", done: false },
-  { id: "4", label: "Tiefgrund", room: "Küche", done: true },
-];
-
-interface MaterialItem {
-  label: string;
-  available: boolean;
+function getAmpelLabel(aufgabe: MonteurAufgabe): string {
+  const today = new Date().toISOString().split("T")[0];
+  if (aufgabe.status === "in_progress") return "Läuft";
+  if (aufgabe.end_date < today) return "Überfällig";
+  const endDate = new Date(aufgabe.end_date);
+  const todayDate = new Date(today);
+  const diffDays = Math.ceil((endDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 1) return "Bald fällig";
+  if (aufgabe.start_date <= today) return "Aktiv";
+  return "Geplant";
 }
 
-const MATERIALS: MaterialItem[] = [
-  { label: "Spachtelmasse", available: true },
-  { label: "Tiefgrund", available: true },
-  { label: "Vliesraufaser", available: false },
-];
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+}
+
+function getTodayLabel(): { label: string; date: string } {
+  const now = new Date();
+  const days = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+  const months = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+  return {
+    label: "Heute",
+    date: `${days[now.getDay()]} ${now.getDate()}. ${months[now.getMonth()]}`,
+  };
+}
 
 export default function MeinJobScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 84 : 90;
 
-  const [tasks, setTasks] = useState(TASKS);
+  const { data: teamMember, isLoading: tmLoading } = useTeamMember();
+  const teamMemberId = teamMember?.id;
 
-  const toggleTask = (id: string) => {
+  const {
+    data: aufgaben = [],
+    isLoading: aufgabenLoading,
+    error: aufgabenError,
+  } = useMonteurAufgaben(teamMemberId);
+
+  const { data: todayEntries = [] } = useTodayEntries(teamMemberId);
+
+  // Realtime: schedule_phases Änderungen invalidieren
+  useRealtimeInvalidation({
+    channelName: "monteur-aufgaben",
+    table: "schedule_phases",
+    queryKeys: [queryKeys.monteur.all],
+  });
+
+  const { label: dayLabel, date: dayDate } = getTodayLabel();
+  const today = new Date().toISOString().split("T")[0];
+
+  // Aufgaben sortieren: heute zuerst, dann nach Ampel-Dringlichkeit
+  const todayAufgaben = aufgaben.filter(
+    (a) => a.start_date <= today && a.end_date >= today
+  );
+  const kommendeAufgaben = aufgaben.filter(
+    (a) => a.start_date > today
+  );
+
+  const isLoading = tmLoading || aufgabenLoading;
+
+  // Gearbeitete Stunden heute
+  const todayHours = todayEntries.reduce((sum, e) => sum + e.hours, 0);
+  const activeEntry = todayEntries.find((e) => e.notes === "checked_in");
+
+  const handleAufgabeTap = (aufgabe: MonteurAufgabe) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
-    );
+    router.push(`/project/${aufgabe.project_id}`);
   };
-
-  const doneCount = tasks.filter((t) => t.done).length;
 
   return (
     <View style={s.container}>
@@ -60,108 +114,138 @@ export default function MeinJobScreen() {
         contentContainerStyle={[s.scroll, { paddingTop: topInset + 20, paddingBottom: bottomInset + 20 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={s.dayLabel}>Heute</Text>
-        <Text style={s.dayDate}>Montag 10. Feb</Text>
+        <Text style={s.dayLabel}>{dayLabel}</Text>
+        <Text style={s.dayDate}>{dayDate}</Text>
 
-        <View style={s.projectCard}>
-          <View style={s.projectTop}>
-            <View style={s.locationRow}>
-              <Ionicons name="location" size={18} color={Colors.raw.amber500} />
-              <Text style={s.locationText}>Schwentnerring 13c EG Links</Text>
-            </View>
-            <View style={s.projectMeta}>
-              <Text style={s.tradeLabel}>Maler</Text>
-              <View style={s.dayBadge}>
-                <Text style={s.dayBadgeText}>Tag 5</Text>
-              </View>
-            </View>
+        {isLoading ? (
+          <View style={s.loadingWrap}>
+            <ActivityIndicator size="large" color={Colors.raw.amber500} />
+            <Text style={s.loadingText}>Aufgaben laden...</Text>
           </View>
-          <View style={s.progressTrack}>
-            <View style={[s.progressFill, { width: "50%" }]} />
+        ) : aufgabenError ? (
+          <View style={s.emptyCard}>
+            <Ionicons name="warning" size={32} color={Colors.raw.rose500} />
+            <Text style={s.emptyText}>Fehler beim Laden</Text>
           </View>
-          <Text style={s.progressLabel}>Tag 5 von 10</Text>
-        </View>
-
-        <Text style={s.sectionTitle}>Aufgaben heute</Text>
-        <View style={s.card}>
-          {tasks.map((task, i) => (
-            <Pressable
-              key={task.id}
-              onPress={() => toggleTask(task.id)}
-              style={({ pressed }) => [
-                s.taskRow,
-                i < tasks.length - 1 && s.taskBorder,
-                { opacity: pressed ? 0.85 : 1 },
-              ]}
-              testID={`task-${task.id}`}
-            >
-              <View style={[s.checkbox, task.done && s.checkboxDone]}>
-                {task.done && <Ionicons name="checkmark" size={16} color="#000" />}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.taskLabel, task.done && s.taskLabelDone]}>
-                  {task.label}
+        ) : aufgaben.length === 0 ? (
+          <View style={s.emptyCard}>
+            <Ionicons name="checkmark-circle" size={48} color={Colors.raw.emerald500} />
+            <Text style={s.emptyTitle}>Keine Aufgaben</Text>
+            <Text style={s.emptyText}>Aktuell sind dir keine Aufgaben zugewiesen.</Text>
+          </View>
+        ) : (
+          <>
+            {/* Heutige Aufgaben */}
+            {todayAufgaben.length > 0 && (
+              <>
+                <Text style={s.sectionTitle}>
+                  Heute ({todayAufgaben.length})
                 </Text>
-                <Text style={s.taskRoom}>{task.room}</Text>
-              </View>
-              {task.done && (
-                <Ionicons name="checkmark-circle" size={20} color={Colors.raw.emerald500} />
-              )}
-            </Pressable>
-          ))}
-        </View>
-        <Text style={s.taskProgress}>
-          {doneCount} von {tasks.length} erledigt
-        </Text>
+                <View style={s.card}>
+                  {todayAufgaben.map((aufgabe, i) => {
+                    const ampelColor = getAmpelColor(aufgabe);
+                    const ampelLabel = getAmpelLabel(aufgabe);
+                    return (
+                      <Pressable
+                        key={aufgabe.id}
+                        onPress={() => handleAufgabeTap(aufgabe)}
+                        style={({ pressed }) => [
+                          s.aufgabeRow,
+                          i < todayAufgaben.length - 1 && s.aufgabeBorder,
+                          { opacity: pressed ? 0.85 : 1 },
+                        ]}
+                        testID={`aufgabe-${aufgabe.id}`}
+                      >
+                        <View style={[s.ampelDot, { backgroundColor: ampelColor }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.aufgabeProject} numberOfLines={1}>
+                            {aufgabe.object_street}
+                          </Text>
+                          <Text style={s.aufgabeTrade}>{aufgabe.trade}</Text>
+                          <Text style={s.aufgabeMeta}>
+                            {aufgabe.object_city} {aufgabe.estimated_hours ? `\u2022 ${aufgabe.estimated_hours}h geplant` : ""}
+                          </Text>
+                        </View>
+                        <View style={s.aufgabeRight}>
+                          <View style={[s.statusBadge, { backgroundColor: ampelColor + "20" }]}>
+                            <Text style={[s.statusText, { color: ampelColor }]}>{ampelLabel}</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
 
-        <Text style={s.sectionTitle}>Material vor Ort</Text>
-        <View style={s.card}>
-          {MATERIALS.map((mat, i) => (
-            <View
-              key={mat.label}
-              style={[s.matRow, i < MATERIALS.length - 1 && s.taskBorder]}
+            {/* Kommende Aufgaben */}
+            {kommendeAufgaben.length > 0 && (
+              <>
+                <Text style={s.sectionTitle}>
+                  Kommende ({kommendeAufgaben.length})
+                </Text>
+                <View style={s.card}>
+                  {kommendeAufgaben.map((aufgabe, i) => {
+                    const ampelColor = getAmpelColor(aufgabe);
+                    return (
+                      <Pressable
+                        key={aufgabe.id}
+                        onPress={() => handleAufgabeTap(aufgabe)}
+                        style={({ pressed }) => [
+                          s.aufgabeRow,
+                          i < kommendeAufgaben.length - 1 && s.aufgabeBorder,
+                          { opacity: pressed ? 0.85 : 1 },
+                        ]}
+                      >
+                        <View style={[s.ampelDot, { backgroundColor: ampelColor }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.aufgabeProject} numberOfLines={1}>
+                            {aufgabe.object_street}
+                          </Text>
+                          <Text style={s.aufgabeTrade}>{aufgabe.trade}</Text>
+                        </View>
+                        <View style={s.aufgabeRight}>
+                          <Text style={s.aufgabeDate}>
+                            {formatDate(aufgabe.start_date)}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={18} color={Colors.raw.zinc600} />
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+          </>
+        )}
+
+        {/* Kurzinfo Zeiterfassung */}
+        {(activeEntry || todayHours > 0) && (
+          <>
+            <Text style={s.sectionTitle}>Zeit heute</Text>
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/(tabs)/zeiten");
+              }}
+              style={({ pressed }) => [s.timeCard, { opacity: pressed ? 0.9 : 1 }]}
             >
-              {mat.available ? (
-                <Ionicons name="checkmark-circle" size={20} color={Colors.raw.emerald500} />
-              ) : (
-                <Ionicons name="warning" size={20} color={Colors.raw.amber500} />
+              <View style={s.timeTop}>
+                <Ionicons name="time-outline" size={22} color={Colors.raw.amber500} />
+                <Text style={s.stampTime}>
+                  {activeEntry ? "Eingestempelt" : `${todayHours.toFixed(1)}h gearbeitet`}
+                </Text>
+              </View>
+              {activeEntry && (
+                <View style={[s.statusBadge, { backgroundColor: Colors.raw.emerald500 + "20", alignSelf: "flex-start" }]}>
+                  <View style={s.runningDot} />
+                  <Text style={[s.statusText, { color: Colors.raw.emerald500 }]}>Läuft</Text>
+                </View>
               )}
-              <Text style={[s.matLabel, !mat.available && { color: Colors.raw.amber500 }]}>
-                {mat.label}
-              </Text>
-              <Text style={[s.matStatus, { color: mat.available ? Colors.raw.emerald500 : Colors.raw.amber500 }]}>
-                {mat.available ? "da" : "fehlt!"}
-              </Text>
-              {!mat.available && (
-                <Pressable
-                  style={({ pressed }) => [s.meldenBtn, { opacity: pressed ? 0.7 : 1 }]}
-                >
-                  <Text style={s.meldenText}>Melden</Text>
-                  <Ionicons name="arrow-forward" size={12} color={Colors.raw.amber500} />
-                </Pressable>
-              )}
-            </View>
-          ))}
-        </View>
-
-        <Text style={s.sectionTitle}>Zeit heute</Text>
-        <View style={s.timeCard}>
-          <View style={s.timeTop}>
-            <Ionicons name="time-outline" size={22} color={Colors.raw.amber500} />
-            <Text style={s.stampTime}>07:15 eingestempelt</Text>
-          </View>
-          <Text style={s.workedTime}>4:32h gearbeitet</Text>
-          <View style={s.timeButtons}>
-            <Pressable style={({ pressed }) => [s.pauseBtn, { opacity: pressed ? 0.8 : 1 }]}>
-              <Feather name="coffee" size={18} color={Colors.raw.zinc300} />
-              <Text style={s.pauseBtnText}>Pause</Text>
             </Pressable>
-            <Pressable style={({ pressed }) => [s.endBtn, { opacity: pressed ? 0.9 : 1 }]}>
-              <Ionicons name="home" size={18} color="#000" />
-              <Text style={s.endBtnText}>Feierabend</Text>
-            </Pressable>
-          </View>
-        </View>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -170,29 +254,27 @@ export default function MeinJobScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.raw.zinc950 },
   scroll: { paddingHorizontal: 20 },
+
   dayLabel: { fontFamily: "Inter_800ExtraBold", fontSize: 30, color: Colors.raw.white, marginBottom: 2 },
   dayDate: { fontFamily: "Inter_500Medium", fontSize: 16, color: Colors.raw.zinc500, marginBottom: 20 },
 
-  projectCard: {
+  loadingWrap: { alignItems: "center", paddingTop: 60, gap: 12 },
+  loadingText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.zinc500 },
+
+  emptyCard: {
     backgroundColor: Colors.raw.zinc900,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: Colors.raw.zinc800,
-    padding: 20,
-    marginBottom: 28,
+    padding: 40,
+    alignItems: "center",
+    gap: 8,
   },
-  projectTop: { marginBottom: 16 },
-  locationRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  locationText: { fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.raw.white, flex: 1 },
-  projectMeta: { flexDirection: "row", alignItems: "center", gap: 10 },
-  tradeLabel: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc400 },
-  dayBadge: { backgroundColor: Colors.raw.amber500 + "18", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  dayBadgeText: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.amber500 },
-  progressTrack: { height: 8, borderRadius: 4, backgroundColor: Colors.raw.zinc800, marginBottom: 8 },
-  progressFill: { height: 8, borderRadius: 4, backgroundColor: Colors.raw.amber500 },
-  progressLabel: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc500 },
+  emptyTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.raw.white },
+  emptyText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc500, textAlign: "center" },
 
-  sectionTitle: { fontFamily: "Inter_800ExtraBold", fontSize: 18, color: Colors.raw.white, marginBottom: 12 },
+  sectionTitle: { fontFamily: "Inter_800ExtraBold", fontSize: 18, color: Colors.raw.white, marginBottom: 12, marginTop: 8 },
+
   card: {
     backgroundColor: Colors.raw.zinc900,
     borderRadius: 18,
@@ -201,40 +283,38 @@ const s = StyleSheet.create({
     overflow: "hidden",
     marginBottom: 8,
   },
-  taskRow: {
+
+  aufgabeRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
     paddingHorizontal: 18,
     paddingVertical: 16,
   },
-  taskBorder: { borderBottomWidth: 1, borderBottomColor: Colors.raw.zinc800 },
-  checkbox: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: Colors.raw.zinc600,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxDone: { backgroundColor: Colors.raw.emerald500, borderColor: Colors.raw.emerald500 },
-  taskLabel: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: Colors.raw.white },
-  taskLabelDone: { textDecorationLine: "line-through", color: Colors.raw.zinc500 },
-  taskRoom: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500, marginTop: 2 },
-  taskProgress: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc500, marginBottom: 24, marginLeft: 4 },
+  aufgabeBorder: { borderBottomWidth: 1, borderBottomColor: Colors.raw.zinc800 },
 
-  matRow: {
+  ampelDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+
+  aufgabeProject: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.raw.white },
+  aufgabeTrade: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc400, marginTop: 2 },
+  aufgabeMeta: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500, marginTop: 2 },
+
+  aufgabeRight: { alignItems: "flex-end", gap: 6 },
+  aufgabeDate: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc500 },
+
+  statusBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
-  matLabel: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.zinc300, flex: 1 },
-  matStatus: { fontFamily: "Inter_700Bold", fontSize: 13 },
-  meldenBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: 6 },
-  meldenText: { fontFamily: "Inter_700Bold", fontSize: 12, color: Colors.raw.amber500 },
+  statusText: { fontFamily: "Inter_700Bold", fontSize: 12 },
 
   timeCard: {
     backgroundColor: Colors.raw.zinc900,
@@ -246,28 +326,5 @@ const s = StyleSheet.create({
   },
   timeTop: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   stampTime: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc400 },
-  workedTime: { fontFamily: "Inter_800ExtraBold", fontSize: 28, color: Colors.raw.white, marginBottom: 16 },
-  timeButtons: { flexDirection: "row", gap: 10 },
-  pauseBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: Colors.raw.zinc800,
-    borderRadius: 14,
-    paddingVertical: 16,
-  },
-  pauseBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.zinc300 },
-  endBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: Colors.raw.amber500,
-    borderRadius: 14,
-    paddingVertical: 16,
-  },
-  endBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#000" },
+  runningDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.raw.emerald500 },
 });

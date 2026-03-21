@@ -48,4 +48,18 @@ export const queryKeys = {
     run: (projectId: string) => ["pipeline", "run", projectId] as const,
     steps: (runId: string) => ["pipeline", "steps", runId] as const,
   },
+  monteur: {
+    all: ["monteur"] as const,
+    aufgaben: (teamMemberId: string) => ["monteur", "aufgaben", teamMemberId] as const,
+    teamMember: (email: string) => ["monteur", "teamMember", email] as const,
+  },
+  zeiterfassung: {
+    all: ["zeiterfassung"] as const,
+    today: (teamMemberId: string) => ["zeiterfassung", "today", teamMemberId] as const,
+    week: (teamMemberId: string) => ["zeiterfassung", "week", teamMemberId] as const,
+  },
+  fotos: {
+    all: ["fotos"] as const,
+    recent: (teamMemberId: string) => ["fotos", "recent", teamMemberId] as const,
+  },
 } as const;
