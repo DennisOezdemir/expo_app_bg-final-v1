@@ -202,31 +202,88 @@ graph LR
 
 ---
 
-## 4. Flow-Tabelle (Alle 21 Flows)
+## 4. Flow-Tabelle (Alle 44 aktiven Flows)
+
+> Vollstaendige Liste mit IDs siehe `docs/FLOW_REGISTER.md`
+
+### MX: Infrastructure (10 Flows)
 
 | Flow | Trigger | Macht was | Ruft auf | Sendet Event |
 |------|---------|-----------|----------|--------------|
-| **MX00 Event Router** | Webhook + Sweeper (5 Min) | Zentrale Weiche: Event > Routing > Webhook | Alle Flows via HTTP | - |
-| **MX01 Error Handler** | n8n Error Trigger | Fehler loggen + Telegram | Telegram | - |
+| **MX00 Event Router v2** | Webhook + Sweeper (5 Min) | Zentrale Weiche: Event > Routing > Webhook | Alle Flows via HTTP | - |
+| **MX01 Agent Dispatcher** | Webhook | Agent-Aufrufe dispatchen | Agents | - |
+| **MX01 Error Handler v2** | n8n Error Trigger | Fehler loggen + Telegram | Telegram | - |
 | **MX02 Folder Manager** | Webhook | Drive-Ordner finden/erstellen | Google Drive | - |
 | **MX03 Superchat Intake** | Superchat Webhook | Email klassifizieren (Claude) | Claude, Superchat | DOC_CLASSIFIED_* |
 | **MX04 Dispatch Doctor** | Schedule (15 Min) | Fehlgeschlagene Events erneut senden | Ziel-Webhooks | - |
 | **MX05 Attachment Processor** | Webhook | Dateien von Superchat in Storage | Supabase Storage | PROJECT_FILES_READY |
-| **MX06 AI Fallback** | Webhook | Claude > Gemini > GPT Fallback | Claude, Gemini, GPT | - |
 | **MX07 Flow Monitor** | Schedule (15 Min/4h/Daily) | Health Checks + Smoke Test | n8n API, Telegram | - |
-| **M101 Email Trigger** | Gmail Poll (5 Min) | Neue Emails erkennen | Gmail | - |
-| **M102 PDF Parser** | Webhook | PDF mit Claude extrahieren | MX06 | PROJECT_CREATED |
-| **M103 Position Extractor** | Webhook | Positionen + Preise zuordnen | Supabase | POSITIONS_EXTRACTED |
+| **MX08 File Router** | Webhook | Dateien an richtigen Flow routen | Storage | - |
+| **MX_AI Analyze With Fallback** | Webhook | Claude > Gemini > GPT Fallback | Claude, Gemini, GPT | - |
+
+### M1: Intake (6 Flows)
+
+| Flow | Trigger | Macht was | Ruft auf | Sendet Event |
+|------|---------|-----------|----------|--------------|
+| **M102 PDF Parser Vision** | Webhook | PDF mit Claude extrahieren | MX_AI Fallback | PROJECT_CREATED |
+| **M103 Position Extractor V3** | Webhook | Positionen + Preise zuordnen | Supabase | POSITIONS_EXTRACTED |
 | **M104a Prepare Drive** | Webhook | Jahresordner in Drive | Google Drive | DRIVE_YEAR_READY |
 | **M104b Create Tree** | Webhook | 9 Projektunterordner | Google Drive | DRIVE_TREE_CREATED |
 | **M104c Sync Files** | Webhook | PDF in Drive kopieren | Google Drive, Storage | DRIVE_SETUP_COMPLETE |
 | **M105 Notification** | Webhook | Telegram an Chef | Telegram | NOTIFICATION_SENT |
-| **M201 Monteur-Auftrag** | Webhook | Arbeitsauftrag-PDF | Gotenberg | - |
-| **M202 Sync ZB** | Webhook | Baufortschritt abgleichen | Supabase | ZB_PROGRESS_SYNCED |
+
+### M2: Baustelle (7 Flows)
+
+| Flow | Trigger | Macht was | Ruft auf | Sendet Event |
+|------|---------|-----------|----------|--------------|
+| **M201 Monteur-Auftrag PDF** | Webhook | Arbeitsauftrag-PDF | Gotenberg | - |
+| **M202 Sync ZB Progress** | Webhook | Baufortschritt abgleichen | Supabase | ZB_PROGRESS_SYNCED |
 | **M203 Protokoll PDF** | Webhook | Begehungsprotokoll-PDF | Gotenberg | - |
+| **M204 Inspection Finalize** | Webhook | Begehung abschliessen | Supabase | - |
+| **M210 Sub-Order Generator** | Webhook | Subunternehmer-Auftrag | Supabase | - |
+| **M210a Schedule Approve** | Webhook | Terminplan genehmigen | Supabase | - |
+| **M210b Schedule Notification** | Webhook | Terminerinnerung senden | Telegram | - |
+
+### M4: Material (10 Flows)
+
+| Flow | Trigger | Macht was | Ruft auf | Sendet Event |
+|------|---------|-----------|----------|--------------|
 | **M401 Material Planner** | Webhook | Materialliste aus Positionen | Supabase | MATERIALS_PLANNED |
+| **M401a Receipt Intake** | Drive Watch | Neue Belege erkennen | Drive | - |
 | **M401b Receipt Processor** | Schedule (30 Sek) | Belege scannen mit Claude | Claude, Drive | PURCHASE_INVOICE_CREATED |
-| **M601 Invoice Processor** | Webhook | Eingangsrechnungen verarbeiten | Claude, Drive | - |
+| **M403a Order Approve** | Webhook | Bestellung genehmigen | Supabase | - |
+| **M403b Order Suggester** | Webhook | Bestellvorschlag generieren | Claude | - |
+| **M405 Material List Generator** | Webhook | Materialliste als PDF | Gotenberg | - |
+| **M406 Order Agent** | Webhook | Bestellung bei Lieferant | Claude Agent | - |
+| **M407 Order Send** | Webhook | Bestellung versenden | Email | - |
+| **M408 Schedule Order Trigger** | Schedule | Automatische Bestellausloesung | Supabase | - |
+| **M410 MagicPlan Parser** | Webhook | MagicPlan XML importieren | Supabase | - |
+
+### M5: Freigabe (1 Flow)
+
+| Flow | Trigger | Macht was | Ruft auf | Sendet Event |
+|------|---------|-----------|----------|--------------|
+| **M501 Approval Dispatcher** | Webhook | Freigabe-Anfragen verteilen | Telegram, Supabase | - |
+
+### M6: Finance (7 Flows aktiv)
+
+| Flow | Trigger | Macht was | Ruft auf | Sendet Event |
+|------|---------|-----------|----------|--------------|
+| **M601 Invoice Processor v2** | Webhook | Eingangsrechnungen verarbeiten | Claude, Lexware Email | - |
+| **M603 Lexware Pull Sales** | Schedule | Ausgangsrechnungen aus Lexware | Lexware API | - |
+| **M604a Lexware Webhook Router** | Webhook | Lexware Events routen | - | - |
+| **M604b Lexware Payment Handler** | Webhook | Zahlungseingaenge verarbeiten | Supabase | - |
+| **M604c Lexware Invoice Sync** | Webhook | Rechnungsstatus synchronisieren | Supabase | - |
+| **M604d Lexware Voucher Status** | Webhook | Belegstatus aktualisieren | Supabase | - |
+| **M610 Lexware Reconciliation** | Cron (06:00) | Taegl. Abgleich Lexware ↔ DB | Lexware API, Telegram | RECONCILIATION_COMPLETED |
+
+### Sonstige (3 Flows)
+
+| Flow | Trigger | Macht was | Ruft auf | Sendet Event |
+|------|---------|-----------|----------|--------------|
+| **DBL Chatbot Agent** | Webhook | KI-Chatbot fuer Baugenius | Claude | - |
+| **Daily KI-Briefing** | Cron | Taegliches Briefing | Claude, Telegram | - |
+| **Flow 2: Offer Sender TEST** | Manuell | Test-Flow Angebotserstellung | Claude Agent | - |
 
 ---
 

@@ -1,0 +1,935 @@
+{
+  "name": "M6_04_Lexware_Payment_Webhook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lexware-events",
+        "responseMode": "lastNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "c6040001-0001-4000-8000-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "lexware-events",
+      "notes": "Receives event callbacks from Lexware Office. Must respond < 5s!"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse and validate Lexware webhook payload\n// MUST return fast — Lexware expects response within 5 seconds\nconst input = $input.first().json;\nconst body = input.body || input;\n\nconst eventType = body.eventType || '';\nconst resourceId = body.resourceId || '';\nconst organizationId = body.organizationId || '';\nconst eventDate = body.eventDate || '';\n\n// Validate required fields\nconst validEvents = ['payment.changed', 'voucher.changed', 'invoice.changed'];\nconst isValid = validEvents.includes(eventType) && resourceId;\n\nif (!isValid) {\n  return {\n    json: {\n      valid: false,\n      reason: !resourceId ? 'Missing resourceId' : `Unknown eventType: ${eventType}`,\n      event_type: eventType,\n      resource_id: resourceId\n    }\n  };\n}\n\nreturn {\n  json: {\n    valid: true,\n    event_type: eventType,\n    resource_id: resourceId,\n    organization_id: organizationId,\n    event_date: eventDate\n  }\n};"
+      },
+      "id": "c6040001-0002-4000-8000-000000000002",
+      "name": "Parse & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300],
+      "notes": "Validates eventType and resourceId from Lexware callback"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6040001-0003-4000-8000-000000000003",
+      "name": "Valid Event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [640, 300],
+      "notes": "If invalid → respond 200 anyway (Lexware requires it) and stop"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"ignored\",\"reason\":\"{{ $json.reason }}\"}",
+        "options": {}
+      },
+      "id": "c6040001-0003-4000-8000-000000000030",
+      "name": "Respond (Ignored)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [860, 480],
+      "notes": "Returns 200 even for ignored events (Lexware requires it)"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "payment.changed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "payment"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "invoice.changed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "invoice"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "voucher.changed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "voucher"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "c6040001-0004-4000-8000-000000000004",
+      "name": "Route by Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [860, 180],
+      "notes": "payment.changed → Payment path, invoice.changed → Invoice path, voucher.changed → Voucher path"
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.lexware.io/v1/payments/' + $('Parse & Validate').item.json.resource_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c6040001-0010-4000-8000-000000000010",
+      "name": "Fetch Payment Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 60],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LEXWARE_CREDENTIAL_ID",
+          "name": "Lexware API"
+        }
+      },
+      "notes": "GET /v1/payments/{resourceId}",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      },
+      "id": "c6040001-0010-4000-8000-000000000011",
+      "name": "Wait (Post Payment)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1300, 60],
+      "notes": "500ms rate limit wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process payment details\nconst event = $('Parse & Validate').first().json;\nconst raw = $input.first().json;\nconst payment = raw.body || raw;\n\nconst voucherType = payment.voucherType || '';\nconst voucherStatus = payment.voucherStatus || '';\nconst paymentStatus = payment.paymentStatus || '';\nconst paidDate = payment.paidDate || null;\nconst openAmount = payment.openAmount || 0;\nconst resourceId = event.resource_id;\n\n// Determine which table to update\nconst isPurchase = voucherType === 'purchaseinvoice';\nconst isSales = ['invoice', 'downpaymentinvoice'].includes(voucherType);\nconst isPaid = voucherStatus === 'paid' || voucherStatus === 'paidoff'\n  || paymentStatus === 'balanced';\n\nreturn {\n  json: {\n    resource_id: resourceId,\n    voucher_type: voucherType,\n    voucher_status: voucherStatus,\n    payment_status: paymentStatus,\n    paid_date: paidDate,\n    open_amount: openAmount,\n    is_purchase: isPurchase,\n    is_sales: isSales,\n    is_paid: isPaid,\n    event_type: event.event_type,\n    raw_payment: payment\n  }\n};"
+      },
+      "id": "c6040001-0011-4000-8000-000000000012",
+      "name": "Process Payment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 60],
+      "notes": "Determines entity type and payment status"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.is_purchase }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "purchase"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.is_sales }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "sales"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "c6040001-0012-4000-8000-000000000013",
+      "name": "Purchase or Sales?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1740, 60],
+      "notes": "Routes to purchase_invoices or sales_invoices update"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Load current state for idempotency check\nSELECT id, invoice_number, status::text as old_status, paid_at,\n       total_gross, project_id,\n       (SELECT s.name FROM suppliers s WHERE s.id = pi.supplier_id) as supplier_name\nFROM purchase_invoices pi\nWHERE lexware_voucher_id = '{{ $json.resource_id }}';",
+        "options": {}
+      },
+      "id": "c6040001-0013-4000-8000-000000000014",
+      "name": "Load Purchase Invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1960, -60],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Loads purchase invoice by lexware_voucher_id for status comparison"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if payment is a real status change\nconst payment = $('Process Payment').first().json;\nconst existing = $input.first().json;\n\nif (!existing.id) {\n  return { json: { skip: true, reason: 'Purchase invoice not found in BG', resource_id: payment.resource_id } };\n}\n\nconst oldStatus = existing.old_status;\nconst alreadyPaid = oldStatus === 'PAID';\nconst newlyPaid = payment.is_paid && !alreadyPaid;\n\nreturn {\n  json: {\n    skip: !newlyPaid,\n    reason: alreadyPaid ? 'Already PAID' : (!payment.is_paid ? 'Not yet paid' : 'Processing'),\n    newly_paid: newlyPaid,\n    invoice_id: existing.id,\n    invoice_number: existing.invoice_number,\n    old_status: oldStatus,\n    total_gross: existing.total_gross,\n    project_id: existing.project_id,\n    supplier_name: existing.supplier_name,\n    paid_date: payment.paid_date,\n    resource_id: payment.resource_id\n  }\n};"
+      },
+      "id": "c6040001-0014-4000-8000-000000000015",
+      "name": "Check Purchase Change",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2180, -60],
+      "notes": "Idempotency: skip if already PAID or not a real change"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-newly-paid",
+              "leftValue": "={{ $json.newly_paid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6040001-0015-4000-8000-000000000016",
+      "name": "Purchase Newly Paid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2400, -60],
+      "notes": "Only proceed if status actually changed to PAID"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Update purchase invoice to PAID\nUPDATE purchase_invoices SET\n  status = 'PAID'::purchase_invoice_status,\n  paid_at = {{ $json.paid_date ? \"'\" + $json.paid_date + \"'::timestamptz\" : 'now()' }}\nWHERE id = '{{ $json.invoice_id }}'::uuid;\n\n-- Emit payment event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PAYMENT_RECEIVED',\n  {{ $json.project_id ? \"'\" + $json.project_id + \"'::uuid\" : 'NULL' }},\n  jsonb_build_object(\n    'entity_type', 'purchase_invoice',\n    'entity_id', '{{ $json.invoice_id }}',\n    'invoice_number', '{{ $json.invoice_number }}',\n    'total_gross', {{ $json.total_gross || 0 }},\n    'supplier_name', '{{ ($json.supplier_name || '').replace(/'/g, \"''\") }}',\n    'source', 'lexware_webhook'\n  ),\n  'n8n',\n  'M6_04_Lexware_Payment_Webhook',\n  'purchase_invoices',\n  '{{ $json.invoice_id }}'::uuid\n)\nRETURNING id;",
+        "options": {}
+      },
+      "id": "c6040001-0016-4000-8000-000000000017",
+      "name": "Update Purchase PAID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2620, -120],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Sets purchase invoice to PAID and emits event"
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=💰 *Zahlung gebucht (Eingang)*\n📄 {{ $('Check Purchase Change').item.json.invoice_number }}\n🏢 {{ $('Check Purchase Change').item.json.supplier_name }}\n💶 {{ $('Check Purchase Change').item.json.total_gross }} EUR\n📅 {{ $('Check Purchase Change').item.json.paid_date || 'heute' }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "c6040001-0017-4000-8000-000000000018",
+      "name": "Telegram Purchase Paid",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2840, -120],
+      "notes": "Notifies Dennis: purchase invoice paid"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Load current state for idempotency check\nSELECT id, invoice_number, status::text as old_status, paid_at,\n       total_gross, project_id, customer_name\nFROM sales_invoices\nWHERE lexware_invoice_id = '{{ $('Process Payment').item.json.resource_id }}';",
+        "options": {}
+      },
+      "id": "c6040001-0020-4000-8000-000000000020",
+      "name": "Load Sales Invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1960, 180],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Loads sales invoice by lexware_invoice_id for status comparison"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if payment is a real status change\nconst payment = $('Process Payment').first().json;\nconst existing = $input.first().json;\n\nif (!existing.id) {\n  return { json: { skip: true, reason: 'Sales invoice not found in BG', resource_id: payment.resource_id } };\n}\n\nconst oldStatus = existing.old_status;\nconst alreadyPaid = oldStatus === 'PAID' || oldStatus === 'PAIDOFF';\nconst newlyPaid = payment.is_paid && !alreadyPaid;\n\nreturn {\n  json: {\n    skip: !newlyPaid,\n    reason: alreadyPaid ? 'Already PAID' : (!payment.is_paid ? 'Not yet paid' : 'Processing'),\n    newly_paid: newlyPaid,\n    invoice_id: existing.id,\n    invoice_number: existing.invoice_number,\n    old_status: oldStatus,\n    total_gross: existing.total_gross,\n    project_id: existing.project_id,\n    customer_name: existing.customer_name,\n    paid_date: payment.paid_date,\n    resource_id: payment.resource_id\n  }\n};"
+      },
+      "id": "c6040001-0021-4000-8000-000000000021",
+      "name": "Check Sales Change",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2180, 180],
+      "notes": "Idempotency: skip if already PAID or not a real change"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-newly-paid-sales",
+              "leftValue": "={{ $json.newly_paid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6040001-0022-4000-8000-000000000022",
+      "name": "Sales Newly Paid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2400, 180],
+      "notes": "Only proceed if status actually changed to PAID"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Update sales invoice to PAID\nUPDATE sales_invoices SET\n  status = 'PAID'::sales_invoice_status,\n  paid_at = {{ $json.paid_date ? \"'\" + $json.paid_date + \"'::timestamptz\" : 'now()' }}\nWHERE id = '{{ $json.invoice_id }}'::uuid;\n\n-- Emit payment event\nINSERT INTO events (event_type, project_id, payload, source_system, source_flow, reference_table, reference_id)\nVALUES (\n  'LEXWARE_PAYMENT_RECEIVED',\n  {{ $json.project_id ? \"'\" + $json.project_id + \"'::uuid\" : 'NULL' }},\n  jsonb_build_object(\n    'entity_type', 'sales_invoice',\n    'entity_id', '{{ $json.invoice_id }}',\n    'invoice_number', '{{ $json.invoice_number }}',\n    'total_gross', {{ $json.total_gross || 0 }},\n    'customer_name', '{{ ($json.customer_name || '').replace(/'/g, \"''\") }}',\n    'source', 'lexware_webhook'\n  ),\n  'n8n',\n  'M6_04_Lexware_Payment_Webhook',\n  'sales_invoices',\n  '{{ $json.invoice_id }}'::uuid\n)\nRETURNING id;",
+        "options": {}
+      },
+      "id": "c6040001-0023-4000-8000-000000000023",
+      "name": "Update Sales PAID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2620, 120],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Sets sales invoice to PAID and emits event"
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=💰 *Zahlung eingegangen (Ausgang)*\n📄 {{ $('Check Sales Change').item.json.invoice_number }}\n🏢 {{ $('Check Sales Change').item.json.customer_name }}\n💶 {{ $('Check Sales Change').item.json.total_gross }} EUR\n📅 {{ $('Check Sales Change').item.json.paid_date || 'heute' }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "c6040001-0024-4000-8000-000000000024",
+      "name": "Telegram Sales Paid",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2840, 120],
+      "notes": "Notifies Dennis: sales invoice paid"
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.lexware.io/v1/invoices/' + $('Parse & Validate').item.json.resource_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c6040001-0030-4000-8000-000000000030",
+      "name": "Fetch Invoice Detail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LEXWARE_CREDENTIAL_ID",
+          "name": "Lexware API"
+        }
+      },
+      "notes": "GET /v1/invoices/{resourceId} — invoice.changed handler",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      },
+      "id": "c6040001-0031-4000-8000-000000000031",
+      "name": "Wait (Post Invoice)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1300, 300],
+      "notes": "500ms rate limit wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build upsert data from invoice detail (same logic as M6_03)\nconst event = $('Parse & Validate').first().json;\nconst raw = $input.first().json;\nconst detail = raw.body || raw;\n\nconst totalPrice = detail.totalPrice || {};\nconst address = detail.address || {};\nconst vStatus = detail.voucherStatus || 'open';\n\n// Map status\nconst statusMap = {\n  'draft': 'DRAFT', 'open': 'SENT', 'paid': 'PAID',\n  'paidoff': 'PAIDOFF', 'voided': 'VOIDED', 'overdue': 'OVERDUE',\n  'accepted': 'SENT', 'rejected': 'REJECTED'\n};\n\nconst addressStr = [address.street, `${address.zip || ''} ${address.city || ''}`]\n  .filter(Boolean).join(', ').trim();\n\nconst extractDate = (d) => d ? d.substring(0, 10) : null;\n\nreturn {\n  json: {\n    voucher_id: event.resource_id,\n    voucher_number: detail.voucherNumber || '',\n    invoice_type: 'SCHLUSS',\n    status: statusMap[vStatus] || 'SENT',\n    invoice_date: extractDate(detail.voucherDate),\n    due_date: extractDate(detail.dueDate),\n    total_net: totalPrice.totalNetAmount || 0,\n    vat_amount: totalPrice.totalTaxAmount || 0,\n    total_gross: totalPrice.totalGrossAmount || 0,\n    customer_name: address.name || '',\n    customer_address: addressStr,\n    lexware_contact_id: address.contactId || null,\n    raw_data: detail\n  }\n};"
+      },
+      "id": "c6040001-0032-4000-8000-000000000032",
+      "name": "Build Invoice Upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 300],
+      "notes": "Maps Lexware invoice detail to BG schema fields"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sales_invoices (\n  lexware_invoice_id, invoice_number, invoice_type, status,\n  invoice_date, due_date, total_net, total_vat, total_gross,\n  vat_rate, customer_name, customer_address, lexware_contact_id,\n  lexware_last_synced_at, lexware_synced_at, lexware_raw_data,\n  lexware_sync_status, source\n) VALUES (\n  '{{ $json.voucher_id }}',\n  '{{ $json.voucher_number }}',\n  '{{ $json.invoice_type }}'::sales_invoice_type,\n  '{{ $json.status }}'::sales_invoice_status,\n  '{{ $json.invoice_date }}'::date,\n  {{ $json.due_date ? \"'\" + $json.due_date + \"'::date\" : 'NULL' }},\n  {{ $json.total_net }}, {{ $json.vat_amount }}, {{ $json.total_gross }},\n  19, '{{ ($json.customer_name || '').replace(/'/g, \"''\") }}',\n  '{{ ($json.customer_address || '').replace(/'/g, \"''\") }}',\n  {{ $json.lexware_contact_id ? \"'\" + $json.lexware_contact_id + \"'\" : 'NULL' }},\n  now(), now(),\n  '{{ JSON.stringify($json.raw_data).replace(/'/g, \"''\") }}'::jsonb,\n  'synced', 'lexware'\n)\nON CONFLICT (lexware_invoice_id) DO UPDATE SET\n  status = EXCLUDED.status,\n  due_date = EXCLUDED.due_date,\n  total_net = EXCLUDED.total_net,\n  total_vat = EXCLUDED.total_vat,\n  total_gross = EXCLUDED.total_gross,\n  customer_name = EXCLUDED.customer_name,\n  customer_address = EXCLUDED.customer_address,\n  lexware_last_synced_at = now(),\n  lexware_synced_at = now(),\n  lexware_raw_data = EXCLUDED.lexware_raw_data,\n  lexware_sync_status = 'synced'\nRETURNING id, invoice_number, status::text;",
+        "options": {}
+      },
+      "id": "c6040001-0033-4000-8000-000000000033",
+      "name": "Upsert Sales Invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1740, 300],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "UPSERT sales_invoices — same logic as M6_03"
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.lexware.io/v1/vouchers/' + $('Parse & Validate').item.json.resource_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "c6040001-0040-4000-8000-000000000040",
+      "name": "Fetch Voucher Detail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 480],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LEXWARE_CREDENTIAL_ID",
+          "name": "Lexware API"
+        }
+      },
+      "notes": "GET /v1/vouchers/{resourceId} — voucher.changed handler",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      },
+      "id": "c6040001-0041-4000-8000-000000000041",
+      "name": "Wait (Post Voucher)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1300, 480],
+      "notes": "500ms rate limit wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if this voucher is a purchase invoice we track\nconst event = $('Parse & Validate').first().json;\nconst raw = $input.first().json;\nconst voucher = raw.body || raw;\n\nconst vType = voucher.type || voucher.voucherType || '';\nconst isPurchase = vType === 'purchaseinvoice';\n\nif (!isPurchase) {\n  return {\n    json: {\n      skip: true,\n      reason: `Not a purchase invoice (type: ${vType})`,\n      resource_id: event.resource_id\n    }\n  };\n}\n\n// Map voucher status\nconst statusMap = {\n  'open': 'PENDING', 'paid': 'PAID', 'paidoff': 'PAID',\n  'voided': 'CANCELLED', 'overdue': 'PENDING'\n};\n\nreturn {\n  json: {\n    skip: false,\n    resource_id: event.resource_id,\n    voucher_number: voucher.voucherNumber || '',\n    new_status: statusMap[voucher.voucherStatus] || null,\n    voucher_status: voucher.voucherStatus || '',\n    raw_voucher: voucher\n  }\n};"
+      },
+      "id": "c6040001-0042-4000-8000-000000000042",
+      "name": "Check Voucher Type",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 480],
+      "notes": "Only process purchaseinvoice vouchers, skip others"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-not-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6040001-0043-4000-8000-000000000043",
+      "name": "Is Purchase Voucher?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1740, 480],
+      "notes": "Only update if it's a tracked purchase invoice"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Update purchase invoice status from voucher change\nUPDATE purchase_invoices SET\n  lexware_sync_status = 'synced',\n  lexware_synced_at = now()\n  {{ $json.new_status ? \", status = '\" + $json.new_status + \"'::purchase_invoice_status\" : '' }}\nWHERE lexware_voucher_id = '{{ $json.resource_id }}'\nRETURNING id, invoice_number, status::text;",
+        "options": {}
+      },
+      "id": "c6040001-0044-4000-8000-000000000044",
+      "name": "Update Purchase Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1960, 420],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Updates purchase invoice status from voucher change"
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lexware_sync_log\n  (sync_direction, entity_type, entity_id, lexware_id, action, sync_status)\nSELECT 'pull',\n  CASE\n    WHEN '{{ $('Parse & Validate').item.json.event_type }}' = 'voucher.changed' THEN 'purchase_invoice'\n    ELSE 'sales_invoice'\n  END,\n  COALESCE(\n    (SELECT id FROM purchase_invoices WHERE lexware_voucher_id = '{{ $('Parse & Validate').item.json.resource_id }}'),\n    (SELECT id FROM sales_invoices WHERE lexware_invoice_id = '{{ $('Parse & Validate').item.json.resource_id }}'),\n    gen_random_uuid()\n  ),\n  '{{ $('Parse & Validate').item.json.resource_id }}',\n  'webhook_update',\n  'success';",
+        "options": {}
+      },
+      "id": "c6040001-0050-4000-8000-000000000050",
+      "name": "Log Sync (All Paths)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [3060, 300],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Logs webhook processing to lexware_sync_log"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"ok\",\"event_type\":\"{{ $('Parse & Validate').item.json.event_type }}\",\"resource_id\":\"{{ $('Parse & Validate').item.json.resource_id }}\"}",
+        "options": {}
+      },
+      "id": "c6040001-0060-4000-8000-000000000060",
+      "name": "Respond (OK)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [3280, 300],
+      "notes": "Returns 200 OK to Lexware"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Handle API error gracefully\nconst event = $('Parse & Validate').first().json;\nconst input = $input.first().json;\nconst errorMsg = input.body?.message || input.message || JSON.stringify(input).substring(0, 500);\n\nreturn {\n  json: {\n    error: true,\n    event_type: event.event_type,\n    resource_id: event.resource_id,\n    error_message: errorMsg\n  }\n};"
+      },
+      "id": "c6040001-0070-4000-8000-000000000070",
+      "name": "Handle API Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 660],
+      "notes": "Catches API errors from any detail fetch"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lexware_sync_log\n  (sync_direction, entity_type, entity_id, lexware_id, action, sync_status, error_message)\nVALUES\n  ('pull', 'unknown', gen_random_uuid(),\n   '{{ $json.resource_id }}',\n   'webhook_update', 'error',\n   '{{ ($json.error_message || '').replace(/'/g, \"''\").substring(0, 1000) }}');",
+        "options": {}
+      },
+      "id": "c6040001-0071-4000-8000-000000000071",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1520, 660],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Logs API error to sync_log"
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=⚠️ *Lexware Webhook Fehler*\n🔔 {{ $json.event_type }}\n🆔 {{ $json.resource_id }}\n❌ {{ $json.error_message }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "c6040001-0072-4000-8000-000000000072",
+      "name": "Telegram Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1740, 660],
+      "notes": "Notifies Dennis about webhook processing error"
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lexware_sync_log\n  (sync_direction, entity_type, entity_id, lexware_id, action, sync_status, error_message)\nVALUES\n  ('pull', 'unknown', gen_random_uuid(),\n   '{{ $json.resource_id || 'unknown' }}',\n   'skip', 'success',\n   '{{ $json.reason || 'No change detected' }}');",
+        "options": {}
+      },
+      "id": "c6040001-0080-4000-8000-000000000080",
+      "name": "Log Skip",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2620, 360],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      },
+      "notes": "Logs skipped events (no change / not found / not purchase)"
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Parse & Validate", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse & Validate": {
+      "main": [
+        [{ "node": "Valid Event?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Valid Event?": {
+      "main": [
+        [{ "node": "Route by Event Type", "type": "main", "index": 0 }],
+        [{ "node": "Respond (Ignored)", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Route by Event Type": {
+      "main": [
+        [{ "node": "Fetch Payment Details", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Invoice Detail", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Voucher Detail", "type": "main", "index": 0 }],
+        [{ "node": "Log Sync (All Paths)", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Fetch Payment Details": {
+      "main": [
+        [{ "node": "Wait (Post Payment)", "type": "main", "index": 0 }],
+        [{ "node": "Handle API Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait (Post Payment)": {
+      "main": [
+        [{ "node": "Process Payment", "type": "main", "index": 0 }]
+      ]
+    },
+    "Process Payment": {
+      "main": [
+        [{ "node": "Purchase or Sales?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Purchase or Sales?": {
+      "main": [
+        [{ "node": "Load Purchase Invoice", "type": "main", "index": 0 }],
+        [{ "node": "Load Sales Invoice", "type": "main", "index": 0 }],
+        [{ "node": "Log Skip", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Purchase Invoice": {
+      "main": [
+        [{ "node": "Check Purchase Change", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Purchase Change": {
+      "main": [
+        [{ "node": "Purchase Newly Paid?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Purchase Newly Paid?": {
+      "main": [
+        [{ "node": "Update Purchase PAID", "type": "main", "index": 0 }],
+        [{ "node": "Log Skip", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Purchase PAID": {
+      "main": [
+        [{ "node": "Telegram Purchase Paid", "type": "main", "index": 0 }]
+      ]
+    },
+    "Telegram Purchase Paid": {
+      "main": [
+        [{ "node": "Log Sync (All Paths)", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Load Sales Invoice": {
+      "main": [
+        [{ "node": "Check Sales Change", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Sales Change": {
+      "main": [
+        [{ "node": "Sales Newly Paid?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Sales Newly Paid?": {
+      "main": [
+        [{ "node": "Update Sales PAID", "type": "main", "index": 0 }],
+        [{ "node": "Log Skip", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Sales PAID": {
+      "main": [
+        [{ "node": "Telegram Sales Paid", "type": "main", "index": 0 }]
+      ]
+    },
+    "Telegram Sales Paid": {
+      "main": [
+        [{ "node": "Log Sync (All Paths)", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Fetch Invoice Detail": {
+      "main": [
+        [{ "node": "Wait (Post Invoice)", "type": "main", "index": 0 }],
+        [{ "node": "Handle API Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait (Post Invoice)": {
+      "main": [
+        [{ "node": "Build Invoice Upsert", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Invoice Upsert": {
+      "main": [
+        [{ "node": "Upsert Sales Invoice", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upsert Sales Invoice": {
+      "main": [
+        [{ "node": "Log Sync (All Paths)", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Fetch Voucher Detail": {
+      "main": [
+        [{ "node": "Wait (Post Voucher)", "type": "main", "index": 0 }],
+        [{ "node": "Handle API Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait (Post Voucher)": {
+      "main": [
+        [{ "node": "Check Voucher Type", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Voucher Type": {
+      "main": [
+        [{ "node": "Is Purchase Voucher?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Is Purchase Voucher?": {
+      "main": [
+        [{ "node": "Update Purchase Status", "type": "main", "index": 0 }],
+        [{ "node": "Log Skip", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Purchase Status": {
+      "main": [
+        [{ "node": "Log Sync (All Paths)", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Handle API Error": {
+      "main": [
+        [{ "node": "Log Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Error": {
+      "main": [
+        [{ "node": "Telegram Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Telegram Error": {
+      "main": [
+        [{ "node": "Log Sync (All Paths)", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Log Skip": {
+      "main": [
+        [{ "node": "Log Sync (All Paths)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Sync (All Paths)": {
+      "main": [
+        [{ "node": "Respond (OK)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "errorWorkflow": "apmJoMCbOchwfqTp"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
