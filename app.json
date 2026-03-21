@@ -61,6 +61,13 @@
           "photosPermission": "Erlaubt BauGenius Zugriff auf Fotos für die Baudokumentation.",
           "cameraPermission": "Erlaubt BauGenius die Kamera für Begehungsfotos zu nutzen."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#09090b"
+        }
       ]
     ],
     "experiments": {

@@ -20,8 +20,15 @@ import { RoleProvider } from "@/contexts/RoleContext";
 import { DebugLogProvider } from "@/contexts/DebugLogContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OfflineProvider } from "@/contexts/OfflineContext";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 SplashScreen.preventAutoHideAsync();
+
+// Registriert Push-Token sobald Auth bereit ist (muss innerhalb AuthProvider leben)
+function PushNotificationRegistrar({ children }: { children: React.ReactNode }) {
+  usePushNotifications();
+  return <>{children}</>;
+}
 
 function RootLayoutNav() {
   return (
@@ -91,18 +98,20 @@ export default function RootLayout() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <OfflineProvider>
-            <RoleProvider>
-              <DebugLogProvider>
-                <GestureHandlerRootView style={{ flex: 1 }}>
-                  <KeyboardProvider>
-                    <StatusBar style="light" />
-                    <RootLayoutNav />
-                  </KeyboardProvider>
-                </GestureHandlerRootView>
-              </DebugLogProvider>
-            </RoleProvider>
-          </OfflineProvider>
+          <PushNotificationRegistrar>
+            <OfflineProvider>
+              <RoleProvider>
+                <DebugLogProvider>
+                  <GestureHandlerRootView style={{ flex: 1 }}>
+                    <KeyboardProvider>
+                      <StatusBar style="light" />
+                      <RootLayoutNav />
+                    </KeyboardProvider>
+                  </GestureHandlerRootView>
+                </DebugLogProvider>
+              </RoleProvider>
+            </OfflineProvider>
+          </PushNotificationRegistrar>
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>
