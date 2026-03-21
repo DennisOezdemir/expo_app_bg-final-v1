@@ -17,6 +17,8 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { PipelineBadge } from "@/components/PipelineProgress";
+import { fetchPipelineStatusBatch, checkPipelineReadiness, type PipelineRunStatus, type ReadinessResult } from "@/lib/api/pipeline";
 
 const SCREEN_W = Dimensions.get("window").width;
 const NAME_COL_W = 76;
@@ -988,6 +990,7 @@ export default function PlanungScreen() {
   const [autoPlanning, setAutoPlanning] = useState<string | null>(null);
   const [phases, setPhases] = useState<any[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedProject[]>([]);
+  const [pipelineStatuses, setPipelineStatuses] = useState<Record<string, PipelineRunStatus | "not_started">>({});
 
   const monday = useMemo(() => getMonday(weekOffset), [weekOffset]);
   const weekDays = useMemo(() => getWeekDays(monday), [monday]);
@@ -1043,18 +1046,23 @@ export default function PlanungScreen() {
         );
       const phasedIds = new Set((allPhasedProjects || []).map((p: any) => p.project_id));
 
-      setUnassigned(
-        unassignedData
-          .filter((p: any) => !projectsWithPhases.has(p.id) && !phasedIds.has(p.id))
-          .map((p: any) => ({
-            id: p.project_number || p.id,
-            projectId: p.id,
-            name: p.object_street || p.name || "",
-            note: p.planned_start
-              ? `ab ${new Date(p.planned_start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`
-              : "kein Startdatum",
-          }))
-      );
+      const filteredUnassigned = unassignedData
+        .filter((p: any) => !projectsWithPhases.has(p.id) && !phasedIds.has(p.id))
+        .map((p: any) => ({
+          id: p.project_number || p.id,
+          projectId: p.id,
+          name: p.object_street || p.name || "",
+          note: p.planned_start
+            ? `ab ${new Date(p.planned_start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`
+            : "kein Startdatum",
+        }));
+      setUnassigned(filteredUnassigned);
+
+      // Fetch pipeline status for unassigned projects
+      const unassignedIds = filteredUnassigned.map((p) => p.projectId);
+      if (unassignedIds.length > 0) {
+        fetchPipelineStatusBatch(unassignedIds).then(setPipelineStatuses).catch(() => {});
+      }
     }
 
     setLoading(false);
@@ -1115,8 +1123,7 @@ export default function PlanungScreen() {
     setWeekOffset((o) => o + 1);
   }, []);
 
-  const handleAutoPlan = useCallback(async (projectId: string) => {
-    setAutoPlanning(projectId);
+  const doAutoPlan = useCallback(async (projectId: string) => {
     try {
       const { data, error } = await supabase.rpc("auto_plan_full", {
         p_project_id: projectId,
@@ -1152,6 +1159,37 @@ export default function PlanungScreen() {
       setAutoPlanning(null);
     }
   }, [fetchData]);
+
+  const handleAutoPlan = useCallback(async (projectId: string) => {
+    setAutoPlanning(projectId);
+    try {
+      const readiness = await checkPipelineReadiness(projectId);
+      if (!readiness.ready) {
+        const missing = readiness.items
+          .filter((i) => !i.ok)
+          .map((i) => `• ${i.label}: ${i.hint}`)
+          .join("\n");
+        setAutoPlanning(null);
+        Alert.alert(
+          "Noch nicht bereit",
+          `Um die Autoplanung zu starten brauche ich noch:\n\n${missing}`,
+        );
+        return;
+      }
+      // Readiness OK — ask for confirmation
+      Alert.alert(
+        "Autoplanung starten?",
+        "Alle Informationen sind vorhanden. Soll die Autoplanung jetzt gestartet werden?",
+        [
+          { text: "Abbrechen", style: "cancel", onPress: () => setAutoPlanning(null) },
+          { text: "Ja, starten", onPress: () => doAutoPlan(projectId) },
+        ],
+      );
+    } catch (e: any) {
+      setAutoPlanning(null);
+      Alert.alert("Fehler", e.message || "Prüfung fehlgeschlagen");
+    }
+  }, [doAutoPlan]);
 
   const handleConfirmProposed = useCallback(async (projectId: string) => {
     const { data, error } = await supabase.rpc("confirm_proposed_phases", {
@@ -1372,13 +1410,17 @@ export default function PlanungScreen() {
                 </View>
                 {unassigned.map((p) => (
                   <View key={p.id} style={s.unassignedRow}>
-                    <View style={{ flex: 1 }}>
+                    <Pressable
+                      onPress={() => router.push(`/project/${p.projectId}` as any)}
+                      style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.7 : 1 }]}
+                    >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Text style={s.unassignedId}>{p.id}</Text>
                         <Text style={s.unassignedName}>{p.name}</Text>
+                        <PipelineBadge status={pipelineStatuses[p.projectId] || "not_started"} />
                       </View>
                       <Text style={s.unassignedNote}>{p.note}</Text>
-                    </View>
+                    </Pressable>
                     <Pressable
                       onPress={() => handleAutoPlan(p.projectId)}
                       disabled={autoPlanning === p.projectId}
@@ -1418,13 +1460,17 @@ export default function PlanungScreen() {
                 </View>
                 {unassigned.map((p) => (
                   <View key={p.id} style={s.unassignedRow}>
-                    <View style={{ flex: 1 }}>
+                    <Pressable
+                      onPress={() => router.push(`/project/${p.projectId}` as any)}
+                      style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.7 : 1 }]}
+                    >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Text style={s.unassignedId}>{p.id}</Text>
                         <Text style={s.unassignedName}>{p.name}</Text>
+                        <PipelineBadge status={pipelineStatuses[p.projectId] || "not_started"} />
                       </View>
                       <Text style={s.unassignedNote}>{p.note}</Text>
-                    </View>
+                    </Pressable>
                     <Pressable
                       onPress={() => handleAutoPlan(p.projectId)}
                       disabled={autoPlanning === p.projectId}

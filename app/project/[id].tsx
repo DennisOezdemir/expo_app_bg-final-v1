@@ -30,6 +30,9 @@ import { mapDbStatus, type ProjectStatus } from "@/lib/status";
 import { captureAndUploadPhoto } from "@/lib/photo-capture";
 import { useOffline } from "@/contexts/OfflineContext";
 import { useProjectDetail } from "@/hooks/queries/useProjectDetail";
+import { usePipelineRun, usePipelineSteps, useInvalidatePipeline } from "@/hooks/queries/usePipeline";
+import { PipelineProgress } from "@/components/PipelineProgress";
+import { startAutoPlan } from "@/lib/api/pipeline";
 import { SkeletonBox, SkeletonLine } from "@/components/Skeleton";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -1452,8 +1455,12 @@ export default function ProjectDetailScreen() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showDocManager, setShowDocManager] = useState(false);
   const [autoPlanLoading, setAutoPlanLoading] = useState(false);
-  const [pipelineRun, setPipelineRun] = useState<{ status: string; agents_completed: string[]; current_agent: string | null; completed_at: string | null } | null>(null);
   const { isOnline, addToSyncQueue } = useOffline();
+
+  // Pipeline (Autoplanung) state via React Query
+  const { data: pipelineRun, refetch: refetchPipeline } = usePipelineRun(id);
+  const { data: pipelineSteps = [] } = usePipelineSteps(pipelineRun?.id);
+  const invalidatePipeline = useInvalidatePipeline();
 
   const handleCapturePhoto = useCallback(async () => {
     if (!id || photoUploading) return;
@@ -1568,16 +1575,6 @@ export default function ProjectDetailScreen() {
     const costs = (costsRes.data ?? []).reduce((sum, inv) => sum + (Number(inv.total_net) || 0), 0);
     setTotalCosts(costs);
 
-    // Pipeline-Status laden (letzte Autoplanung)
-    const { data: lastRun } = await supabase
-      .from("pipeline_runs")
-      .select("status, agents_completed, current_agent, completed_at")
-      .eq("project_id", id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    setPipelineRun(lastRun ?? null);
-
     setLoading(false);
   }, [id]);
 
@@ -1585,27 +1582,17 @@ export default function ProjectDetailScreen() {
     if (!id || autoPlanLoading) return;
     setAutoPlanLoading(true);
     try {
-      const { data: result, error } = await supabase.rpc("auto_plan_full", { p_project_id: id });
-      if (error) {
-        showAlert("Fehler", error.message);
-        return;
-      }
-      const r = result as any;
-      if (!r?.success) {
-        showAlert("Fehler", r?.error || "Planung fehlgeschlagen");
+      const result = await startAutoPlan(id);
+      if (!result?.success) {
+        showAlert("Fehler", result?.error || "Planung fehlgeschlagen");
         return;
       }
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-      const sched = r.schedule || {};
-      const mat = r.material || {};
-      const lines = [
-        sched.phases_created ? `${sched.phases_created} Phasen` : null,
-        mat.needs_created ? `${mat.needs_created} Material-Bedarfe` : null,
-        "\nFreigaben im Freigabecenter prüfen.",
-      ].filter(Boolean);
-      showAlert("Planung erstellt", lines.join("\n"));
+      // Refresh pipeline status + project data
+      invalidatePipeline(id);
+      void refetchPipeline();
       void refetchProject();
       void fetchData();
     } catch (e: any) {
@@ -1613,7 +1600,7 @@ export default function ProjectDetailScreen() {
     } finally {
       setAutoPlanLoading(false);
     }
-  }, [id, autoPlanLoading, refetchProject, fetchData]);
+  }, [id, autoPlanLoading, refetchProject, fetchData, invalidatePipeline, refetchPipeline]);
 
   useEffect(() => {
     const loadClientName = async () => {
@@ -1837,8 +1824,8 @@ export default function ProjectDetailScreen() {
             </Text>
           </View>
 
-          {/* Zeitplan */}
-          {(project.planned_start || project.planned_end) && (
+          {/* Zeitplan — read-only, wird in der Erstbegehung gepflegt */}
+          {(project.planned_start || project.planned_end) ? (
             <View style={styles.zeitplanRow}>
               {project.planned_start && (
                 <View style={styles.zeitplanItem}>
@@ -1854,6 +1841,11 @@ export default function ProjectDetailScreen() {
                   <Text style={styles.zeitplanDate}>{formatDate(project.planned_end)}</Text>
                 </View>
               )}
+            </View>
+          ) : (
+            <View style={styles.zeitplanEmptyRow}>
+              <Feather name="calendar" size={16} color={Colors.raw.zinc500} />
+              <Text style={[styles.zeitplanEmptyText, { color: Colors.raw.zinc500 }]}>Zeitraum wird in der Erstbegehung festgelegt</Text>
             </View>
           )}
         </View>
@@ -1928,6 +1920,17 @@ export default function ProjectDetailScreen() {
             onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "1" } })}
           />
         </ScrollView>
+
+        {/* Autoplanung Pipeline */}
+        <SectionCard>
+          <PipelineProgress
+            projectId={id!}
+            run={pipelineRun}
+            steps={pipelineSteps}
+            onStartPlan={handleAutoPlan}
+            isStarting={autoPlanLoading}
+          />
+        </SectionCard>
 
         {/* Begehungen */}
         <SectionCard>
@@ -2774,6 +2777,53 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
     color: Colors.raw.zinc300,
+  },
+  zeitplanEmptyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 14,
+    backgroundColor: Colors.raw.amber500 + "10",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.raw.amber500 + "30",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  zeitplanEmptyText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.amber500,
+    flex: 1,
+  },
+  dateLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.zinc400,
+    marginBottom: 6,
+  },
+  dateInput: {
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontFamily: "Inter_500Medium",
+    fontSize: 16,
+    color: Colors.raw.white,
+    marginBottom: 16,
+  },
+  dateSaveBtn: {
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center" as const,
+  },
+  dateSaveBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#000",
   },
   marginBreakdown: {
     flexDirection: "row",

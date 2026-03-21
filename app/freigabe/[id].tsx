@@ -30,6 +30,8 @@ import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { approveApproval, rejectApproval } from "@/lib/api/approvals";
+import { usePipelineRun, usePipelineSteps } from "@/hooks/queries/usePipeline";
+import { AGENT_STEPS, type PipelineStep } from "@/lib/api/pipeline";
 
 // --- Types ---
 
@@ -654,6 +656,219 @@ function ScheduleContent({ data }: { data: ApprovalDetail }) {
           </Card>
         </>
       ) : null}
+
+      {/* Pipeline Agent Steps */}
+      <PipelineStepsDetail projectId={data.projectId} />
+    </>
+  );
+}
+
+// Extract key output highlights per agent for display
+function getStepOutputHighlights(agentName: string, output: Record<string, any> | null): Array<{ label: string; value: string }> {
+  if (!output) return [];
+  const highlights: Array<{ label: string; value: string }> = [];
+
+  switch (agentName) {
+    case "zeitpruefer": {
+      const richtz = output.matched_richtzeitwerte;
+      if (richtz != null) highlights.push({ label: "Richtzeitwerte", value: String(richtz) });
+      const fallback = output.formula_fallback_count ?? output.formula_fallbacks;
+      if (fallback != null) highlights.push({ label: "Formel-Fallbacks", value: String(fallback) });
+      const conf = output.confidence_score ?? output.confidence;
+      if (conf != null) highlights.push({ label: "Confidence", value: `${Math.round(Number(conf) * 100)}%` });
+      const laborMin = output.total_labor_minutes ?? output.labor_minutes;
+      if (laborMin != null) highlights.push({ label: "Arbeitsminuten", value: `${Math.round(Number(laborMin))} min` });
+      break;
+    }
+    case "plausibility": {
+      const seq = output.trade_sequence;
+      if (Array.isArray(seq) && seq.length > 0) highlights.push({ label: "Gewerke-Reihenfolge", value: seq.join(" → ") });
+      const totalHours = output.total_project_hours;
+      if (totalHours != null) highlights.push({ label: "Gesamtstunden", value: `${Number(totalHours).toFixed(1)} h` });
+      const issues = output.issues_found ?? output.warnings_count;
+      if (issues != null) highlights.push({ label: "Probleme", value: String(issues) });
+      break;
+    }
+    case "material": {
+      const needs = output.needs_created ?? output.materials_count;
+      if (needs != null) highlights.push({ label: "Materialbedarfe", value: String(needs) });
+      const totalCost = output.total_estimated_cost;
+      if (totalCost != null) highlights.push({ label: "Geschätzte Kosten", value: `€${Number(totalCost).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` });
+      break;
+    }
+    case "einsatzplaner": {
+      const phases = output.phases_created ?? output.phases_count;
+      if (phases != null) highlights.push({ label: "Phasen erstellt", value: String(phases) });
+      const assigned = output.assigned_count ?? output.assignments;
+      if (assigned != null) highlights.push({ label: "Zuweisungen", value: String(assigned) });
+      const startDate = output.earliest_start;
+      if (startDate) highlights.push({ label: "Frühester Start", value: new Date(startDate).toLocaleDateString("de-DE") });
+      break;
+    }
+    default:
+      break;
+  }
+
+  return highlights;
+}
+
+function PipelineStepRow({ step, isLast }: { step: PipelineStep; isLast: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const agentCfg = AGENT_STEPS.find((a) => a.key === step.agent_name);
+
+  const statusIcon = (() => {
+    switch (step.status) {
+      case "completed": return { name: "checkmark-circle", color: Colors.raw.emerald500 };
+      case "running": return { name: "sync", color: Colors.raw.amber500 };
+      case "stopped": return { name: "hand-left", color: Colors.raw.rose500 };
+      case "failed": return { name: "alert-circle", color: Colors.raw.rose500 };
+      case "skipped": return { name: "remove-circle", color: Colors.raw.zinc500 };
+      default: return { name: "ellipse-outline", color: Colors.raw.zinc600 };
+    }
+  })();
+
+  const formatMs = (ms: number | null) => {
+    if (!ms) return "";
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
+
+  const highlights = getStepOutputHighlights(step.agent_name, step.output_data);
+  const hasDetails = highlights.length > 0 || (step.warnings?.length > 0) || (step.errors?.length > 0);
+
+  return (
+    <View style={[s.posRow, !isLast && s.posRowBorder]}>
+      <View style={{ flex: 1 }}>
+        {/* Header row — tappable to expand */}
+        <Pressable
+          onPress={() => hasDetails && setExpanded((v) => !v)}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name={statusIcon.name as any} size={16} color={statusIcon.color} />
+            <Text style={[s.posName, { flex: 1 }]}>{agentCfg?.label || step.agent_name}</Text>
+            {step.duration_ms != null && step.duration_ms > 0 && (
+              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.raw.zinc500 }}>
+                {formatMs(step.duration_ms)}
+              </Text>
+            )}
+            {step.warnings?.length > 0 && (
+              <View style={pipelineDetailStyles.warnBadge}>
+                <Text style={pipelineDetailStyles.warnBadgeText}>{step.warnings.length}</Text>
+              </View>
+            )}
+            {hasDetails && (
+              <Ionicons
+                name={expanded ? "chevron-up" : "chevron-down"}
+                size={14}
+                color={Colors.raw.zinc500}
+              />
+            )}
+          </View>
+        </Pressable>
+
+        {/* Expanded detail */}
+        {expanded && (
+          <View style={{ marginTop: 8, marginLeft: 24, gap: 6 }}>
+            {/* Key output highlights */}
+            {highlights.length > 0 && (
+              <View style={pipelineDetailStyles.highlightBox}>
+                {highlights.map((h, i) => (
+                  <View key={i} style={pipelineDetailStyles.highlightRow}>
+                    <Text style={pipelineDetailStyles.highlightLabel}>{h.label}</Text>
+                    <Text style={pipelineDetailStyles.highlightValue}>{h.value}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            {/* Warnings */}
+            {step.warnings?.length > 0 && (
+              <View style={{ gap: 3 }}>
+                {step.warnings.map((w: string, wi: number) => (
+                  <View key={wi} style={{ flexDirection: "row", alignItems: "flex-start", gap: 4 }}>
+                    <Ionicons name="warning-outline" size={12} color={Colors.raw.amber500} />
+                    <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.amber500, flex: 1 }}>{w}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            {/* Errors */}
+            {step.errors?.length > 0 && (
+              <View style={{ gap: 3 }}>
+                {step.errors.map((e: string, ei: number) => (
+                  <View key={ei} style={{ flexDirection: "row", alignItems: "flex-start", gap: 4 }}>
+                    <Ionicons name="alert-circle" size={12} color={Colors.raw.rose500} />
+                    <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.rose500, flex: 1 }}>{e}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const pipelineDetailStyles = StyleSheet.create({
+  warnBadge: {
+    backgroundColor: Colors.raw.amber500 + "30",
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    minWidth: 18,
+    alignItems: "center",
+  },
+  warnBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
+    color: Colors.raw.amber500,
+  },
+  highlightBox: {
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 8,
+    padding: 8,
+    gap: 4,
+  },
+  highlightRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  highlightLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc400,
+  },
+  highlightValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.raw.zinc100,
+    textAlign: "right",
+    flexShrink: 1,
+    marginLeft: 8,
+  },
+});
+
+function PipelineStepsDetail({ projectId }: { projectId: string }) {
+  const { data: run } = usePipelineRun(projectId);
+  const { data: steps = [] } = usePipelineSteps(run?.id);
+
+  if (!run || steps.length === 0) return null;
+
+  return (
+    <>
+      <SectionLabel label="AGENT-PIPELINE" />
+      <Card>
+        {steps.map((step, i) => (
+          <PipelineStepRow
+            key={step.id}
+            step={step}
+            isLast={i === steps.length - 1}
+          />
+        ))}
+      </Card>
     </>
   );
 }
