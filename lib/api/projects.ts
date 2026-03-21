@@ -21,6 +21,7 @@ export interface ProjectDetail extends ProjectListItem {
   notes: string | null;
   client_id: string | null;
   source: string | null;
+  price_catalog: string | null;
 }
 
 export interface CreateProjectInput {

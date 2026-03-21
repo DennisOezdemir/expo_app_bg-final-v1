@@ -164,7 +164,7 @@ function ActivityRow({ activity }: { activity: Activity }) {
       style={({ pressed }) => [styles.activityRow, { opacity: pressed ? 0.7 : 1 }]}
       onPress={() => {
         if (Platform.OS !== "web") Haptics.selectionAsync();
-        router.push(`/projekt/${activity.project_id}` as any);
+        router.push(`/project/${activity.project_id}` as any);
       }}
     >
       <View style={[styles.activityIconWrap, { backgroundColor: icon.color + "18" }]}>

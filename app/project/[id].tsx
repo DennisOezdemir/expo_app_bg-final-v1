@@ -616,6 +616,7 @@ function DocumentManagerModal({
   offers,
   inspections,
   sagaOrders,
+  onDeleteOffer,
 }: {
   projectId: string;
   visible: boolean;
@@ -623,6 +624,7 @@ function DocumentManagerModal({
   offers: OfferData[];
   inspections: InspectionData[];
   sagaOrders: SagaOrderData[];
+  onDeleteOffer?: (offerId: string, offerNumber: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 20 : insets.top;
@@ -1043,7 +1045,7 @@ function DocumentManagerModal({
                     name={`Angebot ${offer.offer_number}`}
                     subtitle={`${offer.status === "ACCEPTED" ? "Angenommen" : offer.status === "DRAFT" ? "Entwurf" : offer.status ?? "—"}${offer.total_net ? ` · €${Number(offer.total_net).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : ""}`}
                     onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: offer.id } })}
-                    onLongPress={() => handleDeleteOffer(offer.id, offer.offer_number)}
+                    onLongPress={() => onDeleteOffer?.(offer.id, offer.offer_number)}
                     rightIcon="navigate"
                     icon="document-text"
                   />
@@ -2605,6 +2607,7 @@ export default function ProjectDetailScreen() {
           offers={offers}
           inspections={inspections}
           sagaOrders={sagaOrders}
+          onDeleteOffer={handleDeleteOffer}
         />
       )}
     </View>

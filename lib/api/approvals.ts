@@ -8,12 +8,14 @@ export interface ApprovalRow {
   feedback_reason: string | null;
   requested_at: string;
   projects: {
+    id: string;
     project_number: string | null;
     name: string | null;
     object_street: string | null;
     object_city: string | null;
     budget_net?: number | null;
   } | {
+    id: string;
     project_number: string | null;
     name: string | null;
     object_street: string | null;
@@ -25,7 +27,7 @@ export interface ApprovalRow {
 export async function fetchPendingApprovals(): Promise<ApprovalRow[]> {
   const { data, error } = await supabase
     .from("approvals")
-    .select("id, approval_type, request_summary, request_data, feedback_reason, requested_at, projects(project_number, name, object_street, object_city, budget_net)")
+    .select("id, approval_type, request_summary, request_data, feedback_reason, requested_at, projects(id, project_number, name, object_street, object_city, budget_net)")
     .eq("status", "PENDING")
     .order("requested_at", { ascending: false });
 
