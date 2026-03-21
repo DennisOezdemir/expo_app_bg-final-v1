@@ -9,13 +9,17 @@ import {
   KeyboardAvoidingView,
   Modal,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { useChatHistory, useSendMessage } from "@/hooks/queries/useChat";
+import { useRole } from "@/contexts/RoleContext";
+import type { ChatMessageRow } from "@/lib/api/chat";
 
 type MsgType = "human" | "human_photo" | "system" | "approval" | "alert";
 
@@ -351,6 +355,114 @@ function AlertBubble({ msg }: { msg: ChatMessage }) {
     </View>
   );
 }
+
+// ── Agent Bubble (Claude responses from DB) ────────────────────────
+
+function AgentBubble({ msg }: { msg: ChatMessageRow }) {
+  const time = new Date(msg.created_at).toLocaleTimeString("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const toolNames: Record<string, string> = {
+    query_positions: "Positionen",
+    check_catalog: "Katalog",
+    create_change_order: "Nachtrag",
+    prepare_email: "Email",
+    get_project_status: "Status",
+    get_schedule: "Einsatzplan",
+  };
+  return (
+    <View style={bubbleStyles.systemContainer}>
+      <View style={bubbleStyles.systemBubble}>
+        <View style={bubbleStyles.systemAccent} />
+        <View style={bubbleStyles.systemContent}>
+          <View style={bubbleStyles.systemHeader}>
+            <View style={bubbleStyles.systemIconCircle}>
+              <Ionicons name="hardware-chip" size={12} color={Colors.raw.amber500} />
+            </View>
+            <Text style={bubbleStyles.systemSender}>BAUGENIUS</Text>
+            <Text style={bubbleStyles.systemTime}>{time}</Text>
+          </View>
+          {msg.tool_calls && msg.tool_calls.length > 0 && (
+            <View style={agentStyles.toolRow}>
+              {msg.tool_calls.map((tc, i) => (
+                <View key={i} style={agentStyles.toolBadge}>
+                  <Ionicons name="build" size={10} color={Colors.raw.amber500} />
+                  <Text style={agentStyles.toolBadgeText}>
+                    {toolNames[tc.name] || tc.name}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+          <Text style={bubbleStyles.systemText}>{msg.content}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function UserChatBubble({ msg }: { msg: ChatMessageRow }) {
+  const time = new Date(msg.created_at).toLocaleTimeString("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <View style={agentStyles.userContainer}>
+      <View style={agentStyles.userBubble}>
+        <Text style={bubbleStyles.msgText}>{msg.content}</Text>
+        <Text style={agentStyles.userTime}>{time}</Text>
+      </View>
+    </View>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <View style={bubbleStyles.systemContainer}>
+      <View style={bubbleStyles.systemBubble}>
+        <View style={bubbleStyles.systemAccent} />
+        <View style={bubbleStyles.systemContent}>
+          <View style={bubbleStyles.systemHeader}>
+            <View style={bubbleStyles.systemIconCircle}>
+              <Ionicons name="hardware-chip" size={12} color={Colors.raw.amber500} />
+            </View>
+            <Text style={bubbleStyles.systemSender}>BAUGENIUS</Text>
+          </View>
+          <View style={agentStyles.typingRow}>
+            <ActivityIndicator size="small" color={Colors.raw.amber500} />
+            <Text style={agentStyles.typingText}>Denkt nach...</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const agentStyles = StyleSheet.create({
+  toolRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+  toolBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: Colors.raw.amber500 + "15", borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  toolBadgeText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.raw.amber500 },
+  userContainer: {
+    flexDirection: "row", justifyContent: "flex-end",
+    paddingHorizontal: 16, paddingVertical: 4,
+  },
+  userBubble: {
+    maxWidth: "80%", backgroundColor: Colors.raw.amber500 + "20",
+    borderRadius: 18, borderBottomRightRadius: 6, padding: 14,
+    borderWidth: 1, borderColor: Colors.raw.amber500 + "30",
+  },
+  userTime: {
+    fontFamily: "Inter_400Regular", fontSize: 11,
+    color: Colors.raw.zinc500, marginTop: 6, textAlign: "right",
+  },
+  typingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  typingText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc500 },
+});
 
 const bubbleStyles = StyleSheet.create({
   humanContainer: {
@@ -830,142 +942,87 @@ const modalStyles = StyleSheet.create({
   },
 });
 
+// ── Date helpers for DB messages ────────────────────────────────────
+
+function formatDateLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Heute";
+  if (d.toDateString() === yesterday.toDateString()) return "Gestern";
+  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
 export default function ChatScreen() {
-  const { id: _id } = useLocalSearchParams<{ id: string }>();
+  const { id: projectId } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
-  const _bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
   const [activeFilter, setActiveFilter] = useState("alle");
   const [inputText, setInputText] = useState("");
-  const [messages, setMessages] = useState(MESSAGES);
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
+  const { role } = useRole();
 
-  const filteredMessages = messages.filter((m) => {
+  // Real data from Supabase + Realtime
+  const { data: dbMessages = [], isLoading } = useChatHistory(projectId || "");
+  const sendMutation = useSendMessage(projectId || "");
+
+  // Filter DB messages
+  const filteredDbMessages = dbMessages.filter((m) => {
     if (activeFilter === "alle") return true;
-    if (activeFilter === "chat")
-      return m.type === "human" || m.type === "human_photo";
-    if (activeFilter === "fotos") return m.type === "human_photo";
-    if (activeFilter === "system")
-      return m.type === "system" || m.type === "approval";
-    if (activeFilter === "protokolle")
-      return m.type === "system" || m.type === "alert";
+    if (activeFilter === "chat") return m.role === "user";
+    if (activeFilter === "system") return m.role === "assistant";
     return true;
   });
 
-  const dateGroups = getDateGroups(filteredMessages);
-
-  const _flatData: { type: "separator"; date: string; key: string }[] | { type: "message"; msg: ChatMessage; key: string }[] = [];
-  const listData: any[] = [];
-  dateGroups.forEach((group) => {
-    listData.push({ type: "separator", date: group.date, key: `sep-${group.date}` });
-    group.messages.forEach((m) => {
-      listData.push({ type: "message", msg: m, key: m.id });
-    });
+  // Group DB messages by date
+  const listData: { type: "separator" | "message"; key: string; date?: string; dbMsg?: ChatMessageRow }[] = [];
+  let lastDateLabel = "";
+  filteredDbMessages.forEach((m) => {
+    const dateLabel = formatDateLabel(m.created_at);
+    if (dateLabel !== lastDateLabel) {
+      lastDateLabel = dateLabel;
+      listData.push({ type: "separator", key: `sep-${m.created_at}`, date: dateLabel });
+    }
+    listData.push({ type: "message", key: m.id, dbMsg: m });
   });
 
-  const handleSend = () => {
-    if (!inputText.trim()) return;
+  const handleSend = useCallback(() => {
+    const text = inputText.trim();
+    if (!text || sendMutation.isPending) return;
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    const newMsg: ChatMessage = {
-      id: Date.now().toString(),
-      type: "human",
-      sender: "Du",
-      time: new Date().toLocaleTimeString("de-DE", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      text: inputText.trim(),
-      date: "heute",
-      read: false,
-    };
-    setMessages((prev) => [...prev, newMsg]);
     setInputText("");
-    setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-  };
+    sendMutation.mutate(text);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
+  }, [inputText, sendMutation]);
 
-  const handlePhotoSend = (room: string, tag: string, note: string) => {
+  const handlePhotoSend = useCallback((room: string, tag: string, note: string) => {
     if (Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
-    const newMsg: ChatMessage = {
-      id: Date.now().toString(),
-      type: "human_photo",
-      sender: "Du",
-      time: new Date().toLocaleTimeString("de-DE", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      text: note || `Foto aus ${room}`,
-      date: "heute",
-      photoRoom: room,
-      photoTag: tag,
-      read: false,
-    };
-    const msgs = [newMsg];
-
-    if (tag === "Mangel") {
-      msgs.push({
-        id: (Date.now() + 1).toString(),
-        type: "system",
-        sender: "BAUGENIUS",
-        time: new Date().toLocaleTimeString("de-DE", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        text: `Mangel automatisch erstellt:\n\"${note || "Neuer Mangel"} (${room})\"\nZugewiesen an: Mehmet`,
-        date: "heute",
-      });
-    }
-
-    if (tag === "Nachtrag") {
-      msgs.push({
-        id: (Date.now() + 1).toString(),
-        type: "system",
-        sender: "BAUGENIUS",
-        time: new Date().toLocaleTimeString("de-DE", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        text: `Nachtrag-Entwurf erstellt:\n\"${note || "Neuer Nachtrag"} (${room})\"\nWeitere Details in Freigaben`,
-        date: "heute",
-      });
-    }
-
-    setMessages((prev) => [...prev, ...msgs]);
+    const text = `[Foto: ${room} — ${tag}] ${note || "Ohne Notiz"}`;
+    sendMutation.mutate(text);
     setPhotoModalVisible(false);
-    setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-  };
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
+  }, [sendMutation]);
 
-  const renderItem = ({ item }: { item: any }) => {
+  const renderItem = useCallback(({ item }: { item: (typeof listData)[0] }) => {
     if (item.type === "separator") {
-      return <DateSeparator date={item.date} />;
+      return <DateSeparator date={item.date!} />;
     }
-    const msg = item.msg as ChatMessage;
-    switch (msg.type) {
-      case "human":
-      case "human_photo":
-        return <HumanBubble msg={msg} />;
-      case "system":
-        return <SystemBubble msg={msg} />;
-      case "approval":
-        return <ApprovalBubble msg={msg} />;
-      case "alert":
-        return <AlertBubble msg={msg} />;
-      default:
-        return null;
-    }
-  };
+    const msg = item.dbMsg!;
+    if (msg.role === "user") return <UserChatBubble msg={msg} />;
+    if (msg.role === "assistant") return <AgentBubble msg={msg} />;
+    return null;
+  }, []);
 
-  const msgCount = filteredMessages.length;
+  const roleLabel = role === "gf" ? "GF" : role === "bauleiter" ? "BL" : "Monteur";
+  const msgCount = filteredDbMessages.length;
 
   return (
     <View style={styles.container}>
@@ -981,9 +1038,9 @@ export default function ChatScreen() {
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Nachrichten</Text>
+          <Text style={styles.headerTitle}>BauGenius Agent</Text>
           <Text style={styles.headerSub} numberOfLines={1}>
-            BL-2026-003 {"\u2022"} Schwentnerring
+            Projekt-Chat {"\u2022"} {roleLabel}
           </Text>
         </View>
         <View style={styles.headerRight}>
@@ -1040,20 +1097,44 @@ export default function ChatScreen() {
             ))}
           </ScrollView>
 
-          <FlatList
-            ref={flatListRef}
-            data={listData}
-            renderItem={renderItem}
-            keyExtractor={(item) => item.key}
-            contentContainerStyle={{
-              paddingBottom: 8,
-              paddingTop: 8,
-            }}
-            showsVerticalScrollIndicator={false}
-            onContentSizeChange={() => {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }}
-          />
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={Colors.raw.amber500} />
+              <Text style={styles.loadingText}>Lade Chat...</Text>
+            </View>
+          ) : dbMessages.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="hardware-chip" size={36} color={Colors.raw.amber500} />
+              </View>
+              <Text style={styles.emptyTitle}>BauGenius Agent</Text>
+              <Text style={styles.emptyText}>
+                Frag mich zu Positionen, Katalog, Status oder Einsatzplan.
+              </Text>
+              <View style={styles.suggestionsCol}>
+                {["Was ist der Projektstatus?", "Zeig mir die Positionen", "Suche im Katalog nach Raufaser"].map((s) => (
+                  <Pressable key={s} onPress={() => setInputText(s)}
+                    style={({ pressed }) => [styles.suggestionChip, { opacity: pressed ? 0.7 : 1 }]}>
+                    <Text style={styles.suggestionText}>{s}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : (
+            <FlatList
+              ref={flatListRef}
+              data={listData}
+              renderItem={renderItem}
+              keyExtractor={(item) => item.key}
+              contentContainerStyle={{ paddingBottom: 8, paddingTop: 8 }}
+              showsVerticalScrollIndicator={false}
+              onContentSizeChange={() => {
+                flatListRef.current?.scrollToEnd({ animated: false });
+              }}
+            />
+          )}
+
+          {sendMutation.isPending && <TypingIndicator />}
 
           <View
             style={[
@@ -1085,12 +1166,13 @@ export default function ChatScreen() {
             <View style={styles.inputField}>
               <TextInput
                 style={styles.textInput}
-                placeholder="Nachricht schreiben..."
+                placeholder="Frag BauGenius..."
                 placeholderTextColor={Colors.raw.zinc600}
                 value={inputText}
                 onChangeText={setInputText}
                 onSubmitEditing={handleSend}
                 returnKeyType="send"
+                editable={!sendMutation.isPending}
                 testID="message-input"
               />
             </View>
@@ -1099,10 +1181,10 @@ export default function ChatScreen() {
               style={({ pressed }) => [
                 styles.sendButton,
                 {
-                  opacity: inputText.trim() ? (pressed ? 0.8 : 1) : 0.4,
+                  opacity: inputText.trim() && !sendMutation.isPending ? (pressed ? 0.8 : 1) : 0.4,
                 },
               ]}
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() || sendMutation.isPending}
               testID="send-btn"
             >
               <Ionicons name="send" size={18} color="#000" />
@@ -1242,5 +1324,35 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.raw.amber500,
     alignItems: "center",
     justifyContent: "center",
+  },
+  loadingContainer: {
+    flex: 1, alignItems: "center", justifyContent: "center", gap: 12,
+  },
+  loadingText: {
+    fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc500,
+  },
+  emptyContainer: {
+    flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32,
+  },
+  emptyIcon: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: Colors.raw.amber500 + "15",
+    alignItems: "center", justifyContent: "center", marginBottom: 16,
+  },
+  emptyTitle: {
+    fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.raw.white, marginBottom: 8,
+  },
+  emptyText: {
+    fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.raw.zinc400,
+    textAlign: "center", lineHeight: 20, marginBottom: 24,
+  },
+  suggestionsCol: { gap: 8, width: "100%" },
+  suggestionChip: {
+    backgroundColor: Colors.raw.zinc800, borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderWidth: 1, borderColor: Colors.raw.zinc700,
+  },
+  suggestionText: {
+    fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc300,
   },
 });
