@@ -1107,13 +1107,14 @@ export default function ChatScreen() {
               <View style={styles.emptyIcon}>
                 <Ionicons name="hardware-chip" size={36} color={Colors.raw.amber500} />
               </View>
-              <Text style={styles.emptyTitle}>BauGenius Agent</Text>
+              <Text style={styles.emptyTitle}>BauGenius Assistent</Text>
               <Text style={styles.emptyText}>
-                Frag mich zu Positionen, Katalog, Status oder Einsatzplan.
+                Hallo! Ich bin dein BauGenius Assistent.{"\n"}
+                Frag mich was — zum Beispiel: Was steht heute an?
               </Text>
               <View style={styles.suggestionsCol}>
-                {["Was ist der Projektstatus?", "Zeig mir die Positionen", "Suche im Katalog nach Raufaser"].map((s) => (
-                  <Pressable key={s} onPress={() => setInputText(s)}
+                {["Heutiger Plan", "Material prüfen", "Was ist im Bad beauftragt?", "Nachtrag melden"].map((s) => (
+                  <Pressable key={s} onPress={() => { setInputText(s); }}
                     style={({ pressed }) => [styles.suggestionChip, { opacity: pressed ? 0.7 : 1 }]}>
                     <Text style={styles.suggestionText}>{s}</Text>
                   </Pressable>
