@@ -16,6 +16,8 @@ import Colors from "@/constants/colors";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { useTeamMembers, useProfileStats } from "@/hooks/queries/useTeam";
+import type { TeamMemberRow } from "@/lib/api/team";
 
 interface ToggleSetting {
   key: string;
@@ -32,17 +34,13 @@ const NOTIFICATION_SETTINGS: ToggleSetting[] = [
   { key: "payment", icon: "cash", label: "Zahlungseingänge melden", defaultOn: true },
 ];
 
-interface TeamMember {
-  name: string;
-  role: string;
-  icon: string;
+function teamIcon(role: string | null): string {
+  if (!role) return "person";
+  const r = role.toLowerCase();
+  if (r.includes("bauleiter") || r.includes("polier")) return "clipboard";
+  if (r.includes("leitung") || r.includes("leiterin")) return "briefcase";
+  return "hammer";
 }
-
-const TEAM: TeamMember[] = [
-  { name: "Mehmet", role: "Maler, aktiv", icon: "hammer" },
-  { name: "Ali", role: "Fliesen, aktiv", icon: "hammer" },
-  { name: "Ayse", role: "Projektleitung, aktiv", icon: "briefcase" },
-];
 
 interface Integration {
   name: string;
@@ -158,12 +156,14 @@ export default function ProfilScreen() {
 
   const [companyName, setCompanyName] = useState(DEFAULT_COMPANY_NAME);
   const [companySince, setCompanySince] = useState(DEFAULT_COMPANY_SINCE);
-  const [teamCount, setTeamCount] = useState<number | null>(null);
   const [toggles, setToggles] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     NOTIFICATION_SETTINGS.forEach((s) => { init[s.key] = s.defaultOn; });
     return init;
   });
+
+  const { data: teamMembers = [] } = useTeamMembers();
+  const { data: profileStats } = useProfileStats();
 
   const fetchCompanySettings = useCallback(async () => {
     const { data, error } = await supabase.from("company_settings").select("key, value").in("key", ["company_name", "company_since"]);
@@ -174,8 +174,6 @@ export default function ProfilScreen() {
     const map = new Map((data ?? []).map((r) => [r.key, r.value ?? ""]));
     setCompanyName(map.get("company_name") || DEFAULT_COMPANY_NAME);
     setCompanySince(map.get("company_since") || DEFAULT_COMPANY_SINCE);
-    const teamRes = await supabase.from("team_members").select("id", { count: "exact", head: true });
-    if (!teamRes.error && teamRes.count !== null) setTeamCount(teamRes.count);
   }, []);
 
   useEffect(() => {
@@ -192,18 +190,20 @@ export default function ProfilScreen() {
     setToggles((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const teamCount = profileStats?.teamCount ?? teamMembers.length;
+
   const statsForRole = {
     gf: [
-      { value: "47", label: "Projekte", sub: "gesamt" },
-      { value: "\u20AC182k", label: "Umsatz", sub: "2026" },
+      { value: String(profileStats?.totalProjects ?? "–"), label: "Projekte", sub: "gesamt" },
+      { value: String(teamCount), label: "Team", sub: "Mitarbeiter" },
     ],
     bauleiter: [
-      { value: "5", label: "Projekte", sub: "aktiv" },
-      { value: "12", label: "Begehungen", sub: "gesamt" },
+      { value: String(profileStats?.activeProjects ?? "–"), label: "Projekte", sub: "aktiv" },
+      { value: String(teamCount), label: "Team", sub: "Mitarbeiter" },
     ],
     monteur: [
-      { value: "142h", label: "Stunden", sub: "Feb" },
-      { value: "1", label: "Projekt", sub: "aktiv" },
+      { value: String(profileStats?.activeProjects ?? "–"), label: "Projekte", sub: "aktiv" },
+      { value: "–", label: "Stunden", sub: "Monat" },
     ],
   };
 
@@ -271,20 +271,25 @@ export default function ProfilScreen() {
 
         {role !== "monteur" && (
           <>
-            <Text style={styles.sectionLabel}>Team</Text>
+            <Text style={styles.sectionLabel}>Team ({teamMembers.length})</Text>
             <View style={styles.card}>
-              {TEAM.map((member, i) => (
-                <View key={member.name}>
+              {teamMembers.map((member: TeamMemberRow, i: number) => (
+                <View key={member.id}>
                   <View style={styles.teamRow}>
                     <View style={styles.teamAvatar}>
-                      <Ionicons name={member.icon as any} size={18} color={Colors.raw.amber500} />
+                      <Ionicons name={teamIcon(member.role) as any} size={18} color={Colors.raw.amber500} />
                     </View>
-                    <View>
+                    <View style={{ flex: 1 }}>
                       <Text style={styles.teamName}>{member.name}</Text>
-                      <Text style={styles.teamRole}>{member.role}</Text>
+                      <Text style={styles.teamRole}>
+                        {[member.role, member.gewerk].filter(Boolean).join(" · ")}
+                      </Text>
                     </View>
+                    {member.initials && (
+                      <Text style={styles.teamInitials}>{member.initials}</Text>
+                    )}
                   </View>
-                  {i < TEAM.length - 1 && <View style={styles.divider} />}
+                  {i < teamMembers.length - 1 && <View style={styles.divider} />}
                 </View>
               ))}
               <View style={styles.divider} />
@@ -302,7 +307,7 @@ export default function ProfilScreen() {
         <View style={styles.card}>
           {([
             { icon: "business", label: "Firma", sub: companyName, route: "/einstellungen/firma" },
-            { icon: "people", label: "Team", sub: teamCount !== null ? `${teamCount} Mitarbeiter` : "Mitarbeiter", route: "/einstellungen/team" },
+            { icon: "people", label: "Team", sub: `${teamCount} Mitarbeiter`, route: "/einstellungen/team" },
             { icon: "people-outline", label: "Kunden", sub: "Stammdaten Auftraggeber", route: "/einstellungen/kunden" },
             { icon: "cube", label: "Lieferanten", sub: "21 Lieferanten", route: "/einstellungen/lieferanten" },
             { icon: "list", label: "Katalog", sub: "WABS \u2022 620 Positionen", route: "/einstellungen/katalog" },
@@ -478,6 +483,7 @@ const styles = StyleSheet.create({
   },
   teamName: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white },
   teamRole: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500 },
+  teamInitials: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.zinc600 },
   addRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 14 },
   addText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.amber500 },
 
