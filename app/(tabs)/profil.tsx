@@ -9,13 +9,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useCallback, useEffect } from "react";
+import { useState } from "react";
 import * as Haptics from "expo-haptics";
-import { router, useFocusEffect } from "expo-router";
+import { router } from "expo-router";
 import Colors from "@/constants/colors";
 import { useRole, type UserRole } from "@/contexts/RoleContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabase";
+import { useCompanySettings, useTeamMemberCount } from "@/hooks/queries/useSettings";
 
 interface ToggleSetting {
   key: string;
@@ -156,37 +156,17 @@ export default function ProfilScreen() {
   const { role, user, sees: _sees, isImpersonating } = useRole();
   const { logout, user: authUser } = useAuth();
 
-  const [companyName, setCompanyName] = useState(DEFAULT_COMPANY_NAME);
-  const [companySince, setCompanySince] = useState(DEFAULT_COMPANY_SINCE);
-  const [teamCount, setTeamCount] = useState<number | null>(null);
+  const { data: companySettings } = useCompanySettings();
+  const { data: teamCount } = useTeamMemberCount();
+
+  const companyName = companySettings?.company_name || DEFAULT_COMPANY_NAME;
+  const companySince = companySettings?.company_since || DEFAULT_COMPANY_SINCE;
+
   const [toggles, setToggles] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     NOTIFICATION_SETTINGS.forEach((s) => { init[s.key] = s.defaultOn; });
     return init;
   });
-
-  const fetchCompanySettings = useCallback(async () => {
-    const { data, error } = await supabase.from("company_settings").select("key, value").in("key", ["company_name", "company_since"]);
-    if (error) {
-      console.error("Firmeneinstellungen laden:", error);
-      return;
-    }
-    const map = new Map((data ?? []).map((r) => [r.key, r.value ?? ""]));
-    setCompanyName(map.get("company_name") || DEFAULT_COMPANY_NAME);
-    setCompanySince(map.get("company_since") || DEFAULT_COMPANY_SINCE);
-    const teamRes = await supabase.from("team_members").select("id", { count: "exact", head: true });
-    if (!teamRes.error && teamRes.count !== null) setTeamCount(teamRes.count);
-  }, []);
-
-  useEffect(() => {
-    fetchCompanySettings();
-  }, [fetchCompanySettings]);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchCompanySettings();
-    }, [fetchCompanySettings])
-  );
 
   const toggleSetting = (key: string) => {
     setToggles((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -302,7 +282,7 @@ export default function ProfilScreen() {
         <View style={styles.card}>
           {([
             { icon: "business", label: "Firma", sub: companyName, route: "/einstellungen/firma" },
-            { icon: "people", label: "Team", sub: teamCount !== null ? `${teamCount} Mitarbeiter` : "Mitarbeiter", route: "/einstellungen/team" },
+            { icon: "people", label: "Team", sub: teamCount != null ? `${teamCount} Mitarbeiter` : "Mitarbeiter", route: "/einstellungen/team" },
             { icon: "people-outline", label: "Kunden", sub: "Stammdaten Auftraggeber", route: "/einstellungen/kunden" },
             { icon: "cube", label: "Lieferanten", sub: "21 Lieferanten", route: "/einstellungen/lieferanten" },
             { icon: "list", label: "Katalog", sub: "WABS \u2022 620 Positionen", route: "/einstellungen/katalog" },

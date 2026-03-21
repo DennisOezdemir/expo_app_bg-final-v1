@@ -15,10 +15,13 @@ import { router } from "expo-router";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
+import { useQueryClient } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { PipelineBadge } from "@/components/PipelineProgress";
 import { fetchPipelineStatusBatch, checkPipelineReadiness, type PipelineRunStatus, type ReadinessResult } from "@/lib/api/pipeline";
+import { useWeekSchedule, useMonthSchedule } from "@/hooks/queries/usePlanning";
+import { queryKeys } from "@/lib/query-keys";
 
 const SCREEN_W = Dimensions.get("window").width;
 const NAME_COL_W = 76;
@@ -986,11 +989,10 @@ export default function PlanungScreen() {
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [autoPlanning, setAutoPlanning] = useState<string | null>(null);
-  const [phases, setPhases] = useState<any[]>([]);
-  const [unassigned, setUnassigned] = useState<UnassignedProject[]>([]);
   const [pipelineStatuses, setPipelineStatuses] = useState<Record<string, PipelineRunStatus | "not_started">>({});
+
+  const queryClient = useQueryClient();
 
   const monday = useMemo(() => getMonday(weekOffset), [weekOffset]);
   const weekDays = useMemo(() => getWeekDays(monday), [monday]);
@@ -1003,94 +1005,40 @@ export default function PlanungScreen() {
 
   const monthDate = useMemo(() => monday, [monday]);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // ── React Query: week schedule ──
+  const weekStartStr = useMemo(() => formatDate(monday), [monday]);
+  const weekEndStr = useMemo(() => formatDate(friday), [friday]);
+  const { data: weekData, isLoading: weekLoading } = useWeekSchedule(weekStartStr, weekEndStr);
+  const phases = weekData?.phases ?? [];
+  const loading = weekLoading;
 
-    const weekStart = formatDate(monday);
-    const weekEnd = formatDate(friday);
+  // Derive unassigned projects from query data
+  const unassigned = useMemo(() => {
+    return (weekData?.unassignedProjects ?? []).map((p) => ({
+      id: p.project_number || p.id,
+      projectId: p.id,
+      name: p.object_street || p.name || "",
+      note: p.planned_start
+        ? `ab ${new Date(p.planned_start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`
+        : "kein Startdatum",
+    }));
+  }, [weekData]);
 
-    const { data: phaseData, error: phaseErr } = await supabase
-      .from("schedule_phases")
-      .select(`
-        *,
-        team_members!assigned_team_member_id(name, role, skills),
-        projects!project_id(project_number, name, object_street, object_city, status)
-      `)
-      .gte("end_date", weekStart)
-      .lte("start_date", weekEnd)
-      .order("start_date");
-
-    if (!phaseErr && phaseData) {
-      setPhases(phaseData);
-    }
-
-    // Projects in PLANNING without schedule_phases
-    const { data: unassignedData } = await supabase
-      .from("projects")
-      .select("id, project_number, name, object_street, status, planned_start")
-      .in("status", ["PLANNING", "IN_PROGRESS"])
-      .order("created_at", { ascending: false });
-
-    if (unassignedData) {
-      // Filter projects that have no schedule_phases
-      const projectsWithPhases = new Set(
-        (phaseData || []).map((p: any) => p.project_id)
-      );
-      // Also check if they have any phases at all
-      const { data: allPhasedProjects } = await supabase
-        .from("schedule_phases")
-        .select("project_id")
-        .in(
-          "project_id",
-          unassignedData.map((p: any) => p.id)
-        );
-      const phasedIds = new Set((allPhasedProjects || []).map((p: any) => p.project_id));
-
-      const filteredUnassigned = unassignedData
-        .filter((p: any) => !projectsWithPhases.has(p.id) && !phasedIds.has(p.id))
-        .map((p: any) => ({
-          id: p.project_number || p.id,
-          projectId: p.id,
-          name: p.object_street || p.name || "",
-          note: p.planned_start
-            ? `ab ${new Date(p.planned_start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}`
-            : "kein Startdatum",
-        }));
-      setUnassigned(filteredUnassigned);
-
-      // Fetch pipeline status for unassigned projects
-      const unassignedIds = filteredUnassigned.map((p) => p.projectId);
-      if (unassignedIds.length > 0) {
-        fetchPipelineStatusBatch(unassignedIds).then(setPipelineStatuses).catch(() => {});
-      }
-    }
-
-    setLoading(false);
-  }, [monday, friday]);
-
+  // Fetch pipeline statuses when unassigned list changes
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    const ids = unassigned.map((p) => p.projectId);
+    if (ids.length > 0) {
+      fetchPipelineStatusBatch(ids).then(setPipelineStatuses).catch(() => {});
+    }
+  }, [unassigned]);
 
-  // Also fetch month phases for month view
-  const [monthPhases, setMonthPhases] = useState<any[]>([]);
-  useEffect(() => {
-    if (viewMode !== "month") return;
-    const m = monthDate.getMonth();
-    const y = monthDate.getFullYear();
-    const monthStart = `${y}-${String(m + 1).padStart(2, "0")}-01`;
-    const lastDay = new Date(y, m + 1, 0).getDate();
-    const monthEnd = `${y}-${String(m + 1).padStart(2, "0")}-${lastDay}`;
-
-    supabase
-      .from("schedule_phases")
-      .select("start_date, end_date, assigned_team_member_id")
-      .gte("end_date", monthStart)
-      .lte("start_date", monthEnd)
-      .then(({ data }) => {
-        if (data) setMonthPhases(data);
-      });
-  }, [viewMode, monthDate]);
+  // ── React Query: month schedule ──
+  const { data: monthPhasesData } = useMonthSchedule(
+    monthDate.getFullYear(),
+    monthDate.getMonth(),
+    viewMode === "month"
+  );
+  const monthPhases = monthPhasesData ?? [];
 
   const assignments = useMemo(() => {
     return phases
@@ -1152,13 +1100,13 @@ export default function PlanungScreen() {
         "\nFreigaben im Freigabecenter prüfen.",
       ].filter(Boolean);
       Alert.alert("Planung erstellt", lines.join("\n"));
-      fetchData();
+      queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
     } catch (e: any) {
       Alert.alert("Fehler", e.message || "Auto-Planung fehlgeschlagen");
     } finally {
       setAutoPlanning(null);
     }
-  }, [fetchData]);
+  }, [queryClient]);
 
   const handleAutoPlan = useCallback(async (projectId: string) => {
     setAutoPlanning(projectId);
@@ -1207,8 +1155,8 @@ export default function PlanungScreen() {
     if (Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
-    fetchData();
-  }, [fetchData]);
+    queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
+  }, [queryClient]);
 
   const handleDiscardProposed = useCallback(async (projectId: string) => {
     Alert.alert("Vorschläge verwerfen", "Alle Vorschläge für dieses Projekt löschen?", [
@@ -1224,11 +1172,11 @@ export default function PlanungScreen() {
             Alert.alert("Fehler", error.message);
             return;
           }
-          fetchData();
+          queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
         },
       },
     ]);
-  }, [fetchData]);
+  }, [queryClient]);
 
   const proposedCount = useMemo(() => {
     return assignments.filter((a) => a.isProposed).length;
@@ -1257,11 +1205,11 @@ export default function PlanungScreen() {
           proposedProjectIds.forEach(async (pid) => {
             await supabase.rpc("discard_proposed_phases", { p_project_id: pid });
           });
-          fetchData();
+          queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
         },
       },
     ]);
-  }, [proposedProjectIds, fetchData]);
+  }, [proposedProjectIds, queryClient]);
 
   const startDateStr = `${String(weekDays[0]?.dayNum).padStart(2, "0")}.${String(monday.getMonth() + 1).padStart(2, "0")}.`;
   const endDateStr = `${String(weekDays[4]?.dayNum).padStart(2, "0")}.${String(friday.getMonth() + 1).padStart(2, "0")}.${friday.getFullYear()}`;

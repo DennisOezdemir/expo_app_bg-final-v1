@@ -11,10 +11,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { router } from "expo-router";
 import Colors from "@/constants/colors";
-import { supabase } from "@/lib/supabase";
+import { useCompanySettings } from "@/hooks/queries/useSettings";
+import { useSaveCompanySettings } from "@/hooks/mutations/useSettingsMutations";
 
 interface FormState {
   firmenname: string;
@@ -191,71 +192,58 @@ export default function FirmaScreen() {
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const { data: companySettings, isLoading: loading } = useCompanySettings();
+  const saveMutation = useSaveCompanySettings();
+  const saving = saveMutation.isPending;
 
-  const fetchSettings = useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await supabase.from("company_settings").select("key, value");
-    setLoading(false);
-    if (error) {
-      console.error("Firmendaten laden:", error);
-      return;
-    }
-    const map = new Map((data ?? []).map((r) => [r.key, r.value ?? ""]));
-    setForm({
-      firmenname: map.get("company_name") ?? DEFAULT_FORM.firmenname,
-      companySince: map.get("company_since") ?? DEFAULT_FORM.companySince,
-      rechtsform: map.get("rechtsform") ?? DEFAULT_FORM.rechtsform,
-      geschaeftsfuehrer: map.get("geschaeftsfuehrer") ?? DEFAULT_FORM.geschaeftsfuehrer,
-      strasse: map.get("address_street") ?? DEFAULT_FORM.strasse,
-      plz: map.get("address_zip") ?? DEFAULT_FORM.plz,
-      ort: map.get("address_city") ?? DEFAULT_FORM.ort,
-      telefon: map.get("phone") ?? DEFAULT_FORM.telefon,
-      email: map.get("email") ?? DEFAULT_FORM.email,
-      website: map.get("website") ?? DEFAULT_FORM.website,
-      steuernummer: map.get("tax_id") ?? DEFAULT_FORM.steuernummer,
-      ustIdNr: map.get("vat_id") ?? DEFAULT_FORM.ustIdNr,
-      handelsregister: map.get("handelsregister") ?? DEFAULT_FORM.handelsregister,
-      finanzamt: map.get("finanzamt") ?? DEFAULT_FORM.finanzamt,
-      bank: map.get("bank") ?? DEFAULT_FORM.bank,
-      iban: map.get("iban") ?? DEFAULT_FORM.iban,
-      bic: map.get("bic") ?? DEFAULT_FORM.bic,
-      zahlungsziel: map.get("zahlungsziel") ?? DEFAULT_FORM.zahlungsziel,
-      skontoPercent: map.get("skonto_percent") ?? DEFAULT_FORM.skontoPercent,
-      skontoTage: map.get("skonto_tage") ?? DEFAULT_FORM.skontoTage,
-      mahnfrist1: map.get("mahnfrist_1") ?? DEFAULT_FORM.mahnfrist1,
-      mahnfrist2: map.get("mahnfrist_2") ?? DEFAULT_FORM.mahnfrist2,
-      verzugszinsen: map.get("verzugszinsen") ?? DEFAULT_FORM.verzugszinsen,
-    });
-  }, []);
-
+  // Populate form when settings load
   useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
+    if (!companySettings) return;
+    const map = companySettings;
+    setForm({
+      firmenname: map.company_name ?? DEFAULT_FORM.firmenname,
+      companySince: map.company_since ?? DEFAULT_FORM.companySince,
+      rechtsform: map.rechtsform ?? DEFAULT_FORM.rechtsform,
+      geschaeftsfuehrer: map.geschaeftsfuehrer ?? DEFAULT_FORM.geschaeftsfuehrer,
+      strasse: map.address_street ?? DEFAULT_FORM.strasse,
+      plz: map.address_zip ?? DEFAULT_FORM.plz,
+      ort: map.address_city ?? DEFAULT_FORM.ort,
+      telefon: map.phone ?? DEFAULT_FORM.telefon,
+      email: map.email ?? DEFAULT_FORM.email,
+      website: map.website ?? DEFAULT_FORM.website,
+      steuernummer: map.tax_id ?? DEFAULT_FORM.steuernummer,
+      ustIdNr: map.vat_id ?? DEFAULT_FORM.ustIdNr,
+      handelsregister: map.handelsregister ?? DEFAULT_FORM.handelsregister,
+      finanzamt: map.finanzamt ?? DEFAULT_FORM.finanzamt,
+      bank: map.bank ?? DEFAULT_FORM.bank,
+      iban: map.iban ?? DEFAULT_FORM.iban,
+      bic: map.bic ?? DEFAULT_FORM.bic,
+      zahlungsziel: map.zahlungsziel ?? DEFAULT_FORM.zahlungsziel,
+      skontoPercent: map.skonto_percent ?? DEFAULT_FORM.skontoPercent,
+      skontoTage: map.skonto_tage ?? DEFAULT_FORM.skontoTage,
+      mahnfrist1: map.mahnfrist_1 ?? DEFAULT_FORM.mahnfrist1,
+      mahnfrist2: map.mahnfrist_2 ?? DEFAULT_FORM.mahnfrist2,
+      verzugszinsen: map.verzugszinsen ?? DEFAULT_FORM.verzugszinsen,
+    });
+  }, [companySettings]);
 
   const update = (key: keyof FormState) => (value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSave = async () => {
-    setSaving(true);
+  const handleSave = () => {
     const rows = (Object.keys(form) as (keyof FormState)[]).map((k) => ({
       key: FORM_TO_DB_KEY[k],
       value: form[k] ?? "",
     }));
-    for (const row of rows) {
-      const { error } = await supabase
-        .from("company_settings")
-        .upsert({ key: row.key, value: row.value }, { onConflict: "key" });
-      if (error) {
-        setSaving(false);
+    saveMutation.mutate(rows, {
+      onSuccess: () => {
+        Alert.alert("Gespeichert", "Firmendaten wurden erfolgreich gespeichert.");
+      },
+      onError: (error) => {
         Alert.alert("Fehler", error.message);
-        return;
-      }
-    }
-    setSaving(false);
-    Alert.alert("Gespeichert", "Firmendaten wurden erfolgreich gespeichert.");
+      },
+    });
   };
 
   return (

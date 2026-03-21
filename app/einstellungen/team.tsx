@@ -12,21 +12,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useCallback, useEffect } from "react";
+import { useState } from "react";
 import { router } from "expo-router";
 import Colors from "@/constants/colors";
-import { supabase } from "@/lib/supabase";
-
-export interface TeamMember {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  role: string;
-  role_label: string | null;
-  gewerk: string | null;
-  active: boolean;
-}
+import { useTeamMembers } from "@/hooks/queries/useSettings";
+import { useCreateTeamMember, useUpdateTeamMember, useDeleteTeamMember } from "@/hooks/mutations/useSettingsMutations";
+import type { TeamMember } from "@/lib/api/settings";
 
 const ROLES = [
   { key: "GF", label: "GF", icon: "briefcase" as const },
@@ -53,9 +44,12 @@ export default function TeamScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const { data: members = [], isLoading: loading } = useTeamMembers();
+  const createMutation = useCreateTeamMember();
+  const updateMutation = useUpdateTeamMember();
+  const deleteMutation = useDeleteTeamMember();
+  const saving = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
+
   const [modalVisible, setModalVisible] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [name, setName] = useState("");
@@ -63,24 +57,6 @@ export default function TeamScreen() {
   const [telefon, setTelefon] = useState("");
   const [selectedRole, setSelectedRole] = useState("GF");
   const [selectedGewerk, setSelectedGewerk] = useState("");
-
-  const fetchMembers = useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("team_members")
-      .select("id, name, email, phone, role, role_label, gewerk, active")
-      .order("sort_order", { ascending: true });
-    setLoading(false);
-    if (error) {
-      console.error("Team laden:", error);
-      return;
-    }
-    setMembers((data as TeamMember[]) ?? []);
-  }, []);
-
-  useEffect(() => {
-    fetchMembers();
-  }, [fetchMembers]);
 
   const resetForm = () => {
     setEditingMember(null);
@@ -111,52 +87,47 @@ export default function TeamScreen() {
     return DEFAULT_ROLE_LABELS[selectedRole] ?? selectedRole;
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       Alert.alert("Fehler", "Name ist Pflicht.");
       return;
     }
-    setSaving(true);
     const roleLabel = getRoleLabel();
+    const onSuccess = () => {
+      resetForm();
+      setModalVisible(false);
+    };
+    const onError = (error: Error) => Alert.alert("Fehler", error.message);
+
     if (editingMember) {
-      const { error } = await supabase
-        .from("team_members")
-        .update({
+      updateMutation.mutate(
+        {
+          id: editingMember.id,
           name: trimmedName,
           email: email.trim() || null,
           phone: telefon.trim() || null,
           role: selectedRole,
           role_label: roleLabel,
           gewerk: selectedRole === "Monteur" ? selectedGewerk || null : null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", editingMember.id);
-      setSaving(false);
-      if (error) {
-        Alert.alert("Fehler", error.message);
-        return;
-      }
+        },
+        { onSuccess, onError }
+      );
     } else {
-      const { error } = await supabase.from("team_members").insert({
-        name: trimmedName,
-        email: email.trim() || null,
-        phone: telefon.trim() || null,
-        role: selectedRole,
-        role_label: roleLabel,
-        gewerk: selectedRole === "Monteur" ? selectedGewerk || null : null,
-        active: true,
-        sort_order: members.length,
-      });
-      setSaving(false);
-      if (error) {
-        Alert.alert("Fehler", error.message);
-        return;
-      }
+      createMutation.mutate(
+        {
+          name: trimmedName,
+          email: email.trim() || null,
+          phone: telefon.trim() || null,
+          role: selectedRole,
+          role_label: roleLabel,
+          gewerk: selectedRole === "Monteur" ? selectedGewerk || null : null,
+          active: true,
+          sort_order: members.length,
+        },
+        { onSuccess, onError }
+      );
     }
-    fetchMembers();
-    resetForm();
-    setModalVisible(false);
   };
 
   const handleDelete = () => {
@@ -169,13 +140,13 @@ export default function TeamScreen() {
         {
           text: "Entfernen",
           style: "destructive",
-          onPress: async () => {
-            setSaving(true);
-            await supabase.from("team_members").delete().eq("id", editingMember.id);
-            setSaving(false);
-            fetchMembers();
-            resetForm();
-            setModalVisible(false);
+          onPress: () => {
+            deleteMutation.mutate(editingMember.id, {
+              onSuccess: () => {
+                resetForm();
+                setModalVisible(false);
+              },
+            });
           },
         },
       ]

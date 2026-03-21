@@ -19,35 +19,12 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
-import { supabase } from "@/lib/supabase";
-
-/* ─── Types ──────────────────────────────────── */
-
-interface Product {
-  id: string;
-  name: string;
-  supplier: string;
-  supplierId?: string;
-  articleNr: string;
-  price: string;
-  priceNum: number;
-  unit: string;
-  favorite: boolean;
-  useCount: number;
-  isNew?: boolean;
-}
-
-interface MaterialInfo {
-  id: string;
-  materialType: string;
-  trade: string;
-  quantity: number;
-  unit: string;
-  positionCount: number;
-}
+import { useProducts, useSuppliers, useMaterialInfo } from "@/hooks/queries/useMaterial";
+import { useAssignProduct, useCreateAndAssignProduct } from "@/hooks/mutations/useMaterialMutations";
+import type { Product, MaterialInfo } from "@/lib/api/materials";
 
 /* ─── ProductCard ────────────────────────────── */
 
@@ -398,148 +375,16 @@ export default function AssignMaterialSheet() {
   const [search, setSearch] = useState("");
   const [showNewForm, setShowNewForm] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [materialInfo, setMaterialInfo] = useState<MaterialInfo | null>(null);
   const flashValue = useSharedValue(0);
 
-  // Load material info if materialId provided
-  useEffect(() => {
-    if (materialId) {
-      loadMaterialInfo();
-    }
-  }, [materialId]);
+  // React Query hooks
+  const { data: products = [], isLoading: loading } = useProducts(name, trade);
+  const { data: suppliers = [] } = useSuppliers();
+  const { data: materialInfo } = useMaterialInfo(materialId);
+  const assignMutation = useAssignProduct();
+  const createMutation = useCreateAndAssignProduct();
 
-  // Load products matching this material type
-  useEffect(() => {
-    loadProducts();
-    loadSuppliers();
-  }, [name, trade]);
-
-  const loadMaterialInfo = async () => {
-    if (!materialId) return;
-    const { data } = await supabase
-      .from("project_materials")
-      .select("id, material_type, trade, quantity, quantity_unit")
-      .eq("id", materialId)
-      .single();
-
-    if (data) {
-      // Count how many positions use this material type in the same project
-      const { count } = await supabase
-        .from("project_materials")
-        .select("id", { count: "exact", head: true })
-        .eq("project_id", (await supabase.from("project_materials").select("project_id").eq("id", materialId).single()).data?.project_id || "")
-        .eq("material_type", data.material_type);
-
-      setMaterialInfo({
-        id: data.id,
-        materialType: data.material_type,
-        trade: data.trade || "Sonstiges",
-        quantity: parseFloat(data.quantity) || 0,
-        unit: data.quantity_unit || "Stk",
-        positionCount: count ?? 1,
-      });
-    }
-  };
-
-  const loadProducts = async () => {
-    setLoading(true);
-
-    // Search products matching the material type or trade
-    let query = supabase
-      .from("products")
-      .select(
-        `id, name, sku, last_price_net_eur, unit, is_favorite, use_count, material_type,
-         suppliers:supplier_id (id, name, short_name)`
-      )
-      .eq("is_active", true)
-      .order("is_favorite", { ascending: false })
-      .order("use_count", { ascending: false })
-      .limit(50);
-
-    // Filter by material_type if we have a name
-    if (name) {
-      // Try exact match first, then broader search
-      query = query.or(`material_type.ilike.%${name}%,name.ilike.%${name}%`);
-    }
-
-    const { data, error } = await query;
-
-    if (!error && data) {
-      const mapped: Product[] = (data as any[]).map((p) => {
-        const supplier = p.suppliers;
-        return {
-          id: p.id,
-          name: p.name,
-          supplier: supplier?.short_name || supplier?.name || "—",
-          supplierId: supplier?.id,
-          articleNr: p.sku || "—",
-          price: p.last_price_net_eur
-            ? Number(p.last_price_net_eur).toFixed(2).replace(".", ",")
-            : "—",
-          priceNum: p.last_price_net_eur ? Number(p.last_price_net_eur) : 0,
-          unit: p.unit || "Stk",
-          favorite: p.is_favorite || false,
-          useCount: p.use_count || 0,
-        };
-      });
-      setProducts(mapped);
-    }
-
-    // If no products found with material_type filter, load all products
-    if ((!data || data.length === 0) && name) {
-      const { data: allData } = await supabase
-        .from("products")
-        .select(
-          `id, name, sku, last_price_net_eur, unit, is_favorite, use_count, material_type,
-           suppliers:supplier_id (id, name, short_name)`
-        )
-        .eq("is_active", true)
-        .order("is_favorite", { ascending: false })
-        .order("use_count", { ascending: false })
-        .limit(50);
-
-      if (allData) {
-        const mapped: Product[] = (allData as any[]).map((p) => {
-          const supplier = p.suppliers;
-          return {
-            id: p.id,
-            name: p.name,
-            supplier: supplier?.short_name || supplier?.name || "—",
-            supplierId: supplier?.id,
-            articleNr: p.sku || "—",
-            price: p.last_price_net_eur
-              ? Number(p.last_price_net_eur).toFixed(2).replace(".", ",")
-              : "—",
-            priceNum: p.last_price_net_eur ? Number(p.last_price_net_eur) : 0,
-            unit: p.unit || "Stk",
-            favorite: p.is_favorite || false,
-            useCount: p.use_count || 0,
-          };
-        });
-        setProducts(mapped);
-      }
-    }
-
-    setLoading(false);
-  };
-
-  const loadSuppliers = async () => {
-    const { data } = await supabase
-      .from("suppliers")
-      .select("id, name")
-      .eq("is_active", true)
-      .order("is_preferred", { ascending: false })
-      .order("name")
-      .limit(20);
-
-    if (data) {
-      setSuppliers(data);
-    }
-  };
+  const saving = assignMutation.isPending || createMutation.isPending;
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -557,36 +402,23 @@ export default function AssignMaterialSheet() {
   }));
 
   // Assign product to material
-  const assignProduct = async (productId: string, productName: string) => {
+  const assignProduct = async (productId: string, _productName: string) => {
     if (!materialId) {
       // No material ID → just show success and go back
       return true;
     }
 
-    setSaving(true);
-    const { error } = await supabase
-      .from("project_materials")
-      .update({
-        product_id: productId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", materialId);
-
-    // Increment use_count on the product
-    const { error: rpcError } = await supabase.rpc("increment_use_count", { product_id_param: productId });
-    if (rpcError) {
-      // If RPC doesn't exist, do manual update
-      await supabase
-        .from("products")
-        .update({
-          use_count: (filtered.find((p) => p.id === productId)?.useCount ?? 0) + 1,
-          last_used_at: new Date().toISOString(),
-        })
-        .eq("id", productId);
+    try {
+      const product = products.find((p) => p.id === productId);
+      await assignMutation.mutateAsync({
+        materialId,
+        productId,
+        currentUseCount: product?.useCount ?? 0,
+      });
+      return true;
+    } catch {
+      return false;
     }
-
-    setSaving(false);
-    return !error;
   };
 
   const handleSelect = useCallback(
@@ -612,72 +444,47 @@ export default function AssignMaterialSheet() {
 
   const handleNewProductSave = useCallback(
     async (p: { name: string; supplier: string; supplierId?: string; articleNr: string; price: number; unit: string }) => {
-      setSaving(true);
-
-      // Create product in DB
-      const { data: newProduct, error } = await supabase
-        .from("products")
-        .insert({
+      try {
+        const result = await createMutation.mutateAsync({
           name: p.name,
-          name_normalized: p.name.toLowerCase(),
-          supplier_id: p.supplierId || null,
-          sku: p.articleNr !== "-" ? p.articleNr : null,
-          last_price_net_eur: p.price,
+          supplierId: p.supplierId,
+          articleNr: p.articleNr !== "-" ? p.articleNr : "-",
+          price: p.price,
           unit: p.unit,
-          material_type: name || null,
-          trade: trade || null,
-          is_active: true,
-          is_favorite: false,
-          use_count: 1,
-          source: "manual",
-        })
-        .select("id")
-        .single();
+          materialType: name || undefined,
+          trade: trade || undefined,
+          materialId: materialId || undefined,
+        });
 
-      if (error || !newProduct) {
-        setSaving(false);
-        return;
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+
+        setSelectedProduct({
+          id: result.id,
+          name: p.name,
+          supplier: p.supplier,
+          articleNr: p.articleNr,
+          price: p.price.toFixed(2).replace(".", ","),
+          priceNum: p.price,
+          unit: p.unit,
+          favorite: false,
+          useCount: 1,
+          isNew: true,
+        });
+
+        flashValue.value = withSequence(
+          withTiming(0.35, { duration: 150 }),
+          withTiming(0, { duration: 400 })
+        );
+        setTimeout(() => {
+          router.back();
+        }, 1000);
+      } catch {
+        // mutation error handled by React Query
       }
-
-      // Assign to material
-      if (materialId) {
-        await supabase
-          .from("project_materials")
-          .update({
-            product_id: newProduct.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", materialId);
-      }
-
-      setSaving(false);
-
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-
-      setSelectedProduct({
-        id: newProduct.id,
-        name: p.name,
-        supplier: p.supplier,
-        articleNr: p.articleNr,
-        price: p.price.toFixed(2).replace(".", ","),
-        priceNum: p.price,
-        unit: p.unit,
-        favorite: false,
-        useCount: 1,
-        isNew: true,
-      });
-
-      flashValue.value = withSequence(
-        withTiming(0.35, { duration: 150 }),
-        withTiming(0, { duration: 400 })
-      );
-      setTimeout(() => {
-        router.back();
-      }, 1000);
     },
-    [flashValue, materialId, name, trade]
+    [createMutation, materialId, name, trade, flashValue]
   );
 
   const materialLabel = name || "Material";

@@ -78,4 +78,36 @@ export const queryKeys = {
     byProject: (projectId: string) => ["changeOrders", "project", projectId] as const,
     detail: (id: string) => ["changeOrders", "detail", id] as const,
   },
+  materials: {
+    all: ["materials"] as const,
+    projects: () => ["materials", "projects"] as const,
+    needs: (projectId: string) => ["materials", "needs", projectId] as const,
+    products: (name?: string, trade?: string) =>
+      ["materials", "products", name ?? "", trade ?? ""] as const,
+    suppliers: () => ["materials", "suppliers"] as const,
+  },
+  settings: {
+    all: ["settings"] as const,
+    company: () => ["settings", "company"] as const,
+    team: () => ["settings", "team"] as const,
+  },
+  planning: {
+    all: ["planning"] as const,
+    week: (weekStart: string, weekEnd: string) =>
+      ["planning", "week", weekStart, weekEnd] as const,
+    month: (year: number, month: number) =>
+      ["planning", "month", year, month] as const,
+    projectDetail: (projectId: string) =>
+      ["planning", "projectDetail", projectId] as const,
+  },
+  auftrag: {
+    all: ["auftrag"] as const,
+    detail: (projectId: string) => ["auftrag", "detail", projectId] as const,
+  },
+  begehung: {
+    all: ["begehung"] as const,
+    projectInfo: (projectId: string) => ["begehung", "projectInfo", projectId] as const,
+    rooms: (projectId: string, offerId?: string) =>
+      ["begehung", "rooms", projectId, offerId ?? ""] as const,
+  },
 } as const;

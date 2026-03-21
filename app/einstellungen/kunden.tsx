@@ -11,26 +11,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useCallback, useEffect } from "react";
+import { useState } from "react";
 import { router } from "expo-router";
 import Colors from "@/constants/colors";
-import { supabase } from "@/lib/supabase";
-
-export type ClientType = "COMMERCIAL" | "PRIVATE";
-
-export interface Client {
-  id: string;
-  company_name: string | null;
-  vat_id: string | null;
-  customer_number: string | null;
-  contact_person: string | null;
-  client_type: ClientType | null;
-  email: string | null;
-  phone: string | null;
-  street: string | null;
-  zip_code: string | null;
-  city: string | null;
-}
+import { useClients } from "@/hooks/queries/useSettings";
+import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/mutations/useSettingsMutations";
+import type { Client, ClientType } from "@/lib/api/settings";
 
 function FormField({
   label,
@@ -68,9 +54,12 @@ export default function KundenScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const { data: clients = [], isLoading: loading } = useClients();
+  const createMutation = useCreateClient();
+  const updateMutation = useUpdateClient();
+  const deleteMutation = useDeleteClient();
+  const saving = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
+
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [search, setSearch] = useState("");
 
@@ -85,24 +74,6 @@ export default function KundenScreen() {
   const [editZipCode, setEditZipCode] = useState("");
   const [editCity, setEditCity] = useState("");
   const [formMode, setFormMode] = useState<"list" | "new" | "edit">("list");
-
-  const fetchClients = useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("clients")
-      .select("id, company_name, vat_id, customer_number, contact_person, client_type, email, phone, street, zip_code, city")
-      .order("company_name", { nullsFirst: false });
-    setLoading(false);
-    if (error) {
-      console.error("Kunden laden:", error);
-      return;
-    }
-    setClients((data as Client[]) ?? []);
-  }, []);
-
-  useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
 
   const selectClient = (client: Client) => {
     setSelectedClient(client);
@@ -139,81 +110,38 @@ export default function KundenScreen() {
     setSelectedClient(null);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     const companyName = editCompanyName.trim();
     if (!companyName) {
       Alert.alert("Fehler", "Firmenname ist Pflicht.");
       return;
     }
 
-    setSaving(true);
+    const clientData = {
+      company_name: companyName,
+      vat_id: editVatId.trim() || null,
+      customer_number: editCustomerNumber.trim() || null,
+      contact_person: editContactPerson.trim() || null,
+      client_type: editClientType,
+      email: editEmail.trim() || null,
+      phone: editPhone.trim() || null,
+      street: editStreet.trim() || null,
+      zip_code: editZipCode.trim() || null,
+      city: editCity.trim() || null,
+    };
+
+    const onError = (error: Error) => Alert.alert("Fehler", error.message);
+
     if (selectedClient) {
-      const { error } = await supabase
-        .from("clients")
-        .update({
-          company_name: companyName,
-          vat_id: editVatId.trim() || null,
-          customer_number: editCustomerNumber.trim() || null,
-          contact_person: editContactPerson.trim() || null,
-          client_type: editClientType,
-          email: editEmail.trim() || null,
-          phone: editPhone.trim() || null,
-          street: editStreet.trim() || null,
-          zip_code: editZipCode.trim() || null,
-          city: editCity.trim() || null,
-        })
-        .eq("id", selectedClient.id);
-
-      setSaving(false);
-      if (error) {
-        Alert.alert("Fehler", error.message);
-        return;
-      }
-      setClients((prev) =>
-        prev.map((c) =>
-          c.id === selectedClient.id
-            ? {
-                ...c,
-                company_name: companyName,
-                vat_id: editVatId.trim() || null,
-                customer_number: editCustomerNumber.trim() || null,
-                contact_person: editContactPerson.trim() || null,
-                client_type: editClientType,
-                email: editEmail.trim() || null,
-                phone: editPhone.trim() || null,
-                street: editStreet.trim() || null,
-                zip_code: editZipCode.trim() || null,
-                city: editCity.trim() || null,
-              }
-            : c
-        )
+      updateMutation.mutate(
+        { id: selectedClient.id, ...clientData },
+        { onSuccess: () => backToList(), onError }
       );
-      backToList();
     } else {
-      const { data, error } = await supabase
-        .from("clients")
-        .insert({
-          company_name: companyName,
-          vat_id: editVatId.trim() || null,
-          customer_number: editCustomerNumber.trim() || null,
-          contact_person: editContactPerson.trim() || null,
-          client_type: editClientType,
-          email: editEmail.trim() || null,
-          phone: editPhone.trim() || null,
-          street: editStreet.trim() || null,
-          zip_code: editZipCode.trim() || null,
-          city: editCity.trim() || null,
-        })
-        .select("id, company_name, vat_id, customer_number, contact_person, client_type, email, phone, street, zip_code, city")
-        .single();
-
-      setSaving(false);
-      if (error) {
-        Alert.alert("Fehler", error.message);
-        return;
-      }
-      if (data) setClients((prev) => [...prev, data as Client]);
-      backToList();
+      createMutation.mutate(clientData, {
+        onSuccess: () => backToList(),
+        onError,
+      });
     }
   };
 
@@ -227,16 +155,11 @@ export default function KundenScreen() {
         {
           text: "Löschen",
           style: "destructive",
-          onPress: async () => {
-            setSaving(true);
-            const { error } = await supabase.from("clients").delete().eq("id", selectedClient.id);
-            setSaving(false);
-            if (error) {
-              Alert.alert("Fehler", error.message);
-              return;
-            }
-            setClients((prev) => prev.filter((c) => c.id !== selectedClient.id));
-            backToList();
+          onPress: () => {
+            deleteMutation.mutate(selectedClient.id, {
+              onSuccess: () => backToList(),
+              onError: (error) => Alert.alert("Fehler", error.message),
+            });
           },
         },
       ]

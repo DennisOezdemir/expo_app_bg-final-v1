@@ -15,14 +15,15 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
-import { useState, useEffect, useCallback } from "react";
-import { router, useFocusEffect } from "expo-router";
+import { useState, useMemo } from "react";
+import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { TopBar } from "@/components/TopBar";
 import { useOffline } from "@/contexts/OfflineContext";
 import { OfflineBadge, OfflineBlockedHint } from "@/components/OfflineBanner";
-import { supabase } from "@/lib/supabase";
+import { useProjectsWithMaterials, useMaterialNeeds } from "@/hooks/queries/useMaterial";
+import type { MaterialNeed, ProjectWithMaterials } from "@/lib/api/materials";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -108,26 +109,6 @@ const ringStyles = StyleSheet.create({
 
 /* ─── Types ──────────────────────────────────── */
 
-type NeedStatus = "planned" | "ordered" | "delivered";
-type ProblemType = "aufmass_fehlt" | "mapping_fehlt" | "termin_fehlt" | "lieferant_fehlt" | null;
-
-interface MaterialNeed {
-  id: string;
-  trade: string;
-  material_type: string;
-  label: string;
-  total_quantity: number;
-  quantity_unit: string;
-  room: string | null;
-  status: NeedStatus;
-  problem: ProblemType;
-  needed_by: string | null;
-  product_name: string | null;
-  supplier_name: string | null;
-  unit_price_net: number | null;
-  line_total_net: number | null;
-}
-
 interface TradeGroup {
   id: string;
   name: string;
@@ -139,13 +120,6 @@ interface TradeGroup {
   progress: number;
   statusColor: string;
   needs: MaterialNeed[];
-}
-
-interface ProjectOption {
-  id: string;
-  project_number: string;
-  name: string;
-  needCount: number;
 }
 
 /* ─── Helpers ────────────────────────────────── */
@@ -424,100 +398,41 @@ export default function MaterialScreen() {
   const { isOnline, getCacheAge } = useOffline();
 
   const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
-  const [loading, setLoading] = useState(true);
-  const [trades, setTrades] = useState<TradeGroup[]>([]);
-  const [totalNeeds, setTotalNeeds] = useState(0);
-  const [readyCount, setReadyCount] = useState(0);
-  const [problemCount, setProblemCount] = useState(0);
-  const [orderedCount, setOrderedCount] = useState(0);
-
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
-  const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
+  const [selectedProject, setSelectedProject] = useState<ProjectWithMaterials | null>(null);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
 
-  // Load projects that have material needs
-  const loadProjects = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("projects")
-      .select("id, project_number, name, status")
-      .in("status", ["PLANNING", "IN_PROGRESS", "COMPLETION", "INSPECTION", "ACTIVE", "INTAKE"])
-      .order("name", { ascending: true });
+  // Query: projects with material needs
+  const { data: projects = [], isLoading: projectsLoading } = useProjectsWithMaterials();
 
-    if (error || !data) return;
-
-    const projectOpts: ProjectOption[] = [];
-    for (const p of data) {
-      const { count } = await supabase
-        .from("project_material_needs")
-        .select("id", { count: "exact", head: true })
-        .eq("project_id", p.id);
-
-      if ((count ?? 0) > 0) {
-        projectOpts.push({
-          id: p.id,
-          project_number: p.project_number,
-          name: p.name,
-          needCount: count ?? 0,
-        });
-      }
+  // Auto-select best project when projects load
+  const effectiveProject = useMemo(() => {
+    if (selectedProject) return selectedProject;
+    if (projects.length > 0) {
+      return projects.reduce((a, b) => (a.needCount > b.needCount ? a : b));
     }
+    return null;
+  }, [projects, selectedProject]);
 
-    setProjects(projectOpts);
-    if (projectOpts.length > 0 && !selectedProject) {
-      const best = projectOpts.reduce((a, b) => (a.needCount > b.needCount ? a : b));
-      setSelectedProject(best);
-    }
-  }, [selectedProject]);
+  // Query: material needs for selected project
+  const { data: needsData = [], isLoading: needsLoading } = useMaterialNeeds(effectiveProject?.id);
 
-  // Load material needs for selected project
-  const loadNeeds = useCallback(async () => {
-    if (!selectedProject) return;
-    setLoading(true);
+  const loading = projectsLoading || needsLoading;
 
-    const { data, error } = await supabase
-      .from("project_material_needs")
-      .select("id, trade, material_type, label, total_quantity, quantity_unit, room, status, problem, needed_by, product_name, supplier_name, unit_price_net, line_total_net")
-      .eq("project_id", selectedProject.id)
-      .order("trade")
-      .order("label");
-
-    if (error || !data) {
-      setLoading(false);
-      return;
-    }
-
-    // Group by trade
+  // Derive trade groups from needs data
+  const { trades, totalNeeds, readyCount, problemCount, orderedCount } = useMemo(() => {
     const tradeMap = new Map<string, MaterialNeed[]>();
     let total = 0;
     let ready = 0;
     let problems = 0;
     let ordered = 0;
 
-    for (const row of data as any[]) {
-      const tradeName = row.trade || "Sonstiges";
-      const need: MaterialNeed = {
-        id: row.id,
-        trade: tradeName,
-        material_type: row.material_type,
-        label: row.label,
-        total_quantity: parseFloat(row.total_quantity) || 0,
-        quantity_unit: row.quantity_unit || "Stk",
-        room: row.room,
-        status: row.status as NeedStatus,
-        problem: row.problem as ProblemType,
-        needed_by: row.needed_by,
-        product_name: row.product_name,
-        supplier_name: row.supplier_name,
-        unit_price_net: row.unit_price_net ? parseFloat(row.unit_price_net) : null,
-        line_total_net: row.line_total_net ? parseFloat(row.line_total_net) : null,
-      };
-
+    for (const need of needsData) {
+      const tradeName = need.trade || "Sonstiges";
       if (!tradeMap.has(tradeName)) tradeMap.set(tradeName, []);
       tradeMap.get(tradeName)!.push(need);
-
       total++;
-      if (row.status === "ordered") ordered++;
-      else if (row.problem) problems++;
+      if (need.status === "ordered") ordered++;
+      else if (need.problem) problems++;
       else ready++;
     }
 
@@ -545,17 +460,8 @@ export default function MaterialScreen() {
 
     tradeGroups.sort((a, b) => b.totalNeeds - a.totalNeeds);
 
-    setTrades(tradeGroups);
-    setTotalNeeds(total);
-    setReadyCount(ready);
-    setProblemCount(problems);
-    setOrderedCount(ordered);
-    setLoading(false);
-  }, [selectedProject]);
-
-  useEffect(() => { loadProjects(); }, []);
-  useEffect(() => { if (selectedProject) loadNeeds(); }, [selectedProject]);
-  useFocusEffect(useCallback(() => { if (selectedProject) loadNeeds(); }, [selectedProject]));
+    return { trades: tradeGroups, totalNeeds: total, readyCount: ready, problemCount: problems, orderedCount: ordered };
+  }, [needsData]);
 
   const percent = totalNeeds > 0 ? Math.round(((readyCount + orderedCount) / totalNeeds) * 100) : 0;
 
@@ -579,13 +485,13 @@ export default function MaterialScreen() {
                 <Text style={styles.headerTitle}>Material</Text>
                 {!isOnline && <OfflineBadge cacheAge={getCacheAge("material")} />}
               </View>
-              {selectedProject ? (
+              {effectiveProject ? (
                 <Pressable
                   onPress={() => { if (projects.length > 1) setShowProjectPicker(!showProjectPicker); }}
                   style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
                 >
                   <Text style={styles.headerSubtitle}>
-                    {selectedProject.project_number ? `${selectedProject.project_number} • ` : ""}{selectedProject.name}
+                    {effectiveProject.project_number ? `${effectiveProject.project_number} • ` : ""}{effectiveProject.name}
                   </Text>
                   {projects.length > 1 && (
                     <Ionicons
@@ -611,14 +517,14 @@ export default function MaterialScreen() {
                 onPress={() => { setSelectedProject(p); setShowProjectPicker(false); }}
                 style={[
                   styles.projectOption,
-                  selectedProject?.id === p.id && styles.projectOptionActive,
+                  effectiveProject?.id === p.id && styles.projectOptionActive,
                 ]}
               >
                 <View>
                   <Text
                     style={[
                       styles.projectOptionText,
-                      selectedProject?.id === p.id && styles.projectOptionTextActive,
+                      effectiveProject?.id === p.id && styles.projectOptionTextActive,
                     ]}
                   >
                     {p.project_number || p.name}

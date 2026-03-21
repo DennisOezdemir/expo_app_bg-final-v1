@@ -10,10 +10,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
-import { supabase } from "@/lib/supabase";
+import { useAuftragDetail } from "@/hooks/queries/useAuftragDetail";
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface Project {
@@ -81,105 +81,35 @@ export default function AuftragScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [project, setProject] = useState<Project | null>(null);
-  const [offers, setOffers] = useState<OfferRow[]>([]);
-  const [positions, setPositions] = useState<Record<string, Position[]>>({});
-  const [loading, setLoading] = useState(true);
+  const { data: auftragData, isLoading: loading } = useAuftragDetail(id);
+
+  const project = auftragData?.project ?? null;
+  const offers = auftragData?.offers ?? [];
+  const positions = auftragData?.positions ?? {};
+
   const [activeOfferId, setActiveOfferId] = useState<string | null>(null);
   const [expandedTrades, setExpandedTrades] = useState<Set<string>>(new Set());
 
-  // ─── Data fetching ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (!id) return;
-    loadData();
-  }, [id]);
+  // Auto-select first offer and expand first 2 trades
+  const effectiveOfferId = useMemo(() => {
+    if (activeOfferId) return activeOfferId;
+    if (offers.length > 0) return offers[0].id;
+    return null;
+  }, [activeOfferId, offers]);
 
-  const loadData = async () => {
-    setLoading(true);
-
-    // 1) Project
-    const { data: proj, error: projErr } = await supabase
-      .from("projects")
-      .select(
-        "id, project_number, name, display_name, object_street, object_zip, object_city, status"
-      )
-      .eq("id", id)
-      .maybeSingle();
-
-    if (projErr || !proj) {
-      console.error("Projekt laden fehlgeschlagen:", projErr);
-      setLoading(false);
-      return;
+  // Auto-expand first 2 trades on initial load
+  useMemo(() => {
+    if (expandedTrades.size === 0 && effectiveOfferId && positions[effectiveOfferId]) {
+      const firstPositions = positions[effectiveOfferId] || [];
+      const trades = [...new Set(firstPositions.map((p) => p.trade))];
+      if (trades.length > 0) setExpandedTrades(new Set(trades.slice(0, 2)));
     }
-    setProject(proj as Project);
-
-    // 2) Offers for this project
-    const { data: offersData, error: offersErr } = await supabase
-      .from("offers")
-      .select("id, offer_number, status, total_net")
-      .eq("project_id", id)
-      .order("created_at", { ascending: true });
-
-    if (offersErr) {
-      console.error("Angebote laden fehlgeschlagen:", offersErr);
-      setLoading(false);
-      return;
-    }
-
-    const offerRows = (offersData ?? []).map((o: any) => ({
-      ...o,
-      total_net: parseFloat(o.total_net) || 0,
-    }));
-    setOffers(offerRows);
-
-    // Select first offer by default
-    if (offerRows.length > 0) {
-      setActiveOfferId(offerRows[0].id);
-    }
-
-    // 3) Positions for ALL offers at once
-    const offerIds = offerRows.map((o: any) => o.id);
-    if (offerIds.length > 0) {
-      const { data: posData, error: posErr } = await supabase
-        .from("offer_positions")
-        .select(
-          "id, offer_id, position_number, title, description, quantity, unit, unit_price, total_price, trade"
-        )
-        .in("offer_id", offerIds)
-        .is("deleted_at", null)
-        .order("position_number", { ascending: true });
-
-      if (posErr) {
-        console.error("Positionen laden fehlgeschlagen:", posErr);
-      } else {
-        const grouped: Record<string, Position[]> = {};
-        (posData ?? []).forEach((p: any) => {
-          if (!grouped[p.offer_id]) grouped[p.offer_id] = [];
-          grouped[p.offer_id].push({
-            ...p,
-            quantity: parseFloat(p.quantity) || 0,
-            unit_price: parseFloat(p.unit_price) || 0,
-            total_price: parseFloat(p.total_price) || 0,
-          });
-        });
-        setPositions(grouped);
-
-        // Auto-expand first two trades of first offer
-        if (offerRows.length > 0) {
-          const firstPositions = grouped[offerRows[0].id] || [];
-          const trades = [...new Set(firstPositions.map((p) => p.trade))];
-          setExpandedTrades(new Set(trades.slice(0, 2)));
-        }
-      }
-    }
-
-    setLoading(false);
-  };
+  }, [effectiveOfferId, positions]);
 
   // ─── Active offer positions & trade summary ────────────────────────
   const activePositions = useMemo(
-    () => (activeOfferId ? positions[activeOfferId] || [] : []),
-    [activeOfferId, positions]
+    () => (effectiveOfferId ? positions[effectiveOfferId] || [] : []),
+    [effectiveOfferId, positions]
   );
 
   const tradeSummary = useMemo(() => {
@@ -292,7 +222,7 @@ export default function AuftragScreen() {
       {offers.length > 1 && (
         <View style={s.tabBar}>
           {offers.map((offer) => {
-            const isActive = offer.id === activeOfferId;
+            const isActive = offer.id === effectiveOfferId;
             const st = STATUS_LABELS[offer.status] || STATUS_LABELS.DRAFT;
             return (
               <Pressable

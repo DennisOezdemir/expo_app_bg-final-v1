@@ -21,9 +21,12 @@ import Animated, {
   FadeOut,
 } from "react-native-reanimated";
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { useProjectPlanning } from "@/hooks/queries/usePlanning";
+import { queryKeys } from "@/lib/query-keys";
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -407,123 +410,84 @@ export default function PlanungDetailScreen() {
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [loading, setLoading] = useState(true);
-  const [project, setProject] = useState<ProjectData | null>(null);
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [team, setTeam] = useState<TeamMember[]>([]);
-  const [meilensteine, setMeilensteine] = useState<Meilenstein[]>([]);
-  const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
-  const [monteurPickerTrade, setMonteurPickerTrade] = useState<Trade | null>(null);
-  const [availableMonteure, setAvailableMonteure] = useState<{ id: string; name: string; gewerk: string | null }[]>([]);
+  const queryClient = useQueryClient();
+  const { data: planData, isLoading: loading } = useProjectPlanning(id);
+  const project = planData?.project ?? null;
 
-  const fetchData = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
+  const trades = useMemo<Trade[]>(() => {
+    if (!planData?.phases?.length || !planData.project?.planned_start) return [];
+    const projectStart = new Date(planData.project.planned_start + "T00:00:00");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    // Determine if id is UUID or project_number
-    const isUuid = id.length === 36 && id.includes("-");
+    return planData.phases.map((phase: any) => {
+      const phaseStart = new Date(phase.start_date + "T00:00:00");
+      const phaseEnd = new Date(phase.end_date + "T00:00:00");
+      const startDay = diffDays(projectStart, phaseStart) + 1;
+      const endDay = diffDays(projectStart, phaseEnd) + 1;
+      const status = phaseStatus(phase, projectStart, today);
+      const doneDay = status === "fertig"
+        ? endDay - startDay + 1
+        : status === "aktiv"
+        ? Math.max(0, diffDays(phaseStart, today) + 1)
+        : 0;
 
-    // Load project
-    const projectQuery = supabase
-      .from("projects")
-      .select("id, project_number, name, object_street, planned_start, planned_end, status, inspection_date, handover_date");
+      const tm = phase.team_members;
+      return {
+        id: phase.id,
+        name: phase.trade || phase.name,
+        person: tm?.name || (phase.is_external ? phase.external_name || "Extern" : "Offen"),
+        personId: phase.assigned_team_member_id || null,
+        startDay,
+        endDay,
+        doneDay,
+        positionen: { done: Math.round((phase.progress || 0) / 100 * 1), total: 1 },
+        color: status === "fertig" ? Colors.raw.emerald500 : status === "vorschlag" ? Colors.raw.amber500 : Colors.raw.zinc700,
+        status,
+        startDate: phase.start_date,
+        endDate: phase.end_date,
+      };
+    });
+  }, [planData]);
 
-    const { data: proj } = isUuid
-      ? await projectQuery.eq("id", id).single()
-      : await projectQuery.eq("project_number", id).single();
+  const team = useMemo<TeamMember[]>(() => {
+    if (!planData?.project) return [];
+    const proj = planData.project;
 
-    if (!proj) {
-      setLoading(false);
-      return;
-    }
-    setProject(proj);
-
-    // Load schedule phases
-    const { data: phases } = await supabase
-      .from("schedule_phases")
-      .select("*, team_members!assigned_team_member_id(name, role)")
-      .eq("project_id", proj.id)
-      .order("phase_number");
-
-    if (phases && phases.length > 0 && proj.planned_start) {
-      const projectStart = new Date(proj.planned_start + "T00:00:00");
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const tradesList: Trade[] = phases.map((phase: any) => {
-        const phaseStart = new Date(phase.start_date + "T00:00:00");
-        const phaseEnd = new Date(phase.end_date + "T00:00:00");
-        const startDay = diffDays(projectStart, phaseStart) + 1;
-        const endDay = diffDays(projectStart, phaseEnd) + 1;
-        const status = phaseStatus(phase, projectStart, today);
-        const doneDay = status === "fertig"
-          ? endDay - startDay + 1
-          : status === "aktiv"
-          ? Math.max(0, diffDays(phaseStart, today) + 1)
-          : 0;
-
-        const tm = phase.team_members;
+    if (planData.assignments && planData.assignments.length > 0) {
+      return planData.assignments.map((a: any) => {
+        const tm = a.team_members;
+        const startDt = new Date(a.start_date + "T00:00:00");
+        const endDt = new Date(a.end_date + "T00:00:00");
         return {
-          id: phase.id,
-          name: phase.trade || phase.name,
-          person: tm?.name || (phase.is_external ? phase.external_name || "Extern" : "Offen"),
-          personId: phase.assigned_team_member_id || null,
-          startDay,
-          endDay,
-          doneDay,
-          positionen: { done: Math.round((phase.progress || 0) / 100 * 1), total: 1 },
-          color: status === "fertig" ? Colors.raw.emerald500 : status === "vorschlag" ? Colors.raw.amber500 : Colors.raw.zinc700,
-          status,
-          startDate: phase.start_date,
-          endDate: phase.end_date,
+          name: tm?.name || "Unbekannt",
+          role: a.role_in_project || tm?.role || "",
+          days: `${getWeekLabel(startDt, endDt)} ${formatDateDE(a.start_date)}\u2013${formatDateDE(a.end_date)}`,
+          project: proj.object_street || proj.name || "",
         };
       });
-
-      setTrades(tradesList);
-    } else {
-      setTrades([]);
-    }
-
-    // Load team assignments
-    const { data: assignments } = await supabase
-      .from("project_assignments")
-      .select("*, team_members!team_member_id(name, role)")
-      .eq("project_id", proj.id);
-
-    if (assignments && assignments.length > 0) {
-      setTeam(
-        assignments.map((a: any) => {
-          const tm = a.team_members;
-          const startDt = new Date(a.start_date + "T00:00:00");
-          const endDt = new Date(a.end_date + "T00:00:00");
-          return {
-            name: tm?.name || "Unbekannt",
-            role: a.role_in_project || tm?.role || "",
-            days: `${getWeekLabel(startDt, endDt)} ${formatDateDE(a.start_date)}–${formatDateDE(a.end_date)}`,
-            project: proj.object_street || proj.name || "",
-          };
-        })
-      );
-    } else if (phases && phases.length > 0) {
+    } else if (planData.phases && planData.phases.length > 0) {
       // Fallback: derive team from phases
       const teamMap = new Map<string, TeamMember>();
-      for (const phase of phases) {
+      for (const phase of planData.phases) {
         const tm = phase.team_members;
         if (tm && !teamMap.has(tm.name)) {
           teamMap.set(tm.name, {
             name: tm.name,
             role: phase.trade || tm.role,
-            days: `${formatDateDE(phase.start_date)}–${formatDateDE(phase.end_date)}`,
+            days: `${formatDateDE(phase.start_date)}\u2013${formatDateDE(phase.end_date)}`,
             project: proj.object_street || proj.name || "",
           });
         }
       }
-      setTeam(Array.from(teamMap.values()));
-    } else {
-      setTeam([]);
+      return Array.from(teamMap.values());
     }
+    return [];
+  }, [planData]);
 
-    // Build milestones
+  const meilensteine = useMemo<Meilenstein[]>(() => {
+    if (!planData?.project) return [];
+    const proj = planData.project;
     const ms: Meilenstein[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -560,13 +524,12 @@ export default function PlanungDetailScreen() {
       });
     }
 
-    setMeilensteine(ms);
-    setLoading(false);
-  }, [id]);
+    return ms;
+  }, [planData]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
+  const [monteurPickerTrade, setMonteurPickerTrade] = useState<Trade | null>(null);
+  const [availableMonteure, setAvailableMonteure] = useState<{ id: string; name: string; gewerk: string | null }[]>([]);
 
   const totalDays = useMemo(() => {
     if (!project?.planned_start || !project?.planned_end) return 15;
@@ -660,8 +623,8 @@ export default function PlanungDetailScreen() {
     if (Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
-    fetchData();
-  }, [project, fetchData]);
+    queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
+  }, [project, queryClient]);
 
   const handleDiscardAll = useCallback(() => {
     if (!project) return;
@@ -672,11 +635,11 @@ export default function PlanungDetailScreen() {
         style: "destructive",
         onPress: async () => {
           await supabase.rpc("discard_proposed_phases", { p_project_id: project.id });
-          fetchData();
+          queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
         },
       },
     ]);
-  }, [project, fetchData]);
+  }, [project, queryClient]);
 
   const openMonteurPicker = useCallback(async (trade: Trade) => {
     const { data } = await supabase
@@ -699,8 +662,8 @@ export default function PlanungDetailScreen() {
       return;
     }
     setMonteurPickerTrade(null);
-    fetchData();
-  }, [fetchData]);
+    queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
+  }, [queryClient]);
 
   const DAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr"];
 

@@ -15,6 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
@@ -260,10 +262,20 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
   const label = TYPE_LABELS[type] || "Begehung";
   const { isOnline, addToSyncQueue } = useOffline();
 
-  const [rooms, setRooms] = useState<BegehungRoom[]>([]);
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-  const [loadingData, setLoadingData] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // --- React Query: initial data fetching ---
+  const { data: rooms = [], isLoading: roomsLoading, error: roomsError } = useQuery({
+    queryKey: queryKeys.begehung.rooms(projectId, offerId),
+    queryFn: () => fetchRoomsForProject(projectId, offerId),
+    enabled: !!projectId,
+  });
+  const { data: projectInfo = null, isLoading: projectInfoLoading } = useQuery({
+    queryKey: queryKeys.begehung.projectInfo(projectId),
+    queryFn: () => fetchProjectInfo(projectId),
+    enabled: !!projectId,
+  });
+  const loadingData = roomsLoading || projectInfoLoading;
+  const loadError = roomsError ? (roomsError as Error).message || "Laden fehlgeschlagen" : null;
+
   const [resolvedOfferId, setResolvedOfferId] = useState<string | null>(offerId || null);
   const [catalogLabel, setCatalogLabel] = useState<string | null>(null);
 
@@ -289,24 +301,19 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
 
+  // Expand all rooms once loaded
   useEffect(() => {
+    if (rooms.length > 0) {
+      setExpandedRooms(new Set(rooms.map((r) => r.id)));
+    }
+  }, [rooms]);
+
+  // Resolve offerId + catalog label + load saved protocol data
+  useEffect(() => {
+    if (loadingData) return;
     let cancelled = false;
     (async () => {
       try {
-        const [fetchedRooms, info] = await Promise.all([
-          fetchRoomsForProject(projectId, offerId),
-          fetchProjectInfo(projectId),
-        ]);
-        if (cancelled) return;
-        setRooms(fetchedRooms);
-        setProjectInfo(info);
-        if (fetchedRooms.length > 0) {
-          setExpandedRooms(new Set(fetchedRooms.map((r) => r.id)));
-        }
-        if (fetchedRooms.length === 0) {
-          setLoadError("Kein Angebot mit Positionen gefunden");
-        }
-
         // Resolve offerId + catalog label for protocol creation
         if (offerId) {
           setResolvedOfferId(offerId);
@@ -349,14 +356,12 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
             setFinalized(true);
           }
         }
-      } catch (err: any) {
-        if (!cancelled) setLoadError(err.message || "Laden fehlgeschlagen");
-      } finally {
-        if (!cancelled) setLoadingData(false);
+      } catch (_err) {
+        // secondary data errors are non-critical
       }
     })();
     return () => { cancelled = true; };
-  }, [projectId, protocolId]);
+  }, [loadingData, projectId, protocolId, offerId]);
 
   // Load existing planned dates
   useEffect(() => {
@@ -776,9 +781,18 @@ function ZwischenbegehungView({ projectId, protocolId, offerId }: { projectId: s
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [rooms, setRooms] = useState<BegehungRoom[]>([]);
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-  const [loadingRooms, setLoadingRooms] = useState(true);
+  // --- React Query: initial data fetching ---
+  const { data: rooms = [], isLoading: roomsLoading } = useQuery({
+    queryKey: queryKeys.begehung.rooms(projectId, offerId),
+    queryFn: () => fetchRoomsForProject(projectId, offerId),
+    enabled: !!projectId,
+  });
+  const { data: projectInfo = null, isLoading: projectInfoLoading } = useQuery({
+    queryKey: queryKeys.begehung.projectInfo(projectId),
+    queryFn: () => fetchProjectInfo(projectId),
+    enabled: !!projectId,
+  });
+  const loadingRooms = roomsLoading || projectInfoLoading;
 
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
   const [zbStates, setZbStates] = useState<Record<string, ZBPosState>>({});
@@ -789,49 +803,42 @@ function ZwischenbegehungView({ projectId, protocolId, offerId }: { projectId: s
   const [previousBegehungDate, setPreviousBegehungDate] = useState<string | null>(null);
   const { isOnline, addToSyncQueue } = useOffline();
 
-  // Load rooms + project info
+  // Expand all rooms once loaded
   useEffect(() => {
+    if (rooms.length > 0) {
+      setExpandedRooms(new Set(rooms.map((r) => r.id)));
+    }
+  }, [rooms]);
+
+  // Load saved protocol data if viewing a finalized inspection
+  useEffect(() => {
+    if (loadingRooms || !protocolId) return;
     let cancelled = false;
     (async () => {
       try {
-        const [fetchedRooms, info] = await Promise.all([
-          fetchRoomsForProject(projectId, offerId),
-          fetchProjectInfo(projectId),
-        ]);
-        if (cancelled) return;
-        setRooms(fetchedRooms);
-        setProjectInfo(info);
-        if (fetchedRooms.length > 0) {
-          setExpandedRooms(new Set(fetchedRooms.map((r) => r.id)));
-        }
-
-        // Load saved protocol data if viewing a finalized inspection
-        if (protocolId) {
-          const { data: items } = await supabase
-            .from("inspection_protocol_items")
-            .select("offer_position_id, status, progress_percent, notes")
-            .eq("protocol_id", protocolId);
-          if (!cancelled && items) {
-            const restored: Record<string, ZBPosState> = {};
-            for (const item of items) {
-              if (!item.offer_position_id) continue;
-              const prog = (item.progress_percent ?? 0) as ZBProgress;
-              restored[item.offer_position_id] = {
-                workStatus: prog === 100 ? "in_arbeit" : prog > 0 ? "in_arbeit" : "nicht_gestartet",
-                progress: ([0, 25, 50, 75, 100].includes(prog) ? prog : 0) as ZBProgress,
-                photoCount: 0,
-              };
-            }
-            setZbStates(restored);
-            setFinalized(true);
-            setLoadingPrevious(false);
+        const { data: items } = await supabase
+          .from("inspection_protocol_items")
+          .select("offer_position_id, status, progress_percent, notes")
+          .eq("protocol_id", protocolId);
+        if (!cancelled && items) {
+          const restored: Record<string, ZBPosState> = {};
+          for (const item of items) {
+            if (!item.offer_position_id) continue;
+            const prog = (item.progress_percent ?? 0) as ZBProgress;
+            restored[item.offer_position_id] = {
+              workStatus: prog === 100 ? "in_arbeit" : prog > 0 ? "in_arbeit" : "nicht_gestartet",
+              progress: ([0, 25, 50, 75, 100].includes(prog) ? prog : 0) as ZBProgress,
+              photoCount: 0,
+            };
           }
+          setZbStates(restored);
+          setFinalized(true);
+          setLoadingPrevious(false);
         }
       } catch (_e) {}
-      if (!cancelled) setLoadingRooms(false);
     })();
     return () => { cancelled = true; };
-  }, [projectId, protocolId]);
+  }, [loadingRooms, protocolId]);
 
   // Load previous begehung (depends on projectInfo)
   useEffect(() => {
@@ -1175,7 +1182,18 @@ function AbnahmeView({ projectId, protocolId, offerId }: { projectId: string; pr
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  // --- React Query: initial data fetching ---
+  const { data: projectInfo = null, isLoading: projectInfoLoading } = useQuery({
+    queryKey: queryKeys.begehung.projectInfo(projectId),
+    queryFn: () => fetchProjectInfo(projectId),
+    enabled: !!projectId,
+  });
+  const { data: abnahmeRooms = [], isLoading: roomsLoading } = useQuery({
+    queryKey: queryKeys.begehung.rooms(projectId, offerId),
+    queryFn: () => fetchRoomsForProject(projectId, offerId),
+    enabled: !!projectId,
+  });
+
   const [loading, setLoading] = useState(true);
   const [positions, setPositions] = useState<AbnahmePosition[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -1188,14 +1206,18 @@ function AbnahmeView({ projectId, protocolId, offerId }: { projectId: string; pr
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
   const { isOnline, addToSyncQueue } = useOffline();
 
+  // Process positions once query data is available
   useEffect(() => {
+    if (projectInfoLoading || roomsLoading) return;
+    if (!projectInfo) { setLoading(false); return; }
     let cancelled = false;
     (async () => {
       try {
-        const info = await fetchProjectInfo(projectId);
-        if (cancelled) return;
-        setProjectInfo(info);
-        if (!info) { setLoading(false); return; }
+        // Build position lookup from rooms query data
+        const allPositions: Record<string, { nr: string; title: string; desc: string; qty: number; unit: string; price: number; trade: string; roomName: string }> = {};
+        abnahmeRooms.forEach((r) => r.positions.forEach((p) => {
+          allPositions[p.id] = { nr: p.nr, title: p.title, desc: p.desc, qty: p.qty, unit: p.unit, price: p.price, trade: p.trade, roomName: r.name };
+        }));
 
         // If viewing a finalized protocol, load saved items directly
         if (protocolId) {
@@ -1203,13 +1225,6 @@ function AbnahmeView({ projectId, protocolId, offerId }: { projectId: string; pr
             .from("inspection_protocol_items")
             .select("offer_position_id, status, progress_percent, notes")
             .eq("protocol_id", protocolId);
-
-          // Also load position details from offer
-          const rooms = await fetchRoomsForProject(projectId, offerId);
-          const allPositions: Record<string, { nr: string; title: string; desc: string; qty: number; unit: string; price: number; trade: string; roomName: string }> = {};
-          rooms.forEach((r) => r.positions.forEach((p) => {
-            allPositions[p.id] = { nr: p.nr, title: p.title, desc: p.desc, qty: p.qty, unit: p.unit, price: p.price, trade: p.trade, roomName: r.name };
-          }));
 
           if (!cancelled && items) {
             const restored: AbnahmePosition[] = [];
@@ -1231,11 +1246,6 @@ function AbnahmeView({ projectId, protocolId, offerId }: { projectId: string; pr
           const data = await fetchLatestInspectionProtocol(projectId, "zwischenbegehung");
           if (cancelled) return;
           if (!data || !data.items) { setLoading(false); return; }
-          const rooms = await fetchRoomsForProject(projectId, offerId);
-          const allPositions: Record<string, { nr: string; title: string; desc: string; qty: number; unit: string; price: number; trade: string; roomName: string }> = {};
-          rooms.forEach((r) => r.positions.forEach((p) => {
-            allPositions[p.id] = { nr: p.nr, title: p.title, desc: p.desc, qty: p.qty, unit: p.unit, price: p.price, trade: p.trade, roomName: r.name };
-          }));
           const completed: AbnahmePosition[] = [];
           for (const pos of data.items) {
             const prog = Number(pos.progress_percent) || 0;
@@ -1262,7 +1272,7 @@ function AbnahmeView({ projectId, protocolId, offerId }: { projectId: string; pr
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [projectId, protocolId]);
+  }, [projectInfoLoading, roomsLoading, projectInfo, abnahmeRooms, projectId, protocolId, offerId]);
 
   const toggleCheck = useCallback((posId: string) => {
     if (finalized) return;
