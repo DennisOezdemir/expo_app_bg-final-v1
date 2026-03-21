@@ -62,4 +62,15 @@ export const queryKeys = {
     all: ["fotos"] as const,
     recent: (teamMemberId: string) => ["fotos", "recent", teamMemberId] as const,
   },
+  offers: {
+    all: ["offers"] as const,
+    detail: (offerId: string) => ["offers", "detail", offerId] as const,
+    withSections: (offerId: string) => ["offers", "withSections", offerId] as const,
+    byProject: (projectId: string) => ["offers", "byProject", projectId] as const,
+  },
+  catalogs: {
+    all: ["catalogs"] as const,
+    positions: (catalogId: string, query?: string, trade?: string) =>
+      ["catalogs", "positions", catalogId, query ?? "", trade ?? ""] as const,
+  },
 } as const;

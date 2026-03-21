@@ -22,6 +22,7 @@ import * as FileSystem from "expo-file-system";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCatalogs, useCatalogSearch } from "@/hooks/queries/useOffers";
 
 interface Project {
   id: string;
@@ -453,53 +454,36 @@ function AddPositionSheet({
   const [freiQty, setFreiQty] = useState("");
   const [freiPrice, setFreiPrice] = useState("");
 
-  // Kataloge aus Supabase
-  const [catalogSources, setCatalogSources] = useState<CatalogSource[]>([]);
-  useEffect(() => {
-    supabase
-      .from("catalogs")
-      .select("id, code, name")
-      .eq("is_active", true)
-      .order("name")
-      .then(({ data }) => {
-        const sources = (data ?? []).map((c: any) => ({
-          id: c.id,
-          label: c.name,
-          icon: "layers",
-          desc: c.code,
-        }));
-        setCatalogSources(sources);
-        if (data?.[0] && !selectedCatalog) setSelectedCatalog(data[0].id);
-      });
-  }, []);
+  // Kataloge via React Query
+  const { data: catalogsRaw = [] } = useCatalogs();
+  const catalogSources: CatalogSource[] = useMemo(() =>
+    catalogsRaw.map((c) => ({ id: c.id, label: c.name, icon: "layers", desc: c.code })),
+    [catalogsRaw],
+  );
 
-  // Katalog-Positionen laden wenn Katalog wechselt
-  const [catalogItems, setCatalogItems] = useState<CatalogPosition[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(false);
+  // Ersten Katalog auto-selektieren
   useEffect(() => {
-    if (!selectedCatalog) return;
-    setCatalogLoading(true);
-    supabase
-      .from("catalog_positions_v2")
-      .select("id, position_code, title, title_secondary, description, trade, unit, base_price_eur")
-      .eq("catalog_id", selectedCatalog)
-      .eq("is_active", true)
-      .order("position_code")
-      .then(({ data }) => {
-        setCatalogItems(
-          (data ?? []).map((p: any) => ({
-            id: p.id,
-            nr: p.position_code ?? "",
-            title: p.title ?? "",
-            desc: p.description ?? p.title_secondary ?? "",
-            price: Number(p.base_price_eur) || 0,
-            unit: p.unit ?? "Stk",
-            trade: p.trade ?? "Sonstiges",
-          }))
-        );
-        setCatalogLoading(false);
-      });
-  }, [selectedCatalog]);
+    if (catalogsRaw.length > 0 && !selectedCatalog) {
+      setSelectedCatalog(catalogsRaw[0].id);
+    }
+  }, [catalogsRaw]);
+
+  // Katalog-Positionen via React Query
+  const { data: catalogPositionsRaw = [], isLoading: catalogLoading } = useCatalogSearch(
+    selectedCatalog || undefined,
+  );
+  const catalogItems: CatalogPosition[] = useMemo(() =>
+    catalogPositionsRaw.map((p) => ({
+      id: p.id,
+      nr: p.position_code ?? "",
+      title: p.title ?? "",
+      desc: p.description ?? p.title_secondary ?? "",
+      price: Number(p.base_price_eur) || 0,
+      unit: p.unit ?? "Stk",
+      trade: p.trade ?? "Sonstiges",
+    })),
+    [catalogPositionsRaw],
+  );
 
   // Trade-Filter direkt aus geladenen Katalog-Positionen ableiten
   const tradeFilters = useMemo(() => {

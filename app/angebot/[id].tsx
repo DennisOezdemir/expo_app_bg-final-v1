@@ -6,50 +6,30 @@ import {
   Platform,
   Pressable,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
+import { useOfferWithSections } from "@/hooks/queries/useOffers";
+import type { OfferWithSections, OfferSection, OfferPositionRow } from "@/lib/api/offers";
+
+// ── Status-Mapping: DB-Status → UI ──
 
 type AngebotStatus = "entwurf" | "freigabe" | "freigegeben" | "versendet" | "beauftragt";
 
-interface Position {
-  nr: string;
-  title: string;
-  desc?: string;
-  qty?: string;
-  unit?: string;
-  unitPrice?: string;
-  total: number;
-  isPauschal?: boolean;
-  hasNachtrag?: boolean;
-}
-
-interface RoomGroup {
-  id: string;
-  icon: string;
-  name: string;
-  positions: Position[];
-}
-
-interface Nachtrag {
-  id: string;
-  nr: string;
-  title: string;
-  room: string;
-  reason: string;
-  amount: number;
-  status: "offen" | "genehmigt" | "abgelehnt";
-}
-
-interface Version {
-  nr: number;
-  status: string;
-  active: boolean;
-  date?: string;
+function mapStatus(dbStatus: string): AngebotStatus {
+  switch (dbStatus) {
+    case "DRAFT": return "entwurf";
+    case "SENT": return "versendet";
+    case "APPROVED":
+    case "ACCEPTED": return "beauftragt";
+    case "REVIEW": return "freigabe";
+    default: return "entwurf";
+  }
 }
 
 const STATUS_CONFIG: Record<AngebotStatus, { label: string; color: string; icon: string }> = {
@@ -60,86 +40,25 @@ const STATUS_CONFIG: Record<AngebotStatus, { label: string; color: string; icon:
   beauftragt: { label: "Beauftragt", color: Colors.raw.emerald500, icon: "checkmark-done" },
 };
 
-const ROOMS: RoomGroup[] = [
-  {
-    id: "bad",
-    icon: "water",
-    name: "Badezimmer",
-    positions: [
-      { nr: "01.01", title: "Wandfliesen liefern\nund verlegen", qty: "12,5", unit: "m\u00B2", unitPrice: "54,40", total: 680 },
-      { nr: "01.02", title: "Bodenfliesen liefern\nund verlegen", qty: "6,0", unit: "m\u00B2", unitPrice: "70,00", total: 420 },
-      { nr: "01.03", title: "Sanit\u00E4robjekte\nmontieren", total: 1740, isPauschal: true },
-    ],
-  },
-  {
-    id: "kueche",
-    icon: "restaurant",
-    name: "K\u00FCche",
-    positions: [
-      { nr: "02.01", title: "K\u00FCchenzeile demontieren", total: 280, isPauschal: true },
-      { nr: "02.02", title: "Fliesenspiegel\nliefern und verlegen", qty: "4,8", unit: "m\u00B2", unitPrice: "62,00", total: 297.6 },
-      { nr: "02.03", title: "Wasseranschluss\nerneuern", total: 520, isPauschal: true },
-      { nr: "02.04", title: "Elektroinstallation\nK\u00FCche", qty: "8", unit: "Stk", unitPrice: "45,00", total: 360 },
-      { nr: "02.05", title: "Malerarbeiten W\u00E4nde\nund Decke", qty: "28,0", unit: "m\u00B2", unitPrice: "18,00", total: 504 },
-    ],
-  },
-  {
-    id: "wohnzimmer",
-    icon: "home",
-    name: "Wohnzimmer",
-    positions: [
-      { nr: "03.01", title: "Parkettboden schleifen\nund versiegeln", qty: "32,0", unit: "m\u00B2", unitPrice: "38,00", total: 1216 },
-      { nr: "03.02", title: "Sockelleisten\nmontieren", qty: "24,0", unit: "lfm", unitPrice: "12,50", total: 300 },
-      { nr: "03.03", title: "Malerarbeiten W\u00E4nde", qty: "56,0", unit: "m\u00B2", unitPrice: "16,00", total: 896 },
-      { nr: "03.04", title: "Stuckdecke\nausbessern", total: 380, isPauschal: true },
-      { nr: "03.05", title: "Fensterbank erneuern", qty: "3", unit: "Stk", unitPrice: "85,00", total: 255 },
-      { nr: "03.06", title: "Heizkörper\nlackieren", qty: "2", unit: "Stk", unitPrice: "120,00", total: 240 },
-      { nr: "03.07", title: "T\u00FCrzarge montieren", qty: "1", unit: "Stk", unitPrice: "180,00", total: 180 },
-      { nr: "03.08", title: "Elektro Steckdosen\nerneuern", qty: "6", unit: "Stk", unitPrice: "38,00", total: 228 },
-    ],
-  },
-  {
-    id: "schlafzimmer",
-    icon: "bed",
-    name: "Schlafzimmer",
-    positions: [
-      { nr: "04.01", title: "Laminat verlegen", qty: "18,0", unit: "m\u00B2", unitPrice: "42,00", total: 756 },
-      { nr: "04.02", title: "Malerarbeiten", qty: "38,0", unit: "m\u00B2", unitPrice: "16,00", total: 608 },
-      { nr: "04.03", title: "Einbauschrank\ndemontieren", total: 180, isPauschal: true },
-    ],
-  },
-  {
-    id: "flur",
-    icon: "exit",
-    name: "Flur",
-    positions: [
-      { nr: "05.01", title: "Fliesen verlegen", qty: "8,0", unit: "m\u00B2", unitPrice: "58,00", total: 464 },
-      { nr: "05.02", title: "Garderobenleiste\nmontieren", total: 95, isPauschal: true },
-      { nr: "05.03", title: "Wohnungst\u00FCr\neinstellen", total: 120, isPauschal: true },
-    ],
-  },
-  {
-    id: "keller",
-    icon: "layers",
-    name: "Keller",
-    positions: [
-      { nr: "06.01", title: "Entrümpelung", total: 350, isPauschal: true },
-      { nr: "06.02", title: "Kellert\u00FCr lackieren", total: 180, isPauschal: true },
-      { nr: "06.03", title: "Beleuchtung\nerneuern", qty: "2", unit: "Stk", unitPrice: "65,00", total: 130 },
-    ],
-  },
-];
+// ── Types für Darstellung ──
 
-const NACHTRAEGE: Nachtrag[] = [
-  { id: "1", nr: "NT-001", title: "Zus\u00E4tzliche Steckdose", room: "K\u00FCche", reason: "nicht im LV", amount: 180, status: "offen" },
-  { id: "2", nr: "NT-002", title: "Wasserschaden Decke", room: "Bad", reason: "Trocknung n\u00F6tig", amount: 420, status: "genehmigt" },
-];
+interface Position {
+  nr: string;
+  title: string;
+  desc?: string;
+  qty?: string;
+  unit?: string;
+  unitPrice?: string;
+  total: number;
+  isPauschal?: boolean;
+}
 
-const VERSIONS: Version[] = [
-  { nr: 1, status: "archiviert", active: false },
-  { nr: 2, status: "aktiv", active: true, date: "05.02.2026" },
-  { nr: 3, status: "Entwurf", active: false },
-];
+interface RoomGroup {
+  id: string;
+  icon: string;
+  name: string;
+  positions: Position[];
+}
 
 function formatEuro(amount: number): string {
   return "\u20AC" + amount.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -149,37 +68,43 @@ function getRoomTotal(room: RoomGroup): number {
   return room.positions.reduce((sum, p) => sum + p.total, 0);
 }
 
-const totalPositionen = ROOMS.reduce((sum, r) => sum + r.positions.length, 0);
-const totalRooms = ROOMS.length;
-const lvNetto = ROOMS.reduce((sum, r) => sum + getRoomTotal(r), 0);
-const nachtragTotal = NACHTRAEGE.reduce((sum, n) => sum + n.amount, 0);
-const gesamtNetto = lvNetto + nachtragTotal;
-const mwst = gesamtNetto * 0.19;
-const gesamtBrutto = gesamtNetto + mwst;
-const materialkosten = 4200;
-const lohnkosten = 5824;
-const ergebnis = gesamtNetto - materialkosten - lohnkosten;
-const margePercent = (ergebnis / gesamtNetto) * 100;
-
-function NachtragStatusBadge({ status }: { status: Nachtrag["status"] }) {
-  const config = {
-    offen: { label: "offen", color: Colors.raw.amber500 },
-    genehmigt: { label: "genehmigt", color: Colors.raw.emerald500 },
-    abgelehnt: { label: "abgelehnt", color: Colors.raw.rose500 },
-  }[status];
-  return (
-    <View style={[ntStyles.badge, { backgroundColor: config.color + "18" }]}>
-      <View style={[ntStyles.badgeDot, { backgroundColor: config.color }]} />
-      <Text style={[ntStyles.badgeText, { color: config.color }]}>{config.label}</Text>
-    </View>
-  );
+function tradeToIcon(trade: string | null): string {
+  switch (trade) {
+    case "Sanitär": return "water";
+    case "Maler": return "color-palette";
+    case "Elektro": return "flash";
+    case "Fliesen": return "grid";
+    case "Boden": return "layers";
+    case "Tischler": return "construct";
+    default: return "cube";
+  }
 }
 
-const ntStyles = StyleSheet.create({
-  badge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  badgeDot: { width: 6, height: 6, borderRadius: 3 },
-  badgeText: { fontFamily: "Inter_600SemiBold", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 },
-});
+/** Konvertiert DB-Sections+Positionen in die RoomGroup-Darstellung */
+function sectionsToRooms(sections: (OfferSection & { positions: OfferPositionRow[] })[]): RoomGroup[] {
+  return sections.map((sec) => ({
+    id: sec.id,
+    icon: tradeToIcon(sec.trade),
+    name: sec.title,
+    positions: sec.positions.map((p, idx) => {
+      const ep = p.unit_price * (1 + p.surcharge_profit_percent / 100);
+      const total = ep * p.quantity;
+      const isPauschal = p.unit?.toLowerCase() === "psch" || p.unit?.toLowerCase() === "pauschal";
+      return {
+        nr: `${String(sec.section_number).padStart(2, "0")}.${String(idx + 1).padStart(2, "0")}`,
+        title: p.title,
+        desc: p.long_text ?? p.description ?? undefined,
+        qty: isPauschal ? undefined : p.quantity.toString().replace(".", ","),
+        unit: isPauschal ? undefined : p.unit,
+        unitPrice: isPauschal ? undefined : ep.toFixed(2).replace(".", ","),
+        total,
+        isPauschal,
+      };
+    }),
+  }));
+}
+
+// ── Sub-Components ──
 
 function PositionRow({ pos, expanded, onToggle }: { pos: Position; expanded: boolean; onToggle: () => void }) {
   return (
@@ -202,12 +127,6 @@ function PositionRow({ pos, expanded, onToggle }: { pos: Position; expanded: boo
             {pos.isPauschal ? "Pauschal" : `${pos.qty} ${pos.unit} \u00D7 \u20AC${pos.unitPrice}/${pos.unit}`}
           </Text>
           {pos.desc && <Text style={posStyles.descFull}>{pos.desc}</Text>}
-          {pos.hasNachtrag && (
-            <View style={posStyles.nachtragIndicator}>
-              <Ionicons name="alert-circle" size={14} color={Colors.raw.amber500} />
-              <Text style={posStyles.nachtragText}>Nachtrag vorhanden</Text>
-            </View>
-          )}
         </View>
       )}
     </Pressable>
@@ -224,8 +143,6 @@ const posStyles = StyleSheet.create({
   total: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.white, minWidth: 75, textAlign: "right" },
   expanded: { marginTop: 10, marginLeft: 48, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.raw.zinc800 },
   descFull: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc400, marginTop: 6, lineHeight: 19 },
-  nachtragIndicator: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
-  nachtragText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.amber500 },
 });
 
 function RoomAccordion({ room, defaultOpen }: { room: RoomGroup; defaultOpen?: boolean }) {
@@ -300,11 +217,12 @@ const accordStyles = StyleSheet.create({
   },
 });
 
-function MenuModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+function MenuModal({ visible, onClose, offerId }: { visible: boolean; onClose: () => void; offerId: string }) {
   const actions = [
-    { icon: "copy", label: "Duplizieren" },
-    { icon: "document-text", label: "PDF erstellen" },
-    { icon: "send", label: "Versenden" },
+    { icon: "create", label: "Bearbeiten", action: () => { onClose(); router.push({ pathname: "/angebot/editor", params: { offerId } }); } },
+    { icon: "copy", label: "Duplizieren", action: onClose },
+    { icon: "document-text", label: "PDF erstellen", action: onClose },
+    { icon: "send", label: "Versenden", action: onClose },
   ];
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -313,7 +231,7 @@ function MenuModal({ visible, onClose }: { visible: boolean; onClose: () => void
           {actions.map((a, i) => (
             <Pressable
               key={a.label}
-              onPress={onClose}
+              onPress={a.action}
               style={({ pressed }) => [
                 menuStyles.item,
                 i < actions.length - 1 && menuStyles.itemBorder,
@@ -338,18 +256,68 @@ const menuStyles = StyleSheet.create({
   itemText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.white },
 });
 
+// ── Main Screen ──
+
 export default function AngebotScreen() {
-  const { id: _id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [status] = useState<AngebotStatus>("entwurf");
-  const [activeVersion, setActiveVersion] = useState(2);
+  const { data: offer, isLoading, error } = useOfferWithSections(id);
   const [showMenu, setShowMenu] = useState(false);
 
+  // Aus DB-Daten ableiten
+  const status = offer ? mapStatus(offer.status) : "entwurf";
   const statusConfig = STATUS_CONFIG[status];
-  const lvBrutto = lvNetto * 1.19;
+
+  const rooms = useMemo(() => {
+    if (!offer?.sections) return [];
+    return sectionsToRooms(offer.sections);
+  }, [offer?.sections]);
+
+  const totalPositionen = useMemo(() => rooms.reduce((s, r) => s + r.positions.length, 0), [rooms]);
+  const totalRooms = rooms.length;
+
+  // Netto aus DB oder aus Positionen berechnen
+  const lvNetto = useMemo(() => {
+    if (offer?.total_net && offer.total_net > 0) return offer.total_net;
+    return rooms.reduce((s, r) => s + getRoomTotal(r), 0);
+  }, [offer?.total_net, rooms]);
+
+  const mwst = lvNetto * 0.19;
+  const brutto = lvNetto + mwst;
+
+  // Marge: geschätzt 66% Kosten (bis echte Kostendaten vorliegen)
+  const estimatedCost = lvNetto * 0.66;
+  const ergebnis = lvNetto - estimatedCost;
+  const margePercent = lvNetto > 0 ? (ergebnis / lvNetto) * 100 : 0;
+
+  // Adresse zusammenbauen
+  const address = [offer?.object_street, [offer?.object_zip, offer?.object_city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+        <ActivityIndicator size="large" color={Colors.raw.amber500} />
+        <Text style={{ fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.zinc500, marginTop: 12 }}>Angebot laden...</Text>
+      </View>
+    );
+  }
+
+  if (error || !offer) {
+    return (
+      <View style={[styles.container, { justifyContent: "center", alignItems: "center", paddingHorizontal: 40 }]}>
+        <Ionicons name="warning" size={48} color={Colors.raw.rose500} />
+        <Text style={{ fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.raw.white, marginTop: 12, textAlign: "center" }}>
+          Angebot nicht gefunden
+        </Text>
+        <Pressable onPress={() => router.back()} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, marginTop: 20 })}>
+          <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.amber500 }}>Zurück</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -376,10 +344,11 @@ export default function AngebotScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingTop: topInset + 60, paddingBottom: bottomInset + 90 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Titel + Status */}
         <View style={styles.titleRow}>
           <View>
             <Text style={styles.screenTitle}>Angebot</Text>
-            <Text style={styles.angebotNr}>ANG-2026-003-01</Text>
+            <Text style={styles.angebotNr}>{offer.offer_number}</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: statusConfig.color + "18" }]}>
             <Ionicons name={statusConfig.icon as any} size={14} color={statusConfig.color} />
@@ -387,117 +356,73 @@ export default function AngebotScreen() {
           </View>
         </View>
 
+        {/* Projekt-Info */}
         <Pressable
-          onPress={() => router.push({ pathname: "/project/[id]", params: { id: "1" } })}
+          onPress={() => router.push({ pathname: "/project/[id]", params: { id: offer.project_id } })}
           style={({ pressed }) => [styles.projectBar, { opacity: pressed ? 0.85 : 1 }]}
           testID="project-link"
         >
           <View style={styles.projectBarLeft}>
             <Ionicons name="clipboard" size={16} color={Colors.raw.amber500} />
-            <Text style={styles.projectBarCode}>BL-2026-003</Text>
+            <Text style={styles.projectBarCode}>{offer.project_number || "—"}</Text>
             <View style={styles.projectDot} />
-            <Text style={styles.projectBarName}>Schwentnerring 13c</Text>
+            <Text style={styles.projectBarName} numberOfLines={1}>{offer.object_street || offer.project_name || "—"}</Text>
           </View>
           <View style={styles.projectBarRight}>
-            <Text style={styles.projectBarClient}>SAGA GWG</Text>
+            <Text style={styles.projectBarClient}>{offer.client_name}</Text>
             <Ionicons name="chevron-forward" size={16} color={Colors.raw.zinc500} />
           </View>
         </Pressable>
 
+        {/* Summen-Hero */}
         <View style={styles.summenCard} testID="summen-hero">
           <Text style={styles.summenLabel}>Angebotssumme</Text>
           <Text style={styles.summenNetto}>{formatEuro(lvNetto)} netto</Text>
-          <Text style={styles.summenBrutto}>{formatEuro(lvBrutto)} brutto</Text>
+          <Text style={styles.summenBrutto}>{formatEuro(brutto)} brutto</Text>
           <View style={styles.summenMeta}>
-            <Text style={styles.summenMetaText}>{totalPositionen} Positionen \u2022 {totalRooms} R\u00E4ume</Text>
+            <Text style={styles.summenMetaText}>{totalPositionen} Positionen \u2022 {totalRooms} Titel</Text>
             <View style={styles.margeBadge}>
-              <Text style={styles.margeText}>Marge: {margePercent.toFixed(0)}% ({formatEuro(ergebnis)})</Text>
-              <View style={[styles.margeDot, { backgroundColor: margePercent >= 20 ? Colors.raw.emerald500 : margePercent >= 10 ? Colors.raw.amber500 : Colors.raw.rose500 }]} />
+              <Text style={[styles.margeText, { color: margePercent >= 25 ? Colors.raw.emerald500 : margePercent >= 15 ? Colors.raw.amber500 : Colors.raw.rose500 }]}>
+                Marge: {margePercent.toFixed(0)}%
+              </Text>
+              <View style={[styles.margeDot, { backgroundColor: margePercent >= 25 ? Colors.raw.emerald500 : margePercent >= 15 ? Colors.raw.amber500 : Colors.raw.rose500 }]} />
             </View>
           </View>
         </View>
 
+        {/* Version */}
         <View style={styles.versionSection}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.versionScroll}>
-            {VERSIONS.map((v) => (
-              <Pressable
-                key={v.nr}
-                onPress={() => {
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                  setActiveVersion(v.nr);
-                }}
-                style={[
-                  styles.versionPill,
-                  activeVersion === v.nr && styles.versionPillActive,
-                ]}
-              >
-                <Text style={[styles.versionPillText, activeVersion === v.nr && styles.versionPillTextActive]}>
-                  v{v.nr}{v.active ? " \u2190aktiv" : v.status === "Entwurf" ? " Entwurf" : ""}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-          {VERSIONS.find((v) => v.nr === activeVersion)?.date && (
-            <Text style={styles.versionDate}>v{activeVersion} freigegeben am {VERSIONS.find((v) => v.nr === activeVersion)!.date}</Text>
-          )}
+          <View style={[styles.versionPill, styles.versionPillActive]}>
+            <Text style={[styles.versionPillText, styles.versionPillTextActive]}>
+              v{offer.version} {status === "entwurf" ? "Entwurf" : "\u2190aktiv"}
+            </Text>
+          </View>
         </View>
 
+        {/* Positionen */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Positionen</Text>
           <Text style={styles.sectionCount}>{totalPositionen}</Text>
         </View>
-        {ROOMS.map((room, i) => (
-          <RoomAccordion key={room.id} room={room} defaultOpen={i === 0} />
-        ))}
-
-        {NACHTRAEGE.length > 0 && (
-          <>
-            <View style={[styles.sectionHeader, { marginTop: 28 }]}>
-              <Text style={styles.sectionTitle}>Nachtr\u00E4ge</Text>
-              <View style={styles.nachtragCount}>
-                <Text style={styles.nachtragCountText}>{NACHTRAEGE.length}</Text>
-              </View>
-            </View>
-            <View style={styles.nachtragList}>
-              {NACHTRAEGE.map((nt) => (
-                <View key={nt.id} style={styles.nachtragRow}>
-                  <View style={styles.nachtragContent}>
-                    <View style={styles.nachtragTop}>
-                      <Text style={styles.nachtragNr}>{nt.nr}</Text>
-                      <Text style={styles.nachtragTitle}>{nt.title}</Text>
-                    </View>
-                    <Text style={styles.nachtragMeta}>{nt.room}, {nt.reason}</Text>
-                  </View>
-                  <View style={styles.nachtragRight}>
-                    <Text style={styles.nachtragAmount}>+{formatEuro(nt.amount)}</Text>
-                    <NachtragStatusBadge status={nt.status} />
-                  </View>
-                </View>
-              ))}
-              <View style={styles.nachtragSumRow}>
-                <Text style={styles.nachtragSumLabel}>Nachtr\u00E4ge gesamt:</Text>
-                <Text style={styles.nachtragSumAmount}>+{formatEuro(nachtragTotal)}</Text>
-              </View>
-            </View>
-          </>
+        {rooms.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="document-text-outline" size={32} color={Colors.raw.zinc600} />
+            <Text style={styles.emptyText}>Noch keine Positionen</Text>
+          </View>
+        ) : (
+          rooms.map((room, i) => (
+            <RoomAccordion key={room.id} room={room} defaultOpen={i === 0} />
+          ))
         )}
 
+        {/* Kostenübersicht */}
         <View style={[styles.sectionHeader, { marginTop: 28 }]}>
           <Text style={styles.sectionTitle}>Kosten\u00FCbersicht</Text>
         </View>
         <View style={styles.kostenCard} testID="kosten-card">
           <View style={styles.kostenRow}>
-            <Text style={styles.kostenLabel}>Angebot (LV)</Text>
-            <Text style={styles.kostenValue}>{formatEuro(lvNetto)}</Text>
-          </View>
-          <View style={styles.kostenRow}>
-            <Text style={styles.kostenLabel}>Nachtr\u00E4ge</Text>
-            <Text style={styles.kostenValue}>{formatEuro(nachtragTotal)}</Text>
-          </View>
-          <View style={styles.kostenDivider} />
-          <View style={styles.kostenRow}>
             <Text style={styles.kostenLabelBold}>Gesamt netto</Text>
-            <Text style={styles.kostenValueBold}>{formatEuro(gesamtNetto)}</Text>
+            <Text style={styles.kostenValueBold}>{formatEuro(lvNetto)}</Text>
           </View>
           <View style={styles.kostenRow}>
             <Text style={styles.kostenLabel}>MwSt 19%</Text>
@@ -506,38 +431,29 @@ export default function AngebotScreen() {
           <View style={styles.kostenDivider} />
           <View style={styles.kostenRow}>
             <Text style={styles.kostenLabelBold}>Gesamt brutto</Text>
-            <Text style={styles.kostenValueBold}>{formatEuro(gesamtBrutto)}</Text>
+            <Text style={styles.kostenValueBold}>{formatEuro(brutto)}</Text>
           </View>
 
           <View style={styles.kostenSpacer} />
 
           <View style={styles.kostenRow}>
-            <Text style={styles.kostenLabel}>Materialkosten</Text>
-            <Text style={styles.kostenValue}>{formatEuro(materialkosten)}</Text>
-          </View>
-          <View style={styles.kostenRow}>
-            <Text style={styles.kostenLabel}>Lohnkosten</Text>
-            <Text style={styles.kostenValue}>{formatEuro(lohnkosten)}</Text>
-          </View>
-          <View style={styles.kostenDivider} />
-          <View style={styles.kostenRow}>
-            <Text style={styles.kostenLabelBold}>Ergebnis</Text>
-            <Text style={styles.kostenValueBold}>{formatEuro(ergebnis)}</Text>
-          </View>
-          <View style={styles.kostenRow}>
-            <Text style={styles.kostenLabel}>Marge</Text>
+            <Text style={styles.kostenLabel}>Marge (gesch.)</Text>
             <View style={styles.margeRow}>
               <Text style={styles.kostenValueBold}>{margePercent.toFixed(1)}%</Text>
-              <View style={[styles.margeDotLarge, { backgroundColor: margePercent >= 20 ? Colors.raw.emerald500 : margePercent >= 10 ? Colors.raw.amber500 : Colors.raw.rose500 }]} />
+              <View style={[styles.margeDotLarge, { backgroundColor: margePercent >= 25 ? Colors.raw.emerald500 : margePercent >= 15 ? Colors.raw.amber500 : Colors.raw.rose500 }]} />
             </View>
           </View>
         </View>
       </ScrollView>
 
+      {/* Sticky Actions */}
       <View style={[styles.stickyActions, { paddingBottom: bottomInset + 12 }]}>
         {status === "entwurf" && (
           <>
-            <Pressable onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: _id } })} style={({ pressed }) => [styles.actionOutline, { flex: 1, opacity: pressed ? 0.85 : 1 }]}>
+            <Pressable
+              onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: id } })}
+              style={({ pressed }) => [styles.actionOutline, { flex: 1, opacity: pressed ? 0.85 : 1 }]}
+            >
               <Feather name="edit-2" size={18} color={Colors.raw.amber500} />
               <Text style={styles.actionOutlineText}>Bearbeiten</Text>
             </Pressable>
@@ -549,7 +465,10 @@ export default function AngebotScreen() {
         )}
         {status === "freigabe" && (
           <>
-            <Pressable style={({ pressed }) => [styles.actionOutline, { flex: 1, opacity: pressed ? 0.85 : 1 }]}>
+            <Pressable
+              onPress={() => router.push({ pathname: "/angebot/editor", params: { offerId: id } })}
+              style={({ pressed }) => [styles.actionOutline, { flex: 1, opacity: pressed ? 0.85 : 1 }]}
+            >
               <Feather name="edit-2" size={18} color={Colors.raw.amber500} />
               <Text style={styles.actionOutlineText}>Anpassen</Text>
             </Pressable>
@@ -577,7 +496,7 @@ export default function AngebotScreen() {
         )}
       </View>
 
-      <MenuModal visible={showMenu} onClose={() => setShowMenu(false)} />
+      <MenuModal visible={showMenu} onClose={() => setShowMenu(false)} offerId={id} />
     </View>
   );
 }
@@ -632,10 +551,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 20,
   },
-  projectBarLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  projectBarLeft: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   projectBarCode: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.white },
   projectDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: Colors.raw.zinc600 },
-  projectBarName: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc300 },
+  projectBarName: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc300, flex: 1 },
   projectBarRight: { flexDirection: "row", alignItems: "center", gap: 6 },
   projectBarClient: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.raw.zinc500 },
 
@@ -653,11 +572,10 @@ const styles = StyleSheet.create({
   summenMeta: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   summenMetaText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc400 },
   margeBadge: { flexDirection: "row", alignItems: "center", gap: 6 },
-  margeText: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.emerald500 },
+  margeText: { fontFamily: "Inter_700Bold", fontSize: 13 },
   margeDot: { width: 8, height: 8, borderRadius: 4 },
 
-  versionSection: { marginBottom: 24 },
-  versionScroll: { gap: 8 },
+  versionSection: { marginBottom: 24, flexDirection: "row" },
   versionPill: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -669,49 +587,22 @@ const styles = StyleSheet.create({
   versionPillActive: { backgroundColor: Colors.raw.amber500, borderColor: Colors.raw.amber500 },
   versionPillText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc400 },
   versionPillTextActive: { color: "#000" },
-  versionDate: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, marginTop: 8, marginLeft: 4 },
 
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, marginTop: 4 },
   sectionTitle: { fontFamily: "Inter_800ExtraBold", fontSize: 20, color: Colors.raw.white },
   sectionCount: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.zinc500, backgroundColor: Colors.raw.zinc800, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
 
-  nachtragCount: { backgroundColor: Colors.raw.amber500, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  nachtragCountText: { fontFamily: "Inter_700Bold", fontSize: 13, color: "#000" },
-  nachtragList: {
+  emptyCard: {
     backgroundColor: Colors.raw.zinc900,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: Colors.raw.zinc800,
-    overflow: "hidden",
-  },
-  nachtragRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.raw.amber500,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.raw.zinc800,
-  },
-  nachtragContent: { flex: 1, marginRight: 12 },
-  nachtragTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
-  nachtragNr: { fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 12, color: Colors.raw.zinc500 },
-  nachtragTitle: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.white },
-  nachtragMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500 },
-  nachtragRight: { alignItems: "flex-end", gap: 6 },
-  nachtragAmount: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.amber500 },
-  nachtragSumRow: {
-    flexDirection: "row",
+    padding: 40,
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    backgroundColor: Colors.raw.zinc800 + "60",
+    gap: 8,
+    marginBottom: 8,
   },
-  nachtragSumLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc400 },
-  nachtragSumAmount: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.amber500 },
+  emptyText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc500 },
 
   kostenCard: {
     backgroundColor: Colors.raw.zinc900,
