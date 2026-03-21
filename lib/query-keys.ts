@@ -110,4 +110,11 @@ export const queryKeys = {
     rooms: (projectId: string, offerId?: string) =>
       ["begehung", "rooms", projectId, offerId ?? ""] as const,
   },
+  suppliers: {
+    all: ["suppliers"] as const,
+    list: () => ["suppliers", "list"] as const,
+    detail: (supplierId: string) => ["suppliers", "detail", supplierId] as const,
+    articles: (supplierId: string) => ["suppliers", "articles", supplierId] as const,
+    companySettings: () => ["suppliers", "companySettings"] as const,
+  },
 } as const;

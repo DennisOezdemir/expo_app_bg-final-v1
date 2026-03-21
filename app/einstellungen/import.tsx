@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
 import Colors from "@/constants/colors";
 
 type ImportType = "projekte" | "kunden" | "lieferanten" | "produkte" | "katalog" | "rechnungen";
@@ -141,18 +142,43 @@ export default function ImportScreen() {
     setSelectedType(null);
   }, []);
 
-  const simulateUpload = useCallback(() => {
-    if (isPdf) {
-      setFileName("12 PDFs ausgewählt");
-      setFileSize("8.4MB");
-    } else if (isGaeb) {
-      setFileName("SAGA_WBS_Katalog_2026.x83");
-      setFileSize("2.1MB");
-    } else {
-      setFileName("kunden_export_2026.csv");
-      setFileSize("245KB");
+  const pickFile = useCallback(async () => {
+    try {
+      const mimeTypes = isPdf
+        ? ["application/pdf"]
+        : isGaeb
+          ? ["*/*"]
+          : [
+              "text/csv",
+              "application/vnd.ms-excel",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ];
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: mimeTypes,
+        multiple: isPdf,
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return;
+
+      const assets = result.assets;
+      if (!assets || assets.length === 0) return;
+
+      if (isPdf) {
+        const totalSize = assets.reduce((sum, a) => sum + (a.size ?? 0), 0);
+        setFileName(`${assets.length} PDFs ausgewählt`);
+        setFileSize(totalSize > 1_000_000 ? `${(totalSize / 1_000_000).toFixed(1)}MB` : `${Math.round(totalSize / 1000)}KB`);
+      } else {
+        const asset = assets[0];
+        setFileName(asset.name);
+        const sz = asset.size ?? 0;
+        setFileSize(sz > 1_000_000 ? `${(sz / 1_000_000).toFixed(1)}MB` : `${Math.round(sz / 1000)}KB`);
+      }
+      setFileUploaded(true);
+    } catch (e: any) {
+      Alert.alert("Fehler", e.message ?? "Datei konnte nicht geladen werden.");
     }
-    setFileUploaded(true);
   }, [isGaeb, isPdf]);
 
   const simulateImport = useCallback(() => {
@@ -234,7 +260,7 @@ export default function ImportScreen() {
     <View>
       <Pressable
         style={({ pressed }) => [styles.dropZone, pressed && { borderColor: Colors.raw.amber500, backgroundColor: "rgba(245, 158, 11, 0.05)" }]}
-        onPress={simulateUpload}
+        onPress={pickFile}
         testID="import-upload-zone"
       >
         {fileUploaded ? (
