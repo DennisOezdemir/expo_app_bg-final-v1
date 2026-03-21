@@ -979,7 +979,7 @@ export default function FinanzenScreen() {
               color={activeTab === "controlling" ? "#000" : Colors.raw.zinc400}
             />
             <Text style={[s.mainTabText, activeTab === "controlling" && s.mainTabTextActive]}>
-              Controlling
+              Projektübersicht
             </Text>
           </Pressable>
           <Pressable
