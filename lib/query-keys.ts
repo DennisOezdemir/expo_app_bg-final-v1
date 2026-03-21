@@ -78,6 +78,7 @@ export const queryKeys = {
     byProject: (projectId: string) => ["changeOrders", "project", projectId] as const,
     detail: (id: string) => ["changeOrders", "detail", id] as const,
   },
+<<<<<<< HEAD
   materials: {
     all: ["materials"] as const,
     projects: () => ["materials", "projects"] as const,
@@ -116,5 +117,11 @@ export const queryKeys = {
     detail: (supplierId: string) => ["suppliers", "detail", supplierId] as const,
     articles: (supplierId: string) => ["suppliers", "articles", supplierId] as const,
     companySettings: () => ["suppliers", "companySettings"] as const,
+  },
+  team: {
+    all: ["team"] as const,
+    list: () => ["team", "list"] as const,
+    detail: (id: string) => ["team", "detail", id] as const,
+    stats: () => ["team", "stats"] as const,
   },
 } as const;
