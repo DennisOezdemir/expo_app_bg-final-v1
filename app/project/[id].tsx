@@ -31,6 +31,7 @@ import { generateProtokollPdf, getProtokollPdfDownloadUrl } from "@/lib/api/prot
 import { captureAndUploadPhoto } from "@/lib/photo-capture";
 import { useOffline } from "@/contexts/OfflineContext";
 import { useProjectDetail } from "@/hooks/queries/useProjectDetail";
+import { useProjectChangeOrders } from "@/hooks/queries/useChangeOrders";
 import { usePipelineRun, usePipelineSteps, useInvalidatePipeline } from "@/hooks/queries/usePipeline";
 import { PipelineProgress } from "@/components/PipelineProgress";
 import { startAutoPlan } from "@/lib/api/pipeline";
@@ -1519,6 +1520,9 @@ export default function ProjectDetailScreen() {
   const { data: pipelineSteps = [] } = usePipelineSteps(pipelineRun?.id);
   const invalidatePipeline = useInvalidatePipeline();
 
+  // Nachträge (Change Orders)
+  const { data: changeOrders = [] } = useProjectChangeOrders(id);
+
   const handleCapturePhoto = useCallback(async () => {
     if (!id || photoUploading) return;
     setPhotoUploading(true);
@@ -2060,6 +2064,11 @@ export default function ProjectDetailScreen() {
             onPress={() => router.push("/project/team" as any)}
           />
           <QuickAction
+            icon={<Ionicons name="add-circle" size={24} color={Colors.raw.amber500} />}
+            label="Nachtrag"
+            onPress={() => router.push({ pathname: "/nachtrag/neu", params: { projectId: id || "" } })}
+          />
+          <QuickAction
             icon={<Ionicons name="camera" size={24} color={photoUploading ? Colors.raw.zinc600 : Colors.raw.amber500} />}
             label={photoUploading ? "Lädt..." : "Foto"}
             onPress={handleCapturePhoto}
@@ -2323,6 +2332,79 @@ export default function ProjectDetailScreen() {
                 </Pressable>
               </View>
             </Pressable>
+          )}
+        </SectionCard>
+
+        {/* Nachtr\u00E4ge */}
+        <SectionCard>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <SectionHeader
+              title="Nachtr\u00E4ge"
+              badge={changeOrders.length > 0 ? String(changeOrders.length) : undefined}
+            />
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({ pathname: "/nachtrag/neu", params: { projectId: id || "" } });
+              }}
+              style={({ pressed }) => [styles.begehungAddBtn, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Ionicons name="add" size={18} color={Colors.raw.zinc950} />
+            </Pressable>
+          </View>
+          {changeOrders.length > 0 ? (
+            changeOrders.map((co, i) => {
+              const statusCfg: Record<string, { color: string; label: string }> = {
+                DRAFT: { color: Colors.raw.zinc500, label: "Entwurf" },
+                SUBMITTED: { color: Colors.raw.amber500, label: "Eingereicht" },
+                PENDING_APPROVAL: { color: Colors.raw.amber500, label: "Pr\u00FCfung" },
+                PENDING_CUSTOMER: { color: Colors.raw.amber500, label: "Beim Kunden" },
+                APPROVED: { color: Colors.raw.emerald500, label: "Genehmigt" },
+                APPROVED_BY_CUSTOMER: { color: Colors.raw.emerald500, label: "Freigegeben" },
+                REJECTED: { color: Colors.raw.rose500, label: "Abgelehnt" },
+                REJECTED_BY_CUSTOMER: { color: Colors.raw.rose500, label: "Abgelehnt" },
+                INVOICED: { color: Colors.raw.emerald500, label: "Abgerechnet" },
+              };
+              const cfg = statusCfg[co.status] || { color: Colors.raw.zinc500, label: co.status };
+              return (
+                <Pressable
+                  key={co.id}
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push({ pathname: "/nachtrag/[id]", params: { id: co.id } });
+                  }}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingVertical: 14,
+                    borderBottomWidth: i < changeOrders.length - 1 ? 1 : 0,
+                    borderBottomColor: Colors.raw.zinc800,
+                    opacity: pressed ? 0.8 : 1,
+                  })}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cfg.color }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.white, marginBottom: 2 }} numberOfLines={1}>
+                        {co.title}
+                      </Text>
+                      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500 }}>
+                        {co.changeOrderNumber} {"\u2022"} {cfg.label} {"\u2022"} {co.itemCount} Pos.
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={{ fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white }}>
+                      {"\u20AC"}{Math.round(co.amountNet).toLocaleString("de-DE")}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color={Colors.raw.zinc600} />
+                  </View>
+                </Pressable>
+              );
+            })
+          ) : (
+            <Text style={styles.emptySection}>Keine Nachtr\u00E4ge</Text>
           )}
         </SectionCard>
 

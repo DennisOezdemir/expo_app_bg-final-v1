@@ -73,4 +73,9 @@ export const queryKeys = {
     positions: (catalogId: string, query?: string, trade?: string) =>
       ["catalogs", "positions", catalogId, query ?? "", trade ?? ""] as const,
   },
+  changeOrders: {
+    all: ["changeOrders"] as const,
+    byProject: (projectId: string) => ["changeOrders", "project", projectId] as const,
+    detail: (id: string) => ["changeOrders", "detail", id] as const,
+  },
 } as const;
