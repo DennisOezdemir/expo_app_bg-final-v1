@@ -32,27 +32,10 @@ function CreateProjectModal({
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 20 : insets.top;
   const [name, setName] = useState("");
-  const [street, setStreet] = useState("");
-  const [zip, setZip] = useState("");
-  const [city, setCity] = useState("");
-  const [floor, setFloor] = useState("");
-  const [notes, setNotes] = useState("");
+  const [address, setAddress] = useState("");
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [showClientPicker, setShowClientPicker] = useState(false);
-  const [showNewClient, setShowNewClient] = useState(false);
-  const [newClientType, setNewClientType] = useState<"PRIVATE" | "COMMERCIAL">("COMMERCIAL");
-  const [newClientCompany, setNewClientCompany] = useState("");
-  const [newClientSalutation, setNewClientSalutation] = useState("");
-  const [newClientFirstName, setNewClientFirstName] = useState("");
-  const [newClientLastName, setNewClientLastName] = useState("");
-  const [newClientEmail, setNewClientEmail] = useState("");
-  const [newClientPhone, setNewClientPhone] = useState("");
-  const [newClientStreet, setNewClientStreet] = useState("");
-  const [newClientZip, setNewClientZip] = useState("");
-  const [newClientCity, setNewClientCity] = useState("");
-  const [newClientVatId, setNewClientVatId] = useState("");
-  const [savingClient, setSavingClient] = useState(false);
   const createProjectMutation = useCreateProject();
   const saving = createProjectMutation.isPending;
 
@@ -69,88 +52,22 @@ function CreateProjectModal({
 
   const reset = () => {
     setName("");
-    setStreet("");
-    setZip("");
-    setCity("");
-    setFloor("");
-    setNotes("");
+    setAddress("");
     setClientId(null);
-    setShowNewClient(false);
-    resetNewClient();
-  };
-
-  const resetNewClient = () => {
-    setNewClientType("COMMERCIAL");
-    setNewClientCompany("");
-    setNewClientSalutation("");
-    setNewClientFirstName("");
-    setNewClientLastName("");
-    setNewClientEmail("");
-    setNewClientPhone("");
-    setNewClientStreet("");
-    setNewClientZip("");
-    setNewClientCity("");
-    setNewClientVatId("");
-  };
-
-  const handleCreateClient = async () => {
-    const isCommercial = newClientType === "COMMERCIAL";
-    if (isCommercial && !newClientCompany.trim()) {
-      Alert.alert("Pflichtfeld", "Bitte Firmennamen eingeben.");
-      return;
-    }
-    if (!isCommercial && !newClientLastName.trim()) {
-      Alert.alert("Pflichtfeld", "Bitte Nachnamen eingeben.");
-      return;
-    }
-    setSavingClient(true);
-    const displayName = isCommercial
-      ? newClientCompany.trim()
-      : `${newClientFirstName.trim()} ${newClientLastName.trim()}`.trim();
-    const { data, error } = await supabase
-      .from("clients")
-      .insert({
-        client_type: newClientType,
-        company_name: isCommercial ? newClientCompany.trim() : displayName,
-        salutation: newClientSalutation || null,
-        first_name: newClientFirstName.trim() || null,
-        last_name: newClientLastName.trim() || null,
-        email: newClientEmail.trim() || null,
-        phone: newClientPhone.trim() || null,
-        street: newClientStreet.trim() || null,
-        zip_code: newClientZip.trim() || null,
-        city: newClientCity.trim() || null,
-        vat_id: (isCommercial && newClientVatId.trim()) ? newClientVatId.trim() : null,
-      })
-      .select("id, company_name, customer_number")
-      .single();
-    setSavingClient(false);
-    if (error) {
-      Alert.alert("Fehler", error.message);
-      return;
-    }
-    if (data) {
-      setClients((prev) => [...prev, data].sort((a, b) => (a.company_name || "").localeCompare(b.company_name || "")));
-      setClientId(data.id);
-      resetNewClient();
-      setShowNewClient(false);
-      setShowClientPicker(false);
-    }
+    setShowClientPicker(false);
   };
 
   const handleSave = async () => {
-    if (!name.trim() || !street.trim() || !zip.trim() || !city.trim()) {
-      Alert.alert("Pflichtfelder", "Bitte Name, Straße, PLZ und Stadt ausfüllen.");
+    if (!name.trim() || !address.trim()) {
+      Alert.alert("Pflichtfelder", "Bitte Projektname und Adresse ausfüllen.");
       return;
     }
     try {
       const data = await createProjectMutation.mutateAsync({
         name,
-        street,
-        zip,
-        city,
-        floor,
-        notes,
+        street: address,
+        zip: "",
+        city: "",
         clientId,
       });
 
@@ -187,12 +104,12 @@ function CreateProjectModal({
             {saving ? (
               <ActivityIndicator size="small" color="#000" />
             ) : (
-              <Text style={cpStyles.saveBtnText}>Speichern</Text>
+              <Text style={cpStyles.saveBtnText}>Anlegen</Text>
             )}
           </Pressable>
         </View>
 
-        <ScrollView style={cpStyles.scroll} contentContainerStyle={cpStyles.scrollContent} keyboardShouldPersistTaps="handled">
+        <View style={cpStyles.scrollContent}>
           <Text style={cpStyles.label}>Projektname *</Text>
           <TextInput
             style={cpStyles.input}
@@ -200,48 +117,15 @@ function CreateProjectModal({
             onChangeText={setName}
             placeholder="z.B. Sanierung Musterstraße 5"
             placeholderTextColor={Colors.raw.zinc600}
+            autoFocus
           />
 
-          <Text style={cpStyles.label}>Straße *</Text>
+          <Text style={cpStyles.label}>Adresse *</Text>
           <TextInput
             style={cpStyles.input}
-            value={street}
-            onChangeText={setStreet}
-            placeholder="Musterstraße 5"
-            placeholderTextColor={Colors.raw.zinc600}
-          />
-
-          <View style={cpStyles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={cpStyles.label}>PLZ *</Text>
-              <TextInput
-                style={cpStyles.input}
-                value={zip}
-                onChangeText={setZip}
-                placeholder="22761"
-                placeholderTextColor={Colors.raw.zinc600}
-                keyboardType="number-pad"
-                maxLength={5}
-              />
-            </View>
-            <View style={{ flex: 2 }}>
-              <Text style={cpStyles.label}>Stadt *</Text>
-              <TextInput
-                style={cpStyles.input}
-                value={city}
-                onChangeText={setCity}
-                placeholder="Hamburg"
-                placeholderTextColor={Colors.raw.zinc600}
-              />
-            </View>
-          </View>
-
-          <Text style={cpStyles.label}>Etage / Wohnung</Text>
-          <TextInput
-            style={cpStyles.input}
-            value={floor}
-            onChangeText={setFloor}
-            placeholder="z.B. 3. OG links"
+            value={address}
+            onChangeText={setAddress}
+            placeholder="Musterstraße 5, 22761 Hamburg"
             placeholderTextColor={Colors.raw.zinc600}
           />
 
@@ -253,7 +137,7 @@ function CreateProjectModal({
             <Text style={selectedClient ? cpStyles.pickerText : cpStyles.pickerPlaceholder}>
               {selectedClient
                 ? `${selectedClient.company_name}${selectedClient.customer_number ? ` (${selectedClient.customer_number})` : ""}`
-                : "Auftraggeber wählen..."}
+                : "Auftraggeber wählen (optional)"}
             </Text>
             <Ionicons name="chevron-down" size={18} color={Colors.raw.zinc500} />
           </Pressable>
@@ -268,7 +152,7 @@ function CreateProjectModal({
               {clients.map((c) => (
                 <Pressable
                   key={c.id}
-                  onPress={() => { setClientId(c.id); setShowClientPicker(false); setShowNewClient(false); }}
+                  onPress={() => { setClientId(c.id); setShowClientPicker(false); }}
                   style={[cpStyles.clientOption, c.id === clientId && cpStyles.clientSelected]}
                 >
                   <View style={{ flex: 1 }}>
@@ -280,171 +164,9 @@ function CreateProjectModal({
                   {c.id === clientId && <Ionicons name="checkmark" size={18} color={Colors.raw.amber500} />}
                 </Pressable>
               ))}
-              {/* + Neuer Auftraggeber */}
-              <Pressable
-                onPress={() => setShowNewClient(!showNewClient)}
-                style={[cpStyles.clientOption, { borderBottomWidth: showNewClient ? 1 : 0 }]}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Ionicons name="add-circle" size={20} color={Colors.raw.amber500} />
-                  <Text style={[cpStyles.clientText, { color: Colors.raw.amber500 }]}>Neuer Auftraggeber</Text>
-                </View>
-              </Pressable>
-              {showNewClient && (
-                <View style={{ padding: 12, gap: 10 }}>
-                  {/* Kundentyp Toggle */}
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Pressable
-                      onPress={() => setNewClientType("COMMERCIAL")}
-                      style={[ncStyles.typeBtn, newClientType === "COMMERCIAL" && ncStyles.typeBtnActive]}
-                    >
-                      <Ionicons name="business" size={16} color={newClientType === "COMMERCIAL" ? "#000" : Colors.raw.zinc400} />
-                      <Text style={[ncStyles.typeBtnText, newClientType === "COMMERCIAL" && ncStyles.typeBtnTextActive]}>Geschäftskunde</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setNewClientType("PRIVATE")}
-                      style={[ncStyles.typeBtn, newClientType === "PRIVATE" && ncStyles.typeBtnActive]}
-                    >
-                      <Ionicons name="person" size={16} color={newClientType === "PRIVATE" ? "#000" : Colors.raw.zinc400} />
-                      <Text style={[ncStyles.typeBtnText, newClientType === "PRIVATE" && ncStyles.typeBtnTextActive]}>Privatkunde</Text>
-                    </Pressable>
-                  </View>
-
-                  {/* Firmenname - nur bei Geschäftskunde */}
-                  {newClientType === "COMMERCIAL" && (
-                    <TextInput
-                      style={cpStyles.input}
-                      value={newClientCompany}
-                      onChangeText={setNewClientCompany}
-                      placeholder="Firmenname *"
-                      placeholderTextColor={Colors.raw.zinc600}
-                      autoFocus
-                    />
-                  )}
-
-                  {/* Anrede */}
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    {["Herr", "Frau"].map((s) => (
-                      <Pressable
-                        key={s}
-                        onPress={() => setNewClientSalutation(newClientSalutation === s ? "" : s)}
-                        style={[ncStyles.salutationBtn, newClientSalutation === s && ncStyles.salutationBtnActive]}
-                      >
-                        <Text style={[ncStyles.salutationText, newClientSalutation === s && ncStyles.salutationTextActive]}>{s}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-
-                  {/* Name */}
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <TextInput
-                      style={[cpStyles.input, { flex: 1 }]}
-                      value={newClientFirstName}
-                      onChangeText={setNewClientFirstName}
-                      placeholder="Vorname"
-                      placeholderTextColor={Colors.raw.zinc600}
-                      autoFocus={newClientType === "PRIVATE"}
-                    />
-                    <TextInput
-                      style={[cpStyles.input, { flex: 1 }]}
-                      value={newClientLastName}
-                      onChangeText={setNewClientLastName}
-                      placeholder={newClientType === "PRIVATE" ? "Nachname *" : "Nachname"}
-                      placeholderTextColor={Colors.raw.zinc600}
-                    />
-                  </View>
-
-                  {/* Kontakt */}
-                  <TextInput
-                    style={cpStyles.input}
-                    value={newClientEmail}
-                    onChangeText={setNewClientEmail}
-                    placeholder="E-Mail"
-                    placeholderTextColor={Colors.raw.zinc600}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                  <TextInput
-                    style={cpStyles.input}
-                    value={newClientPhone}
-                    onChangeText={setNewClientPhone}
-                    placeholder="Telefon"
-                    placeholderTextColor={Colors.raw.zinc600}
-                    keyboardType="phone-pad"
-                  />
-
-                  {/* Adresse */}
-                  <View style={{ marginTop: 4 }}>
-                    <Text style={[cpStyles.label, { marginTop: 0, marginBottom: 8 }]}>Adresse</Text>
-                    <TextInput
-                      style={cpStyles.input}
-                      value={newClientStreet}
-                      onChangeText={setNewClientStreet}
-                      placeholder="Straße + Hausnr."
-                      placeholderTextColor={Colors.raw.zinc600}
-                    />
-                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                      <TextInput
-                        style={[cpStyles.input, { flex: 1 }]}
-                        value={newClientZip}
-                        onChangeText={setNewClientZip}
-                        placeholder="PLZ"
-                        placeholderTextColor={Colors.raw.zinc600}
-                        keyboardType="number-pad"
-                        maxLength={5}
-                      />
-                      <TextInput
-                        style={[cpStyles.input, { flex: 2 }]}
-                        value={newClientCity}
-                        onChangeText={setNewClientCity}
-                        placeholder="Stadt"
-                        placeholderTextColor={Colors.raw.zinc600}
-                      />
-                    </View>
-                  </View>
-
-                  {/* USt-ID nur bei Geschäftskunde */}
-                  {newClientType === "COMMERCIAL" && (
-                    <TextInput
-                      style={cpStyles.input}
-                      value={newClientVatId}
-                      onChangeText={setNewClientVatId}
-                      placeholder="USt-IdNr. (z.B. DE123456789)"
-                      placeholderTextColor={Colors.raw.zinc600}
-                      autoCapitalize="characters"
-                    />
-                  )}
-
-                  <Pressable
-                    onPress={handleCreateClient}
-                    disabled={savingClient}
-                    style={({ pressed }) => [
-                      cpStyles.saveBtn,
-                      { opacity: pressed || savingClient ? 0.6 : 1, alignSelf: "flex-end" },
-                    ]}
-                  >
-                    {savingClient ? (
-                      <ActivityIndicator size="small" color="#000" />
-                    ) : (
-                      <Text style={cpStyles.saveBtnText}>Anlegen</Text>
-                    )}
-                  </Pressable>
-                </View>
-              )}
             </View>
           )}
-
-          <Text style={cpStyles.label}>Notizen</Text>
-          <TextInput
-            style={[cpStyles.input, cpStyles.textArea]}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Freitext..."
-            placeholderTextColor={Colors.raw.zinc600}
-            multiline
-            numberOfLines={3}
-          />
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -472,8 +194,7 @@ const cpStyles = StyleSheet.create({
     alignItems: "center",
   },
   saveBtnText: { fontFamily: "Inter_700Bold", fontSize: 14, color: "#000" },
-  scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 60, gap: 4 },
+  scrollContent: { padding: 20, gap: 4 },
   label: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
@@ -492,8 +213,6 @@ const cpStyles = StyleSheet.create({
     fontSize: 15,
     color: Colors.raw.white,
   },
-  textArea: { minHeight: 80, textAlignVertical: "top" },
-  row: { flexDirection: "row", gap: 12 },
   picker: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   pickerText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.white },
   pickerPlaceholder: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.zinc600 },
@@ -518,40 +237,6 @@ const cpStyles = StyleSheet.create({
   clientText: { fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.white },
 });
 
-const ncStyles = StyleSheet.create({
-  typeBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc700,
-    backgroundColor: Colors.raw.zinc800,
-  },
-  typeBtnActive: {
-    backgroundColor: Colors.raw.amber500,
-    borderColor: Colors.raw.amber500,
-  },
-  typeBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc400 },
-  typeBtnTextActive: { color: "#000" },
-  salutationBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc700,
-    backgroundColor: Colors.raw.zinc800,
-  },
-  salutationBtnActive: {
-    backgroundColor: Colors.raw.amber500 + "20",
-    borderColor: Colors.raw.amber500,
-  },
-  salutationText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc400 },
-  salutationTextActive: { color: Colors.raw.amber500 },
-});
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
