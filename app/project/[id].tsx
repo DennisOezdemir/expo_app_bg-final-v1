@@ -98,6 +98,221 @@ interface MessageData {
   created_at: string;
 }
 
+// --- Next Step Logic ---
+
+type NextStepInfo = {
+  label: string;
+  sublabel?: string;
+  icon: string;
+  color: "green" | "amber" | "red";
+  route?: string;
+  params?: Record<string, string>;
+};
+
+function computeNextStep(
+  status: string | null,
+  offers: OfferData[],
+  inspections: InspectionData[],
+  changeOrders: { status: string }[],
+  pipelineRun: { status: string } | null | undefined,
+  plannedStart: string | null,
+  projectId: string,
+): NextStepInfo | null {
+  const s = status ?? "";
+
+  // INTAKE / DRAFT → Freigabe erteilen
+  if (s === "INTAKE" || s === "DRAFT") {
+    return {
+      label: "Freigabe erteilen",
+      sublabel: "Projekt wartet auf Freigabe",
+      icon: "checkmark-circle",
+      color: "amber",
+      route: "/freigabe/[id]",
+      params: { id: projectId },
+    };
+  }
+
+  // Erstbegehung noch nicht fertig
+  const ebDone = inspections.some(
+    (i) => i.protocol_type === "erstbegehung" && (i.finalized_at || i.status === "completed"),
+  );
+  if ((s === "INSPECTION" || s === "ACTIVE") && !ebDone) {
+    return {
+      label: "Erstbegehung durchführen",
+      sublabel: "Aufmaß & Raum erfassen",
+      icon: "eye",
+      color: "amber",
+      route: "/begehung/[type]",
+      params: { type: "erstbegehung", projectId },
+    };
+  }
+
+  // PLANNING, keine Planung gestartet
+  if (s === "PLANNING" && !pipelineRun && !plannedStart) {
+    return {
+      label: "Planung starten",
+      sublabel: "Erstbegehung abgeschlossen — Autoplanung verfügbar",
+      icon: "flash",
+      color: "amber",
+    };
+  }
+
+  // Pipeline läuft
+  if (pipelineRun?.status === "running") {
+    return {
+      label: "Planung läuft",
+      sublabel: "Agenten arbeiten — bitte warten",
+      icon: "sync",
+      color: "green",
+    };
+  }
+
+  // Offene Nachträge (DRAFT, SUBMITTED, PENDING_APPROVAL, PENDING_CUSTOMER)
+  const openCO = changeOrders.filter((co) =>
+    ["DRAFT", "SUBMITTED", "PENDING_APPROVAL", "PENDING_CUSTOMER"].includes(co.status),
+  );
+  if (openCO.length > 0) {
+    return {
+      label: `${openCO.length} ${openCO.length === 1 ? "Nachtrag" : "Nachträge"} offen`,
+      sublabel: "Prüfen und einreichen",
+      icon: "alert-circle",
+      color: openCO.length >= 3 ? "red" : "amber",
+      route: "/nachtrag/[id]",
+      params: { id: openCO[0]?.id ?? "" },
+    };
+  }
+
+  // IN_PROGRESS → ZB fällig
+  if (s === "IN_PROGRESS") {
+    const zbDone = inspections.some(
+      (i) => i.protocol_type === "zwischenbegehung" && (i.finalized_at || i.status === "completed"),
+    );
+    if (!zbDone) {
+      return {
+        label: "Zwischenbegehung fällig",
+        sublabel: "Baufortschritt dokumentieren",
+        icon: "clipboard",
+        color: "amber",
+        route: "/begehung/[type]",
+        params: { type: "zwischenbegehung", projectId },
+      };
+    }
+  }
+
+  // BILLING → Rechnung erstellen
+  if (s === "BILLING") {
+    return {
+      label: "Abschlagsrechnung erstellen",
+      sublabel: "Leistungen abrechnen",
+      icon: "receipt",
+      color: "amber",
+    };
+  }
+
+  // COMPLETION / COMPLETED → Abnahme
+  if (s === "COMPLETION" || s === "COMPLETED") {
+    const abDone = inspections.some(
+      (i) => i.protocol_type === "abnahme" && (i.finalized_at || i.status === "completed"),
+    );
+    if (!abDone) {
+      return {
+        label: "Abnahme durchführen",
+        sublabel: "Projekt abschließen",
+        icon: "checkmark-done-circle",
+        color: "amber",
+        route: "/begehung/[type]",
+        params: { type: "abnahme", projectId },
+      };
+    }
+  }
+
+  // Alles erledigt
+  return null;
+}
+
+const NEXT_STEP_COLORS = {
+  green: { bg: Colors.raw.emerald500, bgLight: Colors.raw.emerald500 + "15", border: Colors.raw.emerald500 + "40" },
+  amber: { bg: Colors.raw.amber500, bgLight: Colors.raw.amber500 + "15", border: Colors.raw.amber500 + "40" },
+  red: { bg: Colors.raw.rose500, bgLight: Colors.raw.rose500 + "15", border: Colors.raw.rose500 + "40" },
+};
+
+function NextStepBox({ step, onPress }: { step: NextStepInfo; onPress: () => void }) {
+  const colors = NEXT_STEP_COLORS[step.color];
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <AnimatedPressable
+      style={[
+        {
+          backgroundColor: colors.bgLight,
+          borderRadius: 16,
+          borderWidth: 1.5,
+          borderColor: colors.border,
+          padding: 16,
+          marginBottom: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 14,
+          minHeight: 64,
+        },
+        animStyle,
+      ]}
+      onPressIn={() => {
+        scale.value = withSpring(0.97, { damping: 15, stiffness: 300 });
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+      }}
+      onPress={() => {
+        if (Platform.OS !== "web") {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+        onPress();
+      }}
+    >
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 12,
+          backgroundColor: colors.bg + "25",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Ionicons name={step.icon as any} size={22} color={colors.bg} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{
+            fontFamily: "Inter_700Bold",
+            fontSize: 16,
+            color: Colors.raw.white,
+            marginBottom: step.sublabel ? 2 : 0,
+          }}
+        >
+          {step.label}
+        </Text>
+        {step.sublabel && (
+          <Text
+            style={{
+              fontFamily: "Inter_400Regular",
+              fontSize: 13,
+              color: Colors.raw.zinc400,
+            }}
+          >
+            {step.sublabel}
+          </Text>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={colors.bg} />
+    </AnimatedPressable>
+  );
+}
+
 // --- Reusable Components ---
 
 function QuickAction({
@@ -1776,6 +1991,27 @@ export default function ProjectDetailScreen() {
 
   const unreadMessages = messages.length;
 
+  // Nächster Schritt
+  const nextStep = computeNextStep(
+    project.status,
+    offers,
+    inspections,
+    changeOrders,
+    pipelineRun,
+    project.planned_start,
+    id!,
+  );
+
+  const handleNextStepPress = () => {
+    if (!nextStep) return;
+    if (nextStep.route) {
+      router.push({ pathname: nextStep.route as any, params: nextStep.params });
+    } else if (nextStep.icon === "flash") {
+      // Planung starten
+      handleAutoPlan();
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={[styles.backRow, { paddingTop: topInset + 8 }]}>
@@ -1942,6 +2178,11 @@ export default function ProjectDetailScreen() {
             </View>
           )}
         </View>
+
+        {/* Nächster Schritt — prominente Jetzt-tun-Box */}
+        {nextStep && (
+          <NextStepBox step={nextStep} onPress={handleNextStepPress} />
+        )}
 
         <SectionCard>
           <View style={styles.marginBreakdown}>
