@@ -11,8 +11,10 @@ import { useRole } from "@/contexts/RoleContext";
 import { useOffline } from "@/contexts/OfflineContext";
 import { OfflineBadge } from "@/components/OfflineBanner";
 import { useDashboardMetrics } from "@/hooks/queries/useDashboardMetrics";
+import { useDashboardActions } from "@/hooks/queries/useDashboardActions";
 import { useActivities } from "@/hooks/queries/useActivities";
 import type { Activity } from "@/lib/api/activities";
+import type { DashboardAction, ActionSeverity } from "@/lib/api/dashboard-actions";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -246,6 +248,184 @@ function ActivityFeed() {
   );
 }
 
+// --- Was steht an? ---
+
+const ACTION_ICONS: Record<string, { name: string; lib: "ion" | "mci" }> = {
+  approval: { name: "checkmark-circle", lib: "ion" },
+  overdue_invoice: { name: "receipt", lib: "mci" },
+  missing_material: { name: "cube", lib: "ion" },
+  no_schedule: { name: "calendar-remove", lib: "mci" },
+};
+
+const SEVERITY_COLORS: Record<ActionSeverity, string> = {
+  rot: Colors.raw.rose500,
+  gelb: Colors.raw.amber500,
+};
+
+function ActionCard({ action }: { action: DashboardAction }) {
+  const color = SEVERITY_COLORS[action.severity];
+  const icon = ACTION_ICONS[action.type] ?? { name: "alert-circle", lib: "ion" as const };
+
+  return (
+    <Pressable
+      onPress={() => {
+        if (Platform.OS !== "web") Haptics.selectionAsync();
+        router.push(action.route as any);
+      }}
+      style={({ pressed }) => [
+        wsaStyles.card,
+        { borderLeftColor: color, opacity: pressed ? 0.8 : 1 },
+      ]}
+    >
+      <View style={[wsaStyles.cardIcon, { backgroundColor: color + "18" }]}>
+        {icon.lib === "mci" ? (
+          <MaterialCommunityIcons name={icon.name as any} size={18} color={color} />
+        ) : (
+          <Ionicons name={icon.name as any} size={18} color={color} />
+        )}
+      </View>
+      <View style={wsaStyles.cardContent}>
+        <Text style={wsaStyles.cardTitle} numberOfLines={1}>
+          {action.title}
+        </Text>
+        <Text style={wsaStyles.cardSubtitle} numberOfLines={1}>
+          {action.subtitle}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={Colors.raw.zinc600} />
+    </Pressable>
+  );
+}
+
+function WasStehtAn() {
+  const { data, isLoading } = useDashboardActions();
+
+  if (isLoading) {
+    return (
+      <View style={wsaStyles.section}>
+        <Text style={wsaStyles.heading}>Was steht an?</Text>
+        <View style={[wsaStyles.allGood, { paddingVertical: 20 }]}>
+          <ActivityIndicator color={Colors.raw.amber500} />
+        </View>
+      </View>
+    );
+  }
+
+  const actions = data?.actions ?? [];
+  const totalCount = data?.totalCount ?? 0;
+  const newToday = data?.newToday ?? 0;
+
+  if (actions.length === 0) {
+    return (
+      <View style={wsaStyles.section}>
+        <Text style={wsaStyles.heading}>Was steht an?</Text>
+        <View style={wsaStyles.allGood}>
+          <Ionicons name="checkmark-circle" size={28} color={Colors.raw.emerald500} />
+          <Text style={wsaStyles.allGoodText}>Alles im Griff</Text>
+          <Text style={wsaStyles.allGoodSub}>Keine offenen Aktionen</Text>
+        </View>
+      </View>
+    );
+  }
+
+  const trendText =
+    newToday > 0
+      ? `${newToday} neue heute`
+      : totalCount > 5
+        ? `${totalCount} offen insgesamt`
+        : null;
+
+  return (
+    <View style={wsaStyles.section}>
+      <View style={wsaStyles.headingRow}>
+        <Text style={wsaStyles.heading}>Was steht an?</Text>
+        {trendText && <Text style={wsaStyles.trend}>{trendText}</Text>}
+      </View>
+      {actions.map((action) => (
+        <ActionCard key={action.id} action={action} />
+      ))}
+    </View>
+  );
+}
+
+const wsaStyles = StyleSheet.create({
+  section: {
+    marginBottom: 24,
+  },
+  headingRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginBottom: 12,
+  },
+  heading: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.raw.white,
+    marginBottom: 12,
+  },
+  trend: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.raw.amber500,
+    marginBottom: 12,
+  },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    borderLeftWidth: 3,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+    gap: 12,
+    minHeight: 56,
+  },
+  cardIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardContent: {
+    flex: 1,
+  },
+  cardTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.raw.zinc200,
+  },
+  cardSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc500,
+    marginTop: 2,
+  },
+  allGood: {
+    backgroundColor: "rgba(16, 185, 129, 0.08)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.2)",
+    padding: 20,
+    alignItems: "center",
+    gap: 6,
+  },
+  allGoodText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.raw.emerald500,
+  },
+  allGoodSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
+  },
+});
+
 function formatCompactCurrency(amount: number): string {
   if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1).replace(".", ",")}M`;
   if (amount >= 1_000) return `${Math.round(amount / 1_000)}K`;
@@ -261,6 +441,8 @@ function GFHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["
 
   return (
     <>
+      <WasStehtAn />
+
       <Pressable style={({ pressed }) => [styles.alertBanner, { opacity: pressed ? 0.85 : 1 }]}>
         <View style={styles.alertLeft}>
           <Ionicons name="warning" size={18} color={Colors.raw.rose500} />
@@ -346,6 +528,8 @@ function BauleiterHome({ metrics }: { metrics: ReturnType<typeof useDashboardMet
 
   return (
     <>
+      <WasStehtAn />
+
       <Pressable
         onPress={() => {
           if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -489,15 +673,25 @@ export default function StartScreen() {
   const { role, user, isImpersonating } = useRole();
   const { isOnline, getCacheAge } = useOffline();
   const { data: metrics, refetch: refetchMetrics } = useDashboardMetrics();
+  const { refetch: refetchActions } = useDashboardActions();
   const { refetch: refetchActivities, isRefetching } = useActivities();
 
   const onRefresh = useCallback(async () => {
-    await Promise.all([refetchMetrics(), refetchActivities()]);
-  }, [refetchMetrics, refetchActivities]);
+    await Promise.all([refetchMetrics(), refetchActions(), refetchActivities()]);
+  }, [refetchMetrics, refetchActions, refetchActivities]);
+
+  const { data: actionsData } = useDashboardActions();
+  const actionCount = actionsData?.totalCount ?? 0;
 
   const greetings: Record<string, { greeting: string; subtitle: string }> = {
-    gf: { greeting: `Moin ${user.name}`, subtitle: "3 Dinge brauchen dich" },
-    bauleiter: { greeting: `Moin ${user.name}`, subtitle: "5 Projekte heute" },
+    gf: {
+      greeting: `Moin ${user.name}`,
+      subtitle: actionCount > 0 ? `${actionCount} Dinge brauchen dich` : "Alles laeuft",
+    },
+    bauleiter: {
+      greeting: `Moin ${user.name}`,
+      subtitle: actionCount > 0 ? `${actionCount} offene Aktionen` : "Alles im Griff",
+    },
     monteur: { greeting: `Moin ${user.name}`, subtitle: "Dein Tag auf der Baustelle" },
   };
 
