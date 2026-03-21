@@ -1225,7 +1225,7 @@ export default function FreigabeDetailScreen() {
       setShowToast(true);
       setTimeout(() => {
         if (Platform.OS === "web") {
-          router.replace("/freigabe");
+          router.replace("/(tabs)/freigaben");
         } else {
           router.back();
         }
@@ -1259,7 +1259,7 @@ export default function FreigabeDetailScreen() {
         }
         setTimeout(() => {
           if (Platform.OS === "web" && window.history.length <= 1) {
-            router.replace("/freigabe");
+            router.replace("/(tabs)/freigaben");
           } else {
             router.back();
           }

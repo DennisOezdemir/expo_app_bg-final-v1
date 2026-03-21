@@ -273,6 +273,8 @@ function ProjectSelector({ onSelect }: { onSelect: (p: Project) => void }) {
       name: newName.trim(),
       address: newAddress.trim() || "Adresse ausstehend",
       client: newClient.trim() || "Kunde ausstehend",
+      anrede: "",
+      nachname: "",
     };
     onSelect(newProject);
   };
@@ -1010,7 +1012,7 @@ function EditPositionSheet({
   useEffect(() => {
     if (visible && focusField) {
       const timer = setTimeout(() => {
-        const refMap: Record<string, React.RefObject<TextInput>> = {
+        const refMap: Record<string, React.RefObject<TextInput | null>> = {
           title: titleRef, qty: qtyRef, unit: unitRef, price: priceRef, longText: longTextRef, markup: markupRef,
         };
         refMap[focusField]?.current?.focus();
@@ -1438,16 +1440,12 @@ export default function OfferEditorScreen() {
 
         setProject({
           id: projectData.id,
-          project_number: projectData.project_number,
+          code: projectData.project_number ?? "",
           name: projectData.name ?? "",
-          object_street: projectData.object_street ?? "",
-          object_zip: projectData.object_zip ?? "",
-          object_city: projectData.object_city ?? "",
-          client: (projectData.clients as any) ? {
-            company_name: (projectData.clients as any).company_name ?? "",
-            salutation: (projectData.clients as any).salutation ?? "",
-            last_name: (projectData.clients as any).last_name ?? "",
-          } : undefined,
+          address: [projectData.object_street, `${projectData.object_zip ?? ""} ${projectData.object_city ?? ""}`.trim()].filter(Boolean).join(", "),
+          client: (projectData.clients as any)?.company_name ?? "—",
+          anrede: (projectData.clients as any)?.salutation ?? "",
+          nachname: (projectData.clients as any)?.last_name ?? "",
         });
       } catch (err) {
         console.error("Fehler im offerId useEffect:", err);
@@ -1600,7 +1598,7 @@ export default function OfferEditorScreen() {
   // Variablen für Textbausteine auflösen
   const resolveVars = useCallback((tpl: string) => {
     const vars: Record<string, string> = {
-      "{{Kunde}}": project?.client?.company_name || "—",
+      "{{Kunde}}": project?.client || "—",
       "{{Adresse}}": project?.address || "—",
       "{{Projekt}}": project?.name || "—",
       "{{Angebotsnr}}": offerNumber || "—",
@@ -2374,7 +2372,7 @@ export default function OfferEditorScreen() {
   <!-- Empfänger + Meta -->
   <div class="address-meta">
     <div class="recipient">
-      <strong>${project?.client?.company_name || ""}</strong><br>
+      <strong>${project?.client || ""}</strong><br>
       ${project?.address || ""}
     </div>
     <div class="meta-box">
@@ -2696,7 +2694,7 @@ export default function OfferEditorScreen() {
           <View style={s.metaRow}>
             <Text style={s.metaLabel}>Kunde</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text style={s.metaValue}>{project.client?.company_name || "—"}</Text>
+              <Text style={s.metaValue}>{project?.client || "—"}</Text>
               <Pressable style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
                 <Text style={s.changeBtn}>Ändern</Text>
               </Pressable>

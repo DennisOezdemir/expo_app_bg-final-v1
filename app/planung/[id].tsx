@@ -39,7 +39,7 @@ function showAlert(title: string, msg?: string, buttons?: { text: string; style?
       window.alert(`${title}${msg ? "\n\n" + msg : ""}`);
     }
   } else {
-    showAlert(title, msg, buttons as any);
+    Alert.alert(title, msg, buttons as any);
   }
 }
 
