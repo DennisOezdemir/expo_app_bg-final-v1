@@ -6,141 +6,70 @@ import {
   Platform,
   Pressable,
   TextInput,
-  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { router } from "expo-router";
 import Colors from "@/constants/colors";
+import { useCatalogs, useCatalogPositions, useCatalogTrades } from "@/hooks/queries/useCatalogs";
+import type { Catalog, CatalogPosition } from "@/lib/api/catalogs";
 
-interface Gewerk {
-  id: string;
-  name: string;
-  icon: string;
-  positions: number;
-}
-
-interface Position {
-  nr: string;
-  name: string;
-  price: string;
-  unit: string;
-}
-
-interface Material {
-  name: string;
-  packaging: string;
-  rate: string;
-}
-
-const GEWERKE: Gewerk[] = [
-  { id: "maler", name: "Maler", icon: "color-palette", positions: 184 },
-  { id: "sanitaer", name: "Sanit\u00E4r", icon: "build", positions: 92 },
-  { id: "boden", name: "Boden", icon: "layers", positions: 95 },
-  { id: "elektro", name: "Elektro", icon: "flash", positions: 82 },
-  { id: "fliesen", name: "Fliesen", icon: "grid", positions: 88 },
-  { id: "tischler", name: "Tischler", icon: "construct", positions: 79 },
-];
-
-const SAMPLE_POSITIONS: Position[] = [
-  { nr: "01.01", name: "Wandfl\u00E4chen grundieren", price: "3,20", unit: "m\u00B2" },
-  { nr: "01.02", name: "Wandfl\u00E4chen streichen", price: "4,80", unit: "m\u00B2" },
-  { nr: "01.03", name: "Raufaser tapezieren", price: "8,40", unit: "m\u00B2" },
-  { nr: "01.04", name: "Vlies tapezieren", price: "9,60", unit: "m\u00B2" },
-  { nr: "01.05", name: "Decke streichen", price: "5,20", unit: "m\u00B2" },
-  { nr: "01.06", name: "Lackarbeiten T\u00FCrzargen", price: "28,00", unit: "Stk" },
-  { nr: "01.07", name: "Lackarbeiten Fenster", price: "32,00", unit: "Stk" },
-  { nr: "01.08", name: "Spachtelarbeiten Q3", price: "6,80", unit: "m\u00B2" },
-];
-
-const SAMPLE_MATERIALS: Material[] = [
-  { name: "Vliesraufaser", packaging: "Rolle 25m", rate: "1 pro 12,5m\u00B2" },
-  { name: "Vlieskleber", packaging: "Eimer 16kg", rate: "1 pro 25m\u00B2" },
-];
-
-const DESCRIPTIONS: Record<string, string> = {
-  "01.01": "Wandfl\u00E4chen fachgerecht grundieren mit Tiefengrund LF. Untergrund muss trocken, sauber und tragf\u00E4hig sein.",
-  "01.02": "Wandfl\u00E4chen streichen mit Dispersionsfarbe, deckend in einem Anstrich. Farbton nach Absprache.",
-  "01.03": "Raufasertapete Typ mittel auf vorbereiteten Untergrund tapezieren inkl. Kleister und Zuschnitt.",
-  "01.04": "Malervlies glatt auf vorbereiteten Untergrund tapezieren inkl. Spezialkleber.",
-  "01.05": "Deckenfl\u00E4chen mit Dispersionsfarbe streichen, deckend. Abkleben und Abdeckarbeiten inklusive.",
-  "01.06": "T\u00FCrzargen schleifen, grundieren und zweimal lackieren mit Acryllack seidenmatt.",
-  "01.07": "Fensterrahmen innen schleifen, grundieren und zweimal lackieren mit Acryllack seidenmatt.",
-  "01.08": "Spachtelarbeiten Qualit\u00E4tsstufe Q3 auf Gipskartonplatten inkl. Fugen und Schraubenk\u00F6pfe.",
-};
-
-type ViewType = "gewerke" | "positions" | "detail";
+type ViewType = "catalogs" | "positions" | "detail";
 
 export default function KatalogScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [view, setView] = useState<ViewType>("gewerke");
-  const [selectedGewerk, setSelectedGewerk] = useState<Gewerk | null>(null);
-  const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
+  const [view, setView] = useState<ViewType>("catalogs");
+  const [selectedCatalog, setSelectedCatalog] = useState<Catalog | null>(null);
+  const [selectedPosition, setSelectedPosition] = useState<CatalogPosition | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTrade, setSelectedTrade] = useState("Alle");
 
-  const [beschreibung, setBeschreibung] = useState("");
-  const [einheit, setEinheit] = useState("");
-  const [grundpreis, setGrundpreis] = useState("");
-  const [aufschlag, setAufschlag] = useState("15");
-  const [materials, setMaterials] = useState<Material[]>([]);
+  const { data: catalogs, isLoading: catalogsLoading } = useCatalogs();
+  const { data: positions, isLoading: positionsLoading } = useCatalogPositions(
+    selectedCatalog?.id,
+    searchQuery || undefined,
+    selectedTrade !== "Alle" ? selectedTrade : undefined,
+  );
+  const { data: trades } = useCatalogTrades(selectedCatalog?.id);
 
-  const openGewerk = (gewerk: Gewerk) => {
-    setSelectedGewerk(gewerk);
+  const tradeOptions = useMemo(() => ["Alle", ...(trades ?? [])], [trades]);
+
+  const totalPositions = useMemo(
+    () => (catalogs ?? []).reduce((sum, c) => sum + c.position_count, 0),
+    [catalogs],
+  );
+
+  const openCatalog = (catalog: Catalog) => {
+    setSelectedCatalog(catalog);
     setSearchQuery("");
+    setSelectedTrade("Alle");
     setView("positions");
   };
 
-  const openPosition = (position: Position) => {
+  const openPosition = (position: CatalogPosition) => {
     setSelectedPosition(position);
-    setBeschreibung(DESCRIPTIONS[position.nr] || "Standardbeschreibung f\u00FCr diese Position.");
-    setEinheit(position.unit);
-    setGrundpreis(position.price);
-    setAufschlag("15");
-    setMaterials(position.nr === "01.03" ? [...SAMPLE_MATERIALS] : []);
     setView("detail");
   };
 
-  const goBackFromPositions = () => {
-    setView("gewerke");
-    setSelectedGewerk(null);
-  };
-
-  const goBackFromDetail = () => {
-    setView("positions");
-    setSelectedPosition(null);
-  };
-
-  const handleSave = () => {
-    Alert.alert("Gespeichert", `Position ${selectedPosition?.nr} wurde erfolgreich gespeichert.`);
-  };
-
-  const calculateEndpreis = (): string => {
-    const price = parseFloat(grundpreis.replace(",", "."));
-    const markup = parseFloat(aufschlag.replace(",", "."));
-    if (isNaN(price) || isNaN(markup)) return "0,00";
-    const result = price * (1 + markup / 100);
-    return result.toFixed(2).replace(".", ",");
-  };
-
-  const filteredPositions = SAMPLE_POSITIONS.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.nr.includes(searchQuery)
-  );
-
   const handleBack = () => {
     if (view === "detail") {
-      goBackFromDetail();
+      setSelectedPosition(null);
+      setView("positions");
     } else if (view === "positions") {
-      goBackFromPositions();
+      setSelectedCatalog(null);
+      setView("catalogs");
     } else {
       router.back();
     }
   };
+
+  const formatPrice = (price: number): string =>
+    price.toFixed(2).replace(".", ",");
 
   return (
     <View style={styles.container}>
@@ -159,76 +88,84 @@ export default function KatalogScreen() {
         >
           <Ionicons name="chevron-back" size={22} color={Colors.raw.amber500} />
           <Text style={styles.backText}>
-            {view === "gewerke" ? "Zur\u00FCck" : view === "positions" ? "Gewerke" : selectedGewerk?.name || "Positionen"}
+            {view === "catalogs"
+              ? "Zurück"
+              : view === "positions"
+                ? "Kataloge"
+                : selectedCatalog?.name || "Positionen"}
           </Text>
         </Pressable>
 
-        {view === "gewerke" && renderGewerkeView()}
+        {view === "catalogs" && renderCatalogsView()}
         {view === "positions" && renderPositionsView()}
         {view === "detail" && renderDetailView()}
       </ScrollView>
     </View>
   );
 
-  function renderGewerkeView() {
+  function renderCatalogsView() {
+    if (catalogsLoading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.raw.amber500} />
+          <Text style={styles.loadingText}>Kataloge laden...</Text>
+        </View>
+      );
+    }
+
     return (
       <>
-        <Text style={styles.title}>WABS Katalog</Text>
-        <Text style={styles.subtitle}>620 Positionen \u2022 {GEWERKE.length} Gewerke</Text>
-
-        <Text style={styles.updateText}>Letzte Aktualisierung: 01.02.2026</Text>
+        <Text style={styles.title}>Kataloge</Text>
+        <Text style={styles.subtitle}>
+          {catalogs?.length ?? 0} Kataloge • {totalPositions} Positionen
+        </Text>
 
         <View style={{ marginTop: 20, gap: 10 }}>
-          {GEWERKE.map((gewerk) => (
+          {(catalogs ?? []).map((catalog) => (
             <Pressable
-              key={gewerk.id}
-              onPress={() => openGewerk(gewerk)}
-              style={({ pressed }) => [styles.gewerkCard, { opacity: pressed ? 0.7 : 1 }]}
-              testID={`gewerk-${gewerk.id}`}
+              key={catalog.id}
+              onPress={() => openCatalog(catalog)}
+              style={({ pressed }) => [styles.catalogCard, { opacity: pressed ? 0.7 : 1 }]}
+              testID={`catalog-${catalog.code}`}
             >
-              <View style={styles.gewerkLeft}>
-                <View style={styles.gewerkIcon}>
-                  <Ionicons name={gewerk.icon as any} size={22} color={Colors.raw.amber500} />
+              <View style={styles.catalogLeft}>
+                <View style={styles.catalogIcon}>
+                  <Ionicons name="book-outline" size={22} color={Colors.raw.amber500} />
                 </View>
-                <View>
-                  <Text style={styles.gewerkName}>{gewerk.name}</Text>
-                  <Text style={styles.gewerkCount}>{gewerk.positions} Positionen</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.catalogName} numberOfLines={1}>
+                    {catalog.name}
+                  </Text>
+                  <Text style={styles.catalogMeta}>
+                    {catalog.code} • {catalog.position_count} Positionen
+                  </Text>
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc600} />
             </Pressable>
           ))}
         </View>
-
-        <View style={styles.actionRow}>
-          <Pressable style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}>
-            <Ionicons name="search" size={18} color={Colors.raw.amber500} />
-            <Text style={styles.actionText}>Position suchen</Text>
-          </Pressable>
-          <Pressable style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}>
-            <Ionicons name="download" size={18} color={Colors.raw.amber500} />
-            <Text style={styles.actionText}>Katalog importieren</Text>
-          </Pressable>
-          <Pressable style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}>
-            <Ionicons name="share" size={18} color={Colors.raw.amber500} />
-            <Text style={styles.actionText}>Katalog exportieren</Text>
-          </Pressable>
-        </View>
       </>
     );
   }
 
   function renderPositionsView() {
-    if (!selectedGewerk) return null;
+    if (!selectedCatalog) return null;
+
     return (
       <>
-        <Text style={styles.title}>{selectedGewerk.name} \u2022 {selectedGewerk.positions} Positionen</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {selectedCatalog.name}
+        </Text>
+        <Text style={styles.subtitle}>
+          {selectedCatalog.position_count} Positionen • {selectedCatalog.code}
+        </Text>
 
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={Colors.raw.zinc500} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Position suchen..."
+            placeholder="Code oder Titel suchen..."
             placeholderTextColor={Colors.raw.zinc500}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -240,127 +177,144 @@ export default function KatalogScreen() {
           )}
         </View>
 
-        <View style={styles.card}>
-          {filteredPositions.map((position, i) => (
-            <View key={position.nr}>
+        {(trades ?? []).length > 1 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.tradeScroll}
+            contentContainerStyle={styles.tradeScrollContent}
+          >
+            {tradeOptions.map((trade) => (
               <Pressable
-                onPress={() => openPosition(position)}
-                style={({ pressed }) => [styles.positionRow, { opacity: pressed ? 0.7 : 1 }]}
-                testID={`position-${position.nr}`}
+                key={trade}
+                onPress={() => setSelectedTrade(trade)}
+                style={[
+                  styles.tradeChip,
+                  selectedTrade === trade && styles.tradeChipActive,
+                ]}
               >
-                <View style={styles.positionLeft}>
-                  <Text style={styles.positionNr}>{position.nr}</Text>
-                  <Text style={styles.positionName}>{position.name}</Text>
-                </View>
-                <Text style={styles.positionPrice}>\u20AC{position.price}/{position.unit}</Text>
+                <Text
+                  style={[
+                    styles.tradeChipText,
+                    selectedTrade === trade && styles.tradeChipTextActive,
+                  ]}
+                >
+                  {trade}
+                </Text>
               </Pressable>
-              {i < filteredPositions.length - 1 && <View style={styles.divider} />}
-            </View>
-          ))}
-        </View>
+            ))}
+          </ScrollView>
+        )}
+
+        {positionsLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.raw.amber500} />
+          </View>
+        ) : (positions ?? []).length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="search-outline" size={40} color={Colors.raw.zinc600} />
+            <Text style={styles.emptyText}>Keine Positionen gefunden</Text>
+          </View>
+        ) : (
+          <View style={styles.card}>
+            {(positions ?? []).map((position, i) => (
+              <View key={position.id}>
+                <Pressable
+                  onPress={() => openPosition(position)}
+                  style={({ pressed }) => [styles.positionRow, { opacity: pressed ? 0.7 : 1 }]}
+                  testID={`position-${position.position_code}`}
+                >
+                  <View style={styles.positionLeft}>
+                    <Text style={styles.positionNr}>{position.position_code}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.positionName} numberOfLines={1}>
+                        {position.title}
+                      </Text>
+                      {position.trade && (
+                        <Text style={styles.positionTrade}>{position.trade}</Text>
+                      )}
+                    </View>
+                  </View>
+                  <Text style={styles.positionPrice}>
+                    €{formatPrice(position.base_price_eur)}/{position.unit ?? "Stk"}
+                  </Text>
+                </Pressable>
+                {i < (positions?.length ?? 0) - 1 && <View style={styles.divider} />}
+              </View>
+            ))}
+          </View>
+        )}
       </>
     );
   }
 
   function renderDetailView() {
     if (!selectedPosition) return null;
+
     return (
       <>
-        <Text style={styles.title}>Position {selectedPosition.nr}</Text>
-        <Text style={styles.detailName}>{selectedPosition.name}</Text>
+        <Text style={styles.title}>Position {selectedPosition.position_code}</Text>
+        <Text style={styles.detailName}>{selectedPosition.title}</Text>
 
-        <Text style={styles.sectionLabel}>Beschreibung</Text>
-        <TextInput
-          style={styles.textArea}
-          multiline
-          numberOfLines={4}
-          value={beschreibung}
-          onChangeText={setBeschreibung}
-          textAlignVertical="top"
-          placeholderTextColor={Colors.raw.zinc500}
-        />
+        {selectedPosition.title_secondary && (
+          <>
+            <Text style={styles.sectionLabel}>Originaltext</Text>
+            <View style={styles.card}>
+              <Text style={styles.secondaryText}>{selectedPosition.title_secondary}</Text>
+            </View>
+          </>
+        )}
 
-        <Text style={styles.sectionLabel}>Preiskalkulation</Text>
+        {selectedPosition.description && (
+          <>
+            <Text style={styles.sectionLabel}>Beschreibung</Text>
+            <View style={styles.card}>
+              <Text style={styles.descriptionText}>{selectedPosition.description}</Text>
+            </View>
+          </>
+        )}
+
+        <Text style={styles.sectionLabel}>Details</Text>
         <View style={styles.card}>
           <View style={styles.formRow}>
             <Text style={styles.formLabel}>Einheit</Text>
-            <TextInput
-              style={styles.formInput}
-              value={einheit}
-              onChangeText={setEinheit}
-              placeholderTextColor={Colors.raw.zinc500}
-            />
+            <Text style={styles.formValue}>{selectedPosition.unit ?? "—"}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.formRow}>
             <Text style={styles.formLabel}>Grundpreis</Text>
-            <TextInput
-              style={styles.formInput}
-              value={grundpreis}
-              onChangeText={setGrundpreis}
-              keyboardType="decimal-pad"
-              placeholderTextColor={Colors.raw.zinc500}
-            />
+            <Text style={styles.endpreis}>
+              €{formatPrice(selectedPosition.base_price_eur)}
+            </Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.formRow}>
-            <Text style={styles.formLabel}>Aufschlag (%)</Text>
-            <TextInput
-              style={styles.formInput}
-              value={aufschlag}
-              onChangeText={setAufschlag}
-              keyboardType="decimal-pad"
-              placeholderTextColor={Colors.raw.zinc500}
-            />
+            <Text style={styles.formLabel}>Gewerk</Text>
+            <Text style={styles.formValue}>{selectedPosition.trade ?? "—"}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.formRow}>
-            <Text style={styles.formLabel}>Endpreis</Text>
-            <Text style={styles.endpreis}>\u20AC{calculateEndpreis()}/{einheit}</Text>
+            <Text style={styles.formLabel}>Kategorie</Text>
+            <Text style={styles.formValue}>{selectedPosition.category ?? "—"}</Text>
           </View>
-        </View>
-
-        <Text style={styles.sectionLabel}>Material-Anforderungen</Text>
-        <View style={styles.card}>
-          {materials.length === 0 && (
-            <Text style={styles.emptyText}>Keine Material-Anforderungen hinterlegt.</Text>
-          )}
-          {materials.map((mat, i) => (
-            <View key={mat.name}>
-              <View style={styles.materialRow}>
-                <View style={styles.materialIcon}>
-                  <Ionicons name="cube" size={18} color={Colors.raw.amber500} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.materialName}>{mat.name}</Text>
-                  <Text style={styles.materialDetail}>{mat.packaging} \u2022 {mat.rate}</Text>
-                </View>
+          {selectedPosition.parent_code && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.formRow}>
+                <Text style={styles.formLabel}>Oberposition</Text>
+                <Text style={styles.formValue}>{selectedPosition.parent_code}</Text>
               </View>
-              {i < materials.length - 1 && <View style={styles.divider} />}
-            </View>
-          ))}
-          <View style={styles.divider} />
-          <Pressable
-            style={({ pressed }) => [styles.addRow, { opacity: pressed ? 0.7 : 1 }]}
-            onPress={() => {
-              setMaterials((prev) => [
-                ...prev,
-                { name: "Neues Material", packaging: "Einheit", rate: "nach Bedarf" },
-              ]);
-            }}
-          >
-            <Ionicons name="add-circle" size={20} color={Colors.raw.amber500} />
-            <Text style={styles.addText}>Material-Anforderung</Text>
-          </Pressable>
+            </>
+          )}
         </View>
 
-        <Pressable
-          onPress={handleSave}
-          style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.9 : 1 }]}
-          testID="katalog-save"
-        >
-          <Text style={styles.saveBtnText}>Speichern</Text>
-        </Pressable>
+        <Text style={styles.sectionLabel}>Katalog</Text>
+        <View style={styles.card}>
+          <View style={styles.formRow}>
+            <Ionicons name="book-outline" size={18} color={Colors.raw.zinc400} />
+            <Text style={styles.catalogInfoText}>{selectedCatalog?.name ?? "—"}</Text>
+          </View>
+        </View>
       </>
     );
   }
@@ -396,13 +350,32 @@ const styles = StyleSheet.create({
     color: Colors.raw.zinc400,
     marginBottom: 4,
   },
-  updateText: {
+
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    gap: 12,
+  },
+  loadingText: {
     fontFamily: "Inter_400Regular",
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.raw.zinc500,
   },
 
-  gewerkCard: {
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    gap: 12,
+  },
+  emptyText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.raw.zinc500,
+  },
+
+  catalogCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -412,12 +385,13 @@ const styles = StyleSheet.create({
     borderColor: Colors.raw.zinc800,
     padding: 16,
   },
-  gewerkLeft: {
+  catalogLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
+    flex: 1,
   },
-  gewerkIcon: {
+  catalogIcon: {
     width: 44,
     height: 44,
     borderRadius: 14,
@@ -425,35 +399,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  gewerkName: {
+  catalogName: {
     fontFamily: "Inter_700Bold",
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.raw.white,
   },
-  gewerkCount: {
+  catalogMeta: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.raw.zinc500,
     marginTop: 2,
-  },
-
-  actionRow: {
-    marginTop: 24,
-    gap: 10,
-  },
-  actionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: Colors.raw.zinc800,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-  },
-  actionText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.amber500,
   },
 
   searchBar: {
@@ -465,7 +420,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 10,
     marginTop: 16,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   searchInput: {
     flex: 1,
@@ -474,6 +429,22 @@ const styles = StyleSheet.create({
     color: Colors.raw.white,
     padding: 0,
   },
+
+  tradeScroll: { marginBottom: 16 },
+  tradeScrollContent: { gap: 8 },
+  tradeChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.raw.zinc800,
+  },
+  tradeChipActive: { backgroundColor: Colors.raw.amber500 },
+  tradeChipText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.zinc400,
+  },
+  tradeChipTextActive: { color: "#000" },
 
   card: {
     backgroundColor: Colors.raw.zinc900,
@@ -491,29 +462,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 14,
+    gap: 8,
   },
   positionLeft: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
     flex: 1,
   },
   positionNr: {
     fontFamily: "Inter_700Bold",
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.raw.amber500,
-    width: 46,
+    width: 70,
+    marginTop: 2,
   },
   positionName: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: Colors.raw.white,
-    flex: 1,
+  },
+  positionTrade: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc500,
+    marginTop: 2,
   },
   positionPrice: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.raw.zinc400,
+    flexShrink: 0,
   },
 
   detailName: {
@@ -533,15 +512,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  textArea: {
-    backgroundColor: Colors.raw.zinc800,
-    borderRadius: 14,
-    padding: 16,
+  secondaryText: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,
-    color: Colors.raw.white,
-    minHeight: 100,
-    marginBottom: 20,
+    color: Colors.raw.zinc300,
+    paddingVertical: 12,
+    lineHeight: 20,
+  },
+
+  descriptionText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.raw.zinc300,
+    paddingVertical: 12,
+    lineHeight: 20,
   },
 
   formRow: {
@@ -549,22 +533,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 14,
+    gap: 12,
   },
   formLabel: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
     color: Colors.raw.zinc400,
   },
-  formInput: {
+  formValue: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: Colors.raw.white,
-    backgroundColor: Colors.raw.zinc800,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minWidth: 100,
-    textAlign: "right",
   },
   endpreis: {
     fontFamily: "Inter_700Bold",
@@ -572,60 +551,10 @@ const styles = StyleSheet.create({
     color: Colors.raw.amber500,
   },
 
-  materialRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 14,
-  },
-  materialIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.raw.amber500 + "14",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  materialName: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 14,
-    color: Colors.raw.white,
-  },
-  materialDetail: {
+  catalogInfoText: {
     fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.raw.zinc500,
-    marginTop: 2,
-  },
-  emptyText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.raw.zinc500,
-    paddingVertical: 14,
-  },
-
-  addRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 14,
-  },
-  addText: {
-    fontFamily: "Inter_600SemiBold",
     fontSize: 14,
-    color: Colors.raw.amber500,
-  },
-
-  saveBtn: {
-    backgroundColor: Colors.raw.amber500,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  saveBtnText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#000",
+    color: Colors.raw.zinc300,
+    marginLeft: 8,
   },
 });
