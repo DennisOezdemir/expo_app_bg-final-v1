@@ -2,57 +2,74 @@ import { supabase } from "@/lib/supabase";
 import type { Product } from "./materials";
 
 /**
+ * Trade-Normalisierung: UI hat "Elektro"/"Sanitär", DB hat "elektro"/"sanitaer"
+ */
+const TRADE_MAP: Record<string, string> = {
+  "Elektro": "elektro",
+  "Sanitär": "sanitaer",
+  "Maler": "maler",
+  "Fliesen": "fliesen",
+  "Trockenbau": "trockenbau",
+  "Tischler": "tischler",
+  "Heizung": "heizung",
+  "Boden": "boden",
+  "Maurer": "maurer",
+  "Reinigung": "reinigung",
+  "Sonstiges": "allgemein",
+};
+
+/**
  * Sucht Produkte mit optionalem Trade-Filter.
- * 1. Wenn trade gegeben → zuerst nur passende Produkte
- * 2. Wenn searchText gegeben → sucht über name, sku UND supplier.name (ILIKE)
- * 3. Fallback: wenn Trade-Filter 0 Ergebnisse → alle Produkte durchsuchen
+ * - Trade-Filter ist case-insensitive und schließt trade=NULL Produkte mit ein
+ * - Suchtext sucht über name, sku (ILIKE)
  */
 export async function searchProducts(
   searchText?: string,
   trade?: string
 ): Promise<Product[]> {
-  // Erste Suche: mit Trade-Filter (wenn vorhanden)
-  let query = supabase
-    .from("products")
-    .select(
-      `id, name, sku, last_price_net_eur, unit, is_favorite, use_count, material_type, trade,
-       suppliers:supplier_id (id, name, short_name)`
-    )
-    .eq("is_active", true)
-    .order("is_favorite", { ascending: false })
-    .order("use_count", { ascending: false })
-    .limit(30);
+  const SELECT_COLS = `id, name, sku, last_price_net_eur, unit, is_favorite, use_count, material_type, trade,
+       suppliers:supplier_id (id, name, short_name)`;
 
-  // Trade-Filter: nur wenn kein Suchtext oder als Erstfilter
-  if (trade && !searchText) {
-    query = query.eq("trade", trade);
-  }
+  // Normalisiere Trade von UI-Format zu DB-Format
+  const dbTrade = trade ? (TRADE_MAP[trade] || trade.toLowerCase()) : null;
 
-  // Suchtext: über name, sku und supplier (ILIKE)
+  let items: any[] | null = null;
+
   if (searchText) {
-    query = query.or(
-      `name.ilike.%${searchText}%,sku.ilike.%${searchText}%`
-    );
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-
-  let items = data as any[] | null;
-
-  // Fallback: wenn Trade-Filter keine Ergebnisse bringt
-  if ((!items || items.length === 0) && trade && !searchText) {
-    const { data: allData } = await supabase
+    // Freitextsuche: über alle Produkte
+    const { data, error } = await supabase
       .from("products")
-      .select(
-        `id, name, sku, last_price_net_eur, unit, is_favorite, use_count, material_type, trade,
-         suppliers:supplier_id (id, name, short_name)`
-      )
+      .select(SELECT_COLS)
+      .eq("is_active", true)
+      .or(`name.ilike.%${searchText}%,sku.ilike.%${searchText}%,material_type.ilike.%${searchText}%`)
+      .order("use_count", { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    items = data;
+  } else if (dbTrade) {
+    // Trade-gefiltert: passende Trades PLUS trade=NULL (Querschnitts-Artikel)
+    // Supabase .or() mit is.null
+    const { data, error } = await supabase
+      .from("products")
+      .select(SELECT_COLS)
+      .eq("is_active", true)
+      .or(`trade.ilike.${dbTrade},trade.is.null`)
+      .order("is_favorite", { ascending: false })
+      .order("use_count", { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    items = data;
+  } else {
+    // Kein Filter: alle Produkte nach Nutzung
+    const { data, error } = await supabase
+      .from("products")
+      .select(SELECT_COLS)
       .eq("is_active", true)
       .order("is_favorite", { ascending: false })
       .order("use_count", { ascending: false })
       .limit(30);
-    items = allData as any[] | null;
+    if (error) throw error;
+    items = data;
   }
 
   if (!items) return [];
