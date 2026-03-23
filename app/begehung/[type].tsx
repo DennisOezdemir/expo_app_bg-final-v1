@@ -43,6 +43,14 @@ import {
 import { useProductSearch } from "@/hooks/queries/useProductSearch";
 import { searchProducts, findDuplicatePositions, assignProductToPositions } from "@/lib/api/product-search";
 import type { Product } from "@/lib/api/materials";
+import {
+  fetchTeamForTrade,
+  fetchSubcontractorsForTrade,
+  assignTeamToPositions,
+  assignSubcontractorToPositions,
+} from "@/lib/api/team-assignment";
+import type { TeamMemberRow } from "@/lib/api/team";
+import type { SubcontractorRow } from "@/lib/api/team-assignment";
 
 type PosCheckStatus = "none" | "confirmed" | "rejected";
 type ZBWorkStatus = "nicht_gestartet" | "geplant" | "in_arbeit";
@@ -275,6 +283,12 @@ interface MaterialAssignment {
   supplier: string;
 }
 
+interface TeamAssignment {
+  type: "eigen" | "fremd";
+  name: string;
+  entityId: string;
+}
+
 /* ─── PulsingBadge ─────────────────────────── */
 /* Pulsierendes Badge für "Material zuordnen" */
 
@@ -404,7 +418,7 @@ const ms = StyleSheet.create({
   modalEmpty: { alignItems: "center", paddingVertical: 32, gap: 8 },
   modalEmptyText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc600 },
   modalLoading: { alignItems: "center", paddingVertical: 32 },
-  // Duplikat dialog
+  // Duplikat dialog (shared with team)
   dupeOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 24 },
   dupeCard: { backgroundColor: Colors.raw.zinc900, borderRadius: 16, borderWidth: 1, borderColor: Colors.raw.zinc700, padding: 24, maxWidth: 380, width: "100%" },
   dupeTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.raw.white, textAlign: "center", marginBottom: 8 },
@@ -416,6 +430,148 @@ const ms = StyleSheet.create({
   dupeBtnSecondaryText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc300 },
   dupeBtnPrimary: { backgroundColor: Colors.raw.amber500 },
   dupeBtnPrimaryText: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.zinc950 },
+});
+
+/* ─── PulsingTeamBadge ────────────────────────── */
+/* Pulsierendes Badge für "Team zuweisen" (blau) */
+
+function PulsingTeamBadge({ onPress, assigned }: { onPress: () => void; assigned?: TeamAssignment | null }) {
+  const pulseAnim = useSharedValue(0.15);
+
+  useEffect(() => {
+    if (!assigned) {
+      pulseAnim.value = withRepeat(
+        withSequence(
+          withTiming(0.35, { duration: 1200 }),
+          withTiming(0.15, { duration: 1200 }),
+        ),
+        -1,
+        false,
+      );
+    }
+  }, [assigned]);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    backgroundColor: assigned
+      ? Colors.raw.emerald500 + "20"
+      : `rgba(59, 130, 246, ${pulseAnim.value})`,
+  }));
+
+  if (assigned) {
+    return (
+      <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+        <View style={teamS.badgeAssigned}>
+          <Ionicons name="people" size={14} color={Colors.raw.emerald500} />
+          <Text style={teamS.badgeAssignedText} numberOfLines={1}>{assigned.name}</Text>
+          <Text style={teamS.badgeAssignedType}>{assigned.type === "eigen" ? "Eigen" : "NU"}</Text>
+          <Ionicons name="swap-horizontal" size={12} color={Colors.raw.zinc500} />
+        </View>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
+      <Animated.View style={[teamS.badgePulse, pulseStyle]}>
+        <Ionicons name="people-outline" size={16} color={Colors.raw.blue500} />
+        <Text style={teamS.badgePulseText}>Team zuweisen</Text>
+        <Ionicons name="chevron-forward" size={14} color={Colors.raw.blue500} />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+const teamS = StyleSheet.create({
+  badgePulse: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: Colors.raw.blue500 + "50",
+    marginTop: 6,
+  },
+  badgePulseText: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.blue500, flex: 1 },
+  badgeAssigned: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: Colors.raw.emerald500 + "15",
+    borderWidth: 1,
+    borderColor: Colors.raw.emerald500 + "30",
+    marginTop: 6,
+  },
+  badgeAssignedText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.emerald400, flex: 1 },
+  badgeAssignedType: { fontFamily: "Inter_700Bold", fontSize: 11, color: Colors.raw.emerald400 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" },
+  modalSheet: {
+    backgroundColor: Colors.raw.zinc900,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "85%",
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+  },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.raw.zinc600, alignSelf: "center", marginTop: 10, marginBottom: 8 },
+  modalHeader: { paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.raw.zinc800 },
+  modalPosNr: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.blue500 },
+  modalPosTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.raw.white, marginTop: 4 },
+  modalPosMeta: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc400, marginTop: 4 },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: Colors.raw.zinc800 + "80",
+  },
+  sectionHeaderText: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.white },
+  memberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  memberAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.raw.blue500 + "20",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberInfo: { flex: 1 },
+  memberName: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.white },
+  memberRole: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, marginTop: 2 },
+  memberSelectBtn: {
+    backgroundColor: Colors.raw.blue500,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 44,
+    alignItems: "center",
+  },
+  memberSelectText: { fontFamily: "Inter_700Bold", fontSize: 12, color: Colors.raw.white },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.raw.zinc700 },
+  dividerText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.zinc500 },
+  modalEmpty: { alignItems: "center", paddingVertical: 20, gap: 4 },
+  modalEmptyText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc600 },
+  modalLoading: { alignItems: "center", paddingVertical: 32 },
 });
 
 function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: string; projectId: string; protocolId?: string; offerId?: string }) {
@@ -469,6 +625,17 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicateInfo, setDuplicateInfo] = useState<{ count: number; positionIds: string[] }>({ count: 0, positionIds: [] });
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+
+  // Team assignment state
+  const [teamAssignments, setTeamAssignments] = useState<Record<string, TeamAssignment>>({});
+  const [teamModalPos, setTeamModalPos] = useState<BegehungPosition | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMemberRow[]>([]);
+  const [teamSubcontractors, setTeamSubcontractors] = useState<SubcontractorRow[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamAssigning, setTeamAssigning] = useState(false);
+  const [showTeamDuplicateDialog, setShowTeamDuplicateDialog] = useState(false);
+  const [teamDuplicateInfo, setTeamDuplicateInfo] = useState<{ count: number; positionIds: string[] }>({ count: 0, positionIds: [] });
+  const [pendingTeamChoice, setPendingTeamChoice] = useState<{ type: "eigen" | "fremd"; entityId: string; name: string } | null>(null);
 
   const handleMaterialAssigned = useCallback((posId: string, product: MaterialAssignment) => {
     setMaterialAssignments((prev) => ({ ...prev, [posId]: product }));
@@ -549,6 +716,96 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
       doMaterialAssign(pendingProduct, [materialModalPos.id]);
     }
   }, [pendingProduct, duplicateInfo, materialModalPos, doMaterialAssign]);
+
+  // --- Team assignment handlers ---
+  const handleTeamAssigned = useCallback((posId: string, assignment: TeamAssignment) => {
+    setTeamAssignments((prev) => ({ ...prev, [posId]: assignment }));
+  }, []);
+
+  const openTeamModal = useCallback((pos: BegehungPosition) => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setTeamModalPos(pos);
+    setTeamLoading(true);
+    Promise.all([
+      fetchTeamForTrade(pos.trade),
+      fetchSubcontractorsForTrade(pos.trade),
+    ]).then(([members, subs]) => {
+      setTeamMembers(members);
+      setTeamSubcontractors(subs);
+      setTeamLoading(false);
+    }).catch(() => setTeamLoading(false));
+  }, []);
+
+  const closeTeamModal = useCallback(() => {
+    setTeamModalPos(null);
+    setTeamMembers([]);
+    setTeamSubcontractors([]);
+    setShowTeamDuplicateDialog(false);
+  }, []);
+
+  const doTeamAssign = useCallback(async (assignType: "eigen" | "fremd", entityId: string, name: string, posIds: string[]) => {
+    setTeamAssigning(true);
+    try {
+      if (assignType === "eigen") {
+        await assignTeamToPositions(posIds, entityId);
+      } else {
+        await assignSubcontractorToPositions(posIds, entityId);
+      }
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      for (const pId of posIds) {
+        handleTeamAssigned(pId, { type: assignType, name, entityId });
+      }
+      closeTeamModal();
+    } catch (err: any) {
+      Alert.alert("Fehler", err.message || "Zuweisung fehlgeschlagen");
+    } finally {
+      setTeamAssigning(false);
+    }
+  }, [handleTeamAssigned, closeTeamModal]);
+
+  const handleSelectTeamMember = useCallback(async (member: TeamMemberRow) => {
+    if (!teamModalPos) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (resolvedOfferId && teamModalPos.nr) {
+      try {
+        const dupes = await findDuplicatePositions(resolvedOfferId, teamModalPos.nr);
+        if (dupes.count > 1) {
+          setTeamDuplicateInfo(dupes);
+          setPendingTeamChoice({ type: "eigen", entityId: member.id, name: member.name });
+          setShowTeamDuplicateDialog(true);
+          return;
+        }
+      } catch { /* ignore */ }
+    }
+    await doTeamAssign("eigen", member.id, member.name, [teamModalPos.id]);
+  }, [teamModalPos, resolvedOfferId, doTeamAssign]);
+
+  const handleSelectSubcontractor = useCallback(async (sub: SubcontractorRow) => {
+    if (!teamModalPos) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (resolvedOfferId && teamModalPos.nr) {
+      try {
+        const dupes = await findDuplicatePositions(resolvedOfferId, teamModalPos.nr);
+        if (dupes.count > 1) {
+          setTeamDuplicateInfo(dupes);
+          setPendingTeamChoice({ type: "fremd", entityId: sub.id, name: sub.short_name || sub.name });
+          setShowTeamDuplicateDialog(true);
+          return;
+        }
+      } catch { /* ignore */ }
+    }
+    await doTeamAssign("fremd", sub.id, sub.short_name || sub.name, [teamModalPos.id]);
+  }, [teamModalPos, resolvedOfferId, doTeamAssign]);
+
+  const handleTeamDuplicateChoice = useCallback((applyToAll: boolean) => {
+    if (!pendingTeamChoice || !teamModalPos) return;
+    if (applyToAll) {
+      doTeamAssign(pendingTeamChoice.type, pendingTeamChoice.entityId, pendingTeamChoice.name, teamDuplicateInfo.positionIds);
+    } else {
+      doTeamAssign(pendingTeamChoice.type, pendingTeamChoice.entityId, pendingTeamChoice.name, [teamModalPos.id]);
+    }
+  }, [pendingTeamChoice, teamDuplicateInfo, teamModalPos, doTeamAssign]);
+
   const [showDateModal, setShowDateModal] = useState(false);
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
@@ -891,17 +1148,18 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                   {room.positions.map((pos) => {
                     const ps = getPosState(pos.id);
                     const hasMaterial = !!materialAssignments[pos.id];
+                    const hasTeam = !!teamAssignments[pos.id];
                     const isConfirmed = ps.status === "confirmed";
                     const isRejected = ps.status === "rejected";
-                    // Farb-Status: grün = bestätigt + Material, orange = bestätigt ohne Material, default = keine Aktion
-                    const posRowBg = isConfirmed && hasMaterial
+                    // Farb-Status: grün = bestätigt + Material + Team, amber = bestätigt (eins fehlt), default = keine Aktion
+                    const posRowBg = isConfirmed && hasMaterial && hasTeam
                       ? Colors.raw.emerald500 + "12"
                       : isConfirmed
                         ? Colors.raw.amber500 + "12"
                         : isRejected
                           ? Colors.raw.rose500 + "08"
                           : "transparent";
-                    const posBorderColor = isConfirmed && hasMaterial
+                    const posBorderColor = isConfirmed && hasMaterial && hasTeam
                       ? Colors.raw.emerald500 + "30"
                       : isConfirmed
                         ? Colors.raw.amber500 + "30"
@@ -929,6 +1187,13 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                             <PulsingMaterialBadge
                               onPress={() => openMaterialModal(pos)}
                               assigned={materialAssignments[pos.id] || null}
+                            />
+                          )}
+                          {/* Team Badge */}
+                          {!finalized && (
+                            <PulsingTeamBadge
+                              onPress={() => openTeamModal(pos)}
+                              assigned={teamAssignments[pos.id] || null}
                             />
                           )}
                         </View>
@@ -1168,6 +1433,143 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                 style={({ pressed }) => [ms.dupeBtn, ms.dupeBtnPrimary, { opacity: pressed ? 0.7 : 1 }]}
               >
                 <Text style={ms.dupeBtnPrimaryText}>Alle {duplicateInfo.count}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── Team-Zuordnung Modal ─── */}
+      <Modal visible={!!teamModalPos} transparent animationType="slide" onRequestClose={closeTeamModal}>
+        <View style={teamS.modalOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={closeTeamModal} />
+          <View style={teamS.modalSheet}>
+            <View style={teamS.modalHandle} />
+            {teamModalPos && (
+              <>
+                <View style={teamS.modalHeader}>
+                  <Text style={teamS.modalPosNr}>Position {teamModalPos.nr}</Text>
+                  <Text style={teamS.modalPosTitle}>{teamModalPos.title}</Text>
+                  <Text style={teamS.modalPosMeta}>
+                    {teamModalPos.qty} {teamModalPos.unit} {"\u00B7"} {formatEuro(teamModalPos.price)}/{teamModalPos.unit} {"\u00B7"} {teamModalPos.trade}
+                  </Text>
+                </View>
+
+                <ScrollView style={{ maxHeight: 500 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  {teamLoading ? (
+                    <View style={teamS.modalLoading}>
+                      <ActivityIndicator size="large" color={Colors.raw.blue500} />
+                    </View>
+                  ) : (
+                    <>
+                      {/* EIGENLEISTUNG */}
+                      <View style={teamS.sectionHeader}>
+                        <Ionicons name="flash" size={16} color={Colors.raw.amber500} />
+                        <Text style={teamS.sectionHeaderText}>EIGENLEISTUNG</Text>
+                      </View>
+                      {teamMembers.length === 0 ? (
+                        <View style={teamS.modalEmpty}>
+                          <Text style={teamS.modalEmptyText}>Keine Monteure f{"\u00FC"}r {teamModalPos.trade}</Text>
+                        </View>
+                      ) : (
+                        teamMembers.map((member) => (
+                          <Pressable
+                            key={member.id}
+                            onPress={() => handleSelectTeamMember(member)}
+                            style={({ pressed }) => [teamS.memberRow, { opacity: pressed ? 0.85 : 1 }]}
+                            disabled={teamAssigning}
+                          >
+                            <View style={teamS.memberAvatar}>
+                              <Ionicons name="person" size={18} color={Colors.raw.blue500} />
+                            </View>
+                            <View style={teamS.memberInfo}>
+                              <Text style={teamS.memberName}>{member.name}</Text>
+                              <Text style={teamS.memberRole}>{member.role}{member.gewerk ? ` \u00B7 ${member.gewerk}` : ""}</Text>
+                            </View>
+                            <View style={teamS.memberSelectBtn}>
+                              <Ionicons name="arrow-forward" size={14} color={Colors.raw.white} />
+                            </View>
+                          </Pressable>
+                        ))
+                      )}
+
+                      {/* Divider */}
+                      <View style={teamS.dividerRow}>
+                        <View style={teamS.dividerLine} />
+                        <Text style={teamS.dividerText}>oder</Text>
+                        <View style={teamS.dividerLine} />
+                      </View>
+
+                      {/* NACHUNTERNEHMER */}
+                      <View style={teamS.sectionHeader}>
+                        <Ionicons name="business" size={16} color={Colors.raw.amber500} />
+                        <Text style={teamS.sectionHeaderText}>NACHUNTERNEHMER</Text>
+                      </View>
+                      {teamSubcontractors.length === 0 ? (
+                        <View style={teamS.modalEmpty}>
+                          <Text style={teamS.modalEmptyText}>Keine NUs f{"\u00FC"}r {teamModalPos.trade}</Text>
+                        </View>
+                      ) : (
+                        teamSubcontractors.map((sub) => (
+                          <Pressable
+                            key={sub.id}
+                            onPress={() => handleSelectSubcontractor(sub)}
+                            style={({ pressed }) => [teamS.memberRow, { opacity: pressed ? 0.85 : 1 }]}
+                            disabled={teamAssigning}
+                          >
+                            <View style={[teamS.memberAvatar, { backgroundColor: Colors.raw.amber500 + "20" }]}>
+                              <Ionicons name="business" size={18} color={Colors.raw.amber500} />
+                            </View>
+                            <View style={teamS.memberInfo}>
+                              <Text style={teamS.memberName}>{sub.short_name || sub.name}</Text>
+                              <Text style={teamS.memberRole}>{sub.contact_person ? `${sub.contact_person} \u00B7 ` : ""}{sub.name}</Text>
+                            </View>
+                            <View style={[teamS.memberSelectBtn, { backgroundColor: Colors.raw.amber500 }]}>
+                              <Ionicons name="arrow-forward" size={14} color={Colors.raw.zinc950} />
+                            </View>
+                          </Pressable>
+                        ))
+                      )}
+
+                      {teamAssigning && (
+                        <View style={teamS.modalLoading}>
+                          <ActivityIndicator size="small" color={Colors.raw.blue500} />
+                          <Text style={{ fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc400, marginTop: 8 }}>Wird zugewiesen...</Text>
+                        </View>
+                      )}
+
+                      <View style={{ height: 40 }} />
+                    </>
+                  )}
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Team-Duplikat-Dialog */}
+      <Modal visible={showTeamDuplicateDialog} transparent animationType="fade" onRequestClose={() => setShowTeamDuplicateDialog(false)}>
+        <View style={ms.dupeOverlay}>
+          <View style={ms.dupeCard}>
+            <Ionicons name="people" size={28} color={Colors.raw.blue500} style={{ alignSelf: "center", marginBottom: 12 }} />
+            <Text style={ms.dupeTitle}>Position kommt {teamDuplicateInfo.count}x vor</Text>
+            <Text style={ms.dupeDesc}>
+              {teamModalPos?.nr ? `"${teamModalPos.nr}"` : "Diese Position"} kommt {teamDuplicateInfo.count}x in diesem Angebot vor.{"\n"}
+              {pendingTeamChoice?.name} auch f{"\u00FC"}r die anderen {"\u00FC"}bernehmen?
+            </Text>
+            <View style={ms.dupeBtns}>
+              <Pressable
+                onPress={() => handleTeamDuplicateChoice(false)}
+                style={({ pressed }) => [ms.dupeBtn, ms.dupeBtnSecondary, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={ms.dupeBtnSecondaryText}>Nur diese</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleTeamDuplicateChoice(true)}
+                style={({ pressed }) => [ms.dupeBtn, ms.dupeBtnPrimary, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={ms.dupeBtnPrimaryText}>Alle {teamDuplicateInfo.count}</Text>
               </Pressable>
             </View>
           </View>
