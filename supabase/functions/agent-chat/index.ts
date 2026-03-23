@@ -466,7 +466,12 @@ ${projectContext}`;
       historyQuery = historyQuery.is("project_id", null);
     }
     const { data: history } = await historyQuery;
-    const chatMessages = (history || []).map((r: any) => ({ role: r.role, content: r.content }));
+    let chatMessages = (history || []).map((r: any) => ({ role: r.role, content: r.content }));
+
+    // Sicherstellen dass mindestens die aktuelle Nachricht drin ist
+    if (chatMessages.length === 0) {
+      chatMessages = [{ role: "user", content: message }];
+    }
 
     // 4. Routing: Claude Primary, Gemini Fallback
     let response: LLMResponse;
