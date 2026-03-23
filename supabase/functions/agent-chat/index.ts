@@ -27,7 +27,7 @@ interface LLMResponse {
 
 // ── Configuration ──────────────────────────────────────────────────
 
-const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6-20250514";
+const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || "claude-3-5-sonnet-20241022";
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-3.1-flash-preview";
 const GEMINI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY") || "";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -129,7 +129,15 @@ const CLAUDE_TOOLS: Anthropic.Tool[] = TOOL_DEFS.map((t) => ({
   input_schema: t.parameters as Anthropic.Tool.InputSchema,
 }));
 
-// Gemini format
+// Gemini format — komplexe Typen (arrays/objects) zu STRING vereinfachen
+function toGeminiType(prop: any): any {
+  const t = (prop.type || "string").toLowerCase();
+  if (t === "array" || t === "object") {
+    return { type: "STRING", description: (prop.description || "") + " (als JSON-String)" };
+  }
+  return { type: t.toUpperCase(), description: prop.description || "" };
+}
+
 const GEMINI_TOOLS = [{
   functionDeclarations: TOOL_DEFS.map((t) => ({
     name: t.name,
@@ -137,10 +145,7 @@ const GEMINI_TOOLS = [{
     parameters: {
       type: "OBJECT",
       properties: Object.fromEntries(
-        Object.entries(t.parameters.properties).map(([k, v]: [string, any]) => [
-          k,
-          { type: v.type?.toUpperCase() || "STRING", description: v.description || "" },
-        ])
+        Object.entries(t.parameters.properties).map(([k, v]: [string, any]) => [k, toGeminiType(v)])
       ),
       required: t.parameters.required,
     },
