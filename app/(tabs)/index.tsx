@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View, ScrollView, Platform, Pressable, Image, RefreshControl, ActivityIndicator } from "react-native";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { TextInput } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { router } from "expo-router";
@@ -12,8 +13,7 @@ import { useOffline } from "@/contexts/OfflineContext";
 import { OfflineBadge } from "@/components/OfflineBanner";
 import { useDashboardMetrics } from "@/hooks/queries/useDashboardMetrics";
 import { useDashboardActions } from "@/hooks/queries/useDashboardActions";
-import { useActivities } from "@/hooks/queries/useActivities";
-import type { Activity } from "@/lib/api/activities";
+import { sendChatMessage } from "@/lib/api/chat";
 import type { DashboardAction, ActionSeverity } from "@/lib/api/dashboard-actions";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -68,185 +68,194 @@ function TileSubtext({ text, color }: { text: string; color?: string }) {
   );
 }
 
-// --- Activity Feed helpers ---
+// --- BauGenius Chat Widget ---
 
-const ACTIVITY_ICON_MAP: Record<string, { name: string; color: string; lib: "ion" | "mci" }> = {
-  "Projekt angelegt":                { name: "folder-open",       color: Colors.raw.amber500,   lib: "ion" },
-  "AUTO PLAN COMPLETED":             { name: "calendar-check",    color: Colors.raw.emerald500, lib: "mci" },
-  "INSPECTION PROTOCOL COMPLETED":   { name: "clipboard-check",   color: Colors.raw.emerald500, lib: "mci" },
-  "GODMODE LEARNING COMPLETED":      { name: "school",            color: Colors.raw.amber400,   lib: "mci" },
-  "NOTIFICATION SENT":               { name: "send",              color: Colors.raw.blue500,    lib: "ion" },
-  "DRIVE TREE CREATED":              { name: "folder-plus",       color: Colors.raw.amber500,   lib: "mci" },
-  "DRIVE YEAR READY":                { name: "folder-check",      color: Colors.raw.emerald400, lib: "mci" },
-};
+function ChatWidget() {
+  const { role, user } = useRole();
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [sending, setSending] = useState(false);
 
-const ACTIVITY_TYPE_ICON: Record<string, { name: string; color: string; lib: "ion" | "mci" }> = {
-  event:    { name: "flash",           color: Colors.raw.amber500,   lib: "ion" },
-  document: { name: "document-text",   color: Colors.raw.emerald500, lib: "ion" },
-  material: { name: "cube",            color: Colors.raw.amber400,   lib: "ion" },
-};
+  const handleSend = useCallback(async () => {
+    const text = message.trim();
+    if (!text || sending) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-const DEFAULT_ICON = { name: "ellipse", color: Colors.raw.zinc500, lib: "ion" as const };
+    setMessages((prev) => [...prev, { role: "user", text }]);
+    setMessage("");
+    setSending(true);
 
-function getActivityIcon(activity: Activity) {
-  return ACTIVITY_ICON_MAP[activity.title] ?? ACTIVITY_TYPE_ICON[activity.activity_type] ?? DEFAULT_ICON;
-}
-
-const TITLE_LABELS: Record<string, string> = {
-  "Projekt angelegt":                "Projekt angelegt",
-  "AUTO PLAN COMPLETED":             "Autoplanung fertig",
-  "INSPECTION PROTOCOL COMPLETED":   "Begehung abgeschlossen",
-  "GODMODE LEARNING COMPLETED":      "KI-Lernlauf fertig",
-  "NOTIFICATION SENT":               "Benachrichtigung gesendet",
-  "DRIVE TREE CREATED":              "Ordner erstellt",
-  "DRIVE YEAR READY":                "Jahresordner bereit",
-};
-
-function getActivityLabel(activity: Activity): string {
-  const label = TITLE_LABELS[activity.title];
-  if (label) return label;
-  // Fallback: title formatiert
-  return activity.title
-    .replace(/_/g, " ")
-    .toLowerCase()
-    .replace(/^\w/, (c) => c.toUpperCase());
-}
-
-function formatRelativeTime(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60_000);
-  if (diffMin < 1) return "gerade eben";
-  if (diffMin < 60) return `vor ${diffMin} Min`;
-  const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `vor ${diffH}h`;
-  const diffD = Math.floor(diffH / 24);
-  if (diffD === 1) return "gestern";
-  if (diffD < 7) return `vor ${diffD} Tagen`;
-  return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
-}
-
-type DateGroup = "Heute" | "Gestern" | "Diese Woche" | "Aelter";
-
-function getDateGroup(dateStr: string): DateGroup {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
-  const weekStart = new Date(todayStart.getTime() - todayStart.getDay() * 86_400_000);
-
-  if (date >= todayStart) return "Heute";
-  if (date >= yesterdayStart) return "Gestern";
-  if (date >= weekStart) return "Diese Woche";
-  return "Aelter";
-}
-
-function groupActivities(activities: Activity[]): { group: DateGroup; items: Activity[] }[] {
-  const groups: DateGroup[] = ["Heute", "Gestern", "Diese Woche", "Aelter"];
-  const map = new Map<DateGroup, Activity[]>();
-  groups.forEach((g) => map.set(g, []));
-
-  for (const a of activities) {
-    const g = getDateGroup(a.created_at);
-    map.get(g)!.push(a);
-  }
-
-  return groups.filter((g) => map.get(g)!.length > 0).map((g) => ({ group: g, items: map.get(g)! }));
-}
-
-function ActivityRow({ activity }: { activity: Activity }) {
-  const icon = getActivityIcon(activity);
-  const label = getActivityLabel(activity);
-  const time = formatRelativeTime(activity.created_at);
-  const projectRef = activity.project_number ?? "";
+    try {
+      const res = await sendChatMessage({
+        project_id: "general",
+        message: text,
+        user_role: role,
+        user_name: user.name,
+        user_id: user.id,
+      });
+      setMessages((prev) => [...prev, { role: "assistant", text: res.message }]);
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: "Verbindung fehlgeschlagen. Bitte nochmal versuchen." }]);
+    } finally {
+      setSending(false);
+    }
+  }, [message, sending, role, user]);
 
   return (
-    <Pressable
-      style={({ pressed }) => [styles.activityRow, { opacity: pressed ? 0.7 : 1 }]}
-      onPress={() => {
-        if (Platform.OS !== "web") Haptics.selectionAsync();
-        router.push(`/project/${activity.project_id}` as any);
-      }}
-    >
-      <View style={[styles.activityIconWrap, { backgroundColor: icon.color + "18" }]}>
-        {icon.lib === "mci" ? (
-          <MaterialCommunityIcons name={icon.name as any} size={18} color={icon.color} />
-        ) : (
-          <Ionicons name={icon.name as any} size={18} color={icon.color} />
-        )}
-      </View>
-      <View style={styles.activityContent}>
-        <Text style={styles.activityText} numberOfLines={1}>
-          {label}
-        </Text>
-        {projectRef ? (
-          <Text style={styles.activityProject} numberOfLines={1}>
-            {projectRef}
-          </Text>
-        ) : null}
-      </View>
-      <Text style={styles.activityTime}>{time}</Text>
-    </Pressable>
-  );
-}
-
-function ActivityFeed() {
-  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useActivities();
-
-  const allActivities = data?.pages.flat() ?? [];
-  const grouped = groupActivities(allActivities);
-
-  if (isLoading) {
-    return (
-      <View style={styles.activitySection}>
-        <Text style={styles.activityTitle}>Letzte Aktivitaet</Text>
-        <View style={[styles.activityList, { paddingVertical: 24, alignItems: "center" }]}>
-          <ActivityIndicator color={Colors.raw.amber500} />
-        </View>
-      </View>
-    );
-  }
-
-  if (allActivities.length === 0) {
-    return (
-      <View style={styles.activitySection}>
-        <Text style={styles.activityTitle}>Letzte Aktivitaet</Text>
-        <View style={[styles.activityList, { padding: 18 }]}>
-          <Text style={styles.activityProject}>Noch keine Aktivitaeten</Text>
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.activitySection}>
-      <Text style={styles.activityTitle}>Letzte Aktivitaet</Text>
-      {grouped.map(({ group, items }) => (
-        <View key={group} style={{ marginBottom: 12 }}>
-          <Text style={styles.activityGroupLabel}>{group}</Text>
-          <View style={styles.activityList}>
-            {items.map((activity) => (
-              <ActivityRow key={activity.id} activity={activity} />
-            ))}
+    <View style={chatStyles.container}>
+      <View style={chatStyles.header}>
+        <View style={chatStyles.headerLeft}>
+          <View style={chatStyles.avatarWrap}>
+            <Ionicons name="sparkles" size={18} color={Colors.raw.amber500} />
+          </View>
+          <View>
+            <Text style={chatStyles.title}>BauGenius</Text>
+            <Text style={chatStyles.subtitle}>Frag mich was</Text>
           </View>
         </View>
-      ))}
-      {hasNextPage && (
         <Pressable
-          onPress={() => fetchNextPage()}
-          style={({ pressed }) => [styles.loadMoreBtn, { opacity: pressed ? 0.7 : 1 }]}
+          onPress={() => {
+            if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push("/chat/general" as any);
+          }}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
         >
-          {isFetchingNextPage ? (
-            <ActivityIndicator size="small" color={Colors.raw.amber500} />
-          ) : (
-            <Text style={styles.loadMoreText}>Mehr laden</Text>
-          )}
+          <Ionicons name="expand" size={20} color={Colors.raw.zinc500} />
         </Pressable>
-      )}
+      </View>
+
+      <View style={chatStyles.messagesWrap}>
+        {messages.length === 0 ? (
+          <View style={chatStyles.emptyState}>
+            <Ionicons name="chatbubbles-outline" size={28} color={Colors.raw.zinc700} />
+            <Text style={chatStyles.emptyText}>Positionen checken, Nachtr{"\u00E4"}ge anlegen, Status abfragen...</Text>
+          </View>
+        ) : (
+          messages.slice(-4).map((msg, i) => (
+            <View key={i} style={[chatStyles.bubble, msg.role === "user" ? chatStyles.bubbleUser : chatStyles.bubbleAssistant]}>
+              {msg.role === "assistant" && <Ionicons name="sparkles" size={12} color={Colors.raw.amber500} style={{ marginRight: 6 }} />}
+              <Text style={[chatStyles.bubbleText, msg.role === "user" && chatStyles.bubbleTextUser]} numberOfLines={4}>{msg.text}</Text>
+            </View>
+          ))
+        )}
+        {sending && (
+          <View style={[chatStyles.bubble, chatStyles.bubbleAssistant]}>
+            <ActivityIndicator size="small" color={Colors.raw.amber500} />
+            <Text style={[chatStyles.bubbleText, { marginLeft: 8 }]}>Denkt nach...</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={chatStyles.inputRow}>
+        <TextInput
+          style={chatStyles.input}
+          placeholder="Nachricht an BauGenius..."
+          placeholderTextColor={Colors.raw.zinc600}
+          value={message}
+          onChangeText={setMessage}
+          onSubmitEditing={handleSend}
+          returnKeyType="send"
+          editable={!sending}
+        />
+        <Pressable
+          onPress={handleSend}
+          disabled={!message.trim() || sending}
+          style={({ pressed }) => [chatStyles.sendBtn, (!message.trim() || sending) && { opacity: 0.4 }, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Ionicons name="send" size={18} color={Colors.raw.zinc950} />
+        </Pressable>
+      </View>
     </View>
   );
 }
+
+const chatStyles = StyleSheet.create({
+  container: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    overflow: "hidden",
+    marginBottom: 24,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.raw.zinc800,
+  },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  avatarWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.amber500 + "20",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white },
+  subtitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500 },
+  messagesWrap: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minHeight: 100,
+    maxHeight: 220,
+    gap: 8,
+  },
+  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 24, gap: 8 },
+  emptyText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc600, textAlign: "center", lineHeight: 18 },
+  bubble: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    maxWidth: "85%",
+  },
+  bubbleUser: {
+    backgroundColor: Colors.raw.amber500 + "20",
+    alignSelf: "flex-end",
+    borderBottomRightRadius: 4,
+  },
+  bubbleAssistant: {
+    backgroundColor: Colors.raw.zinc800,
+    alignSelf: "flex-start",
+    borderBottomLeftRadius: 4,
+  },
+  bubbleText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc300, flex: 1, lineHeight: 18 },
+  bubbleTextUser: { color: Colors.raw.amber400 },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.raw.zinc800,
+  },
+  input: {
+    flex: 1,
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.white,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    height: 42,
+  },
+  sendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: Colors.raw.amber500,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
 
 // --- Was steht an? ---
 
@@ -524,6 +533,8 @@ function GFHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["
           <View style={{ flex: 1 }} />
         </View>
       </View>
+
+      <ChatWidget />
     </>
   );
 }
@@ -610,6 +621,8 @@ function BauleiterHome({ metrics }: { metrics: ReturnType<typeof useDashboardMet
           <View style={{ flex: 1 }} />
         </View>
       </View>
+
+      <ChatWidget />
     </>
   );
 }
@@ -686,13 +699,12 @@ export default function StartScreen() {
   const bottomInset = Platform.OS === "web" ? 84 : 90;
   const { role, user, isImpersonating } = useRole();
   const { isOnline, getCacheAge } = useOffline();
-  const { data: metrics, refetch: refetchMetrics } = useDashboardMetrics();
+  const { data: metrics, refetch: refetchMetrics, isRefetching } = useDashboardMetrics();
   const { refetch: refetchActions } = useDashboardActions();
-  const { refetch: refetchActivities, isRefetching } = useActivities();
 
   const onRefresh = useCallback(async () => {
-    await Promise.all([refetchMetrics(), refetchActions(), refetchActivities()]);
-  }, [refetchMetrics, refetchActions, refetchActivities]);
+    await Promise.all([refetchMetrics(), refetchActions()]);
+  }, [refetchMetrics, refetchActions]);
 
   const { data: actionsData } = useDashboardActions();
   const actionCount = actionsData?.totalCount ?? 0;
@@ -898,76 +910,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.raw.zinc500,
     marginTop: 2,
-  },
-  activitySection: {
-    marginBottom: 16,
-  },
-  activityTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: Colors.raw.white,
-    marginBottom: 16,
-  },
-  activityList: {
-    backgroundColor: Colors.raw.zinc900,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    overflow: "hidden",
-  },
-  activityGroupLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    color: Colors.raw.zinc500,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  activityRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.raw.zinc800,
-    gap: 12,
-    minHeight: 52,
-  },
-  activityIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  activityContent: {
-    flex: 1,
-  },
-  activityText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: Colors.raw.zinc300,
-  },
-  activityProject: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.raw.zinc500,
-    marginTop: 2,
-  },
-  activityTime: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.raw.zinc600,
-  },
-  loadMoreBtn: {
-    alignItems: "center",
-    paddingVertical: 14,
-    marginTop: 8,
-  },
-  loadMoreText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.raw.amber500,
   },
   projectBanner: {
     backgroundColor: Colors.raw.zinc900,
