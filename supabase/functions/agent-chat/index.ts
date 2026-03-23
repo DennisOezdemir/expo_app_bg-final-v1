@@ -440,13 +440,18 @@ Projektkontext:
 ${projectContext}`;
 
     // 2. Nachricht speichern
-    await sb.from("chat_messages").insert({
+    console.log("[agent-chat] Saving user message:", { project_id, user_id, messageLen: message.length });
+    const { error: insertErr } = await sb.from("chat_messages").insert({
       project_id,
       user_id,
       role: "user",
       content: message,
       attachments: attachments.length > 0 ? attachments : null,
     });
+    if (insertErr) {
+      console.error("[agent-chat] Insert failed:", insertErr.message, insertErr.details);
+      // Weiter machen auch wenn Insert fehlschlägt (z.B. FK Constraint)
+    }
 
     // 3. History laden (letzte 20 Nachrichten)
     let historyQuery = sb
@@ -512,7 +517,10 @@ ${projectContext}`;
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error("[agent-chat] Error:", err);
-    return errorResponse(`Agent-Fehler: ${(err as Error).message}`, 500);
+    const errMsg = (err as Error).message || String(err);
+    const errStack = (err as Error).stack || "";
+    console.error("[agent-chat] FATAL:", errMsg);
+    console.error("[agent-chat] Stack:", errStack);
+    return errorResponse(`Agent-Fehler: ${errMsg}`, 500);
   }
 });
