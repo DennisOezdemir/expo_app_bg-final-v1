@@ -1,0 +1,255 @@
+{
+  "name": "M6_01c_Lexware_Forward",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-01c-lexware-forward",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d53de3c5-d653-4452-95af-672ca24ace1c",
+      "name": "🔔 Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst payload = body.payload || body;\nconst storagePath = payload.storage_path || '';\nconst hasPdf = storagePath !== '' && storagePath !== 'undefined';\nreturn { json: {\n  invoice_id: payload.invoice_id,\n  invoice_number: payload.invoice_number,\n  supplier_code: payload.supplier_code || 'UNKNOWN',\n  total_gross: payload.total_gross || 0,\n  storage_path: storagePath,\n  has_pdf: hasPdf,\n  email_from: payload.email_from || '',\n  email_subject: payload.email_subject || '',\n  download_url: hasPdf ? 'https://yetwntwayhmzmhhgdkli.supabase.co/storage/v1/object/' + storagePath : '',\n}};"
+      },
+      "id": "9eeb130c-0214-4d4f-af12-f0a31c46ed89",
+      "name": "📥 Parse Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "c925c7e1-dee7-46bb-b3cc-aad6b94a8973",
+              "leftValue": "={{ $json.has_pdf }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "d7d7e277-6d5b-4062-bedb-86e7326f4f76",
+      "name": "❓ Has PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('📥 Parse Event').first().json.download_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "816a9b6f-dd55-4f73-ba71-a7b875706ff9",
+      "name": "📧 Download PDF for Lexware",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SCp3PODkf5mXluYS",
+          "name": "Webhook Auth"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "bauloewen@inbox.lexware.email",
+        "subject": "={{ $('📥 Parse Event').first().json.invoice_number }} - {{ $('📥 Parse Event').first().json.supplier_code }}",
+        "message": "=Automatisch weitergeleitet von BauGenius\\n\\nRechnungsnummer: {{ $('📥 Parse Event').first().json.invoice_number }}\\nLieferant: {{ $('📥 Parse Event').first().json.supplier_code }}\\nBetrag: {{ ($('📥 Parse Event').first().json.total_gross || 0).toFixed(2).replace('.', ',') }}€",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {}
+            ]
+          }
+        }
+      },
+      "id": "fa8e1052-89bc-4738-b7c6-791d44055832",
+      "name": "📧 Forward to Lexware",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        800,
+        300
+      ],
+      "webhookId": "fcccca73-725b-4fb4-8ec8-a08941a604eb",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "3Towj30wVk4UI8Qp",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "UPDATE purchase_invoices SET lexware_forwarded_at = now() WHERE id = '{{ $('📥 Parse Event').first().json.invoice_id }}'::uuid;",
+        "options": {}
+      },
+      "id": "ee6f972b-5c53-445f-b2f6-53f45350ff2c",
+      "name": "📧 Mark Forwarded",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1000,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"success\",\"forwarded\":true,\"invoice_id\":\"{{ $(\"📥 Parse Event\").first().json.invoice_id }}\"}",
+        "options": {}
+      },
+      "id": "b3ecce32-4d08-4d2c-b891-cc7e1c12cb00",
+      "name": "✅ Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"skipped\",\"reason\":\"no_pdf\",\"invoice_id\":\"{{ $(\"📥 Parse Event\").first().json.invoice_id }}\"}",
+        "options": {}
+      },
+      "id": "e974604e-f9b4-43fa-aff5-e692e40590e9",
+      "name": "⏭️ Respond Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "🔔 Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "📥 Parse Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Parse Event": {
+      "main": [
+        [
+          {
+            "node": "❓ Has PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Has PDF?": {
+      "main": [
+        [
+          {
+            "node": "📧 Download PDF for Lexware",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "⏭️ Respond Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📧 Download PDF for Lexware": {
+      "main": [
+        [
+          {
+            "node": "📧 Forward to Lexware",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📧 Forward to Lexware": {
+      "main": [
+        [
+          {
+            "node": "📧 Mark Forwarded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📧 Mark Forwarded": {
+      "main": [
+        [
+          {
+            "node": "✅ Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "zAFieMcnwATMcHhY",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

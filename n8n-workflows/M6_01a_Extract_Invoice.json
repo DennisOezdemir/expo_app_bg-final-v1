@@ -1,0 +1,880 @@
+{
+  "name": "M6_01a_Extract_Invoice",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-01a-extract-invoice",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e51706b6-8b80-4662-bcdf-a9b11834a6e6",
+      "name": "🔔 Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1408,
+        400
+      ],
+      "webhookId": "m6-01-invoice-processor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract event data from MX_00_Event_Router payload\n// V4: Removed primary_file_id — multi-attachment loop handles individual files\nconst body = $input.first().json.body || $input.first().json;\n\n// Parse file_ids - could be string or array\nlet fileIds = body.file_ids || body.payload?.file_ids || [];\nif (typeof fileIds === 'string') {\n  try {\n    fileIds = JSON.parse(fileIds);\n  } catch (e) {\n    fileIds = [];\n  }\n}\n\nreturn {\n  json: {\n    // IDs (no invoice_id here — generated per attachment in Split File IDs)\n    event_id: body.event_id || body.id,\n    \n    // Superchat IDs\n    superchat_message_id: body.superchat_message_id || body.payload?.superchat_message_id,\n    superchat_conversation_id: body.superchat_conversation_id || body.payload?.superchat_conversation_id,\n    \n    // File handling — keep full array, no primary_file_id\n    file_ids: fileIds,\n    \n    // Email metadata\n    email_from: body.from_address || body.payload?.from_address || '',\n    email_subject: (body.subject || body.payload?.subject || '').replace(/'/g, \"''\"),\n    email_received_at: body.received_at || new Date().toISOString(),\n    \n    // Doc type (INVOICE_IN or CREDIT_NOTE)\n    doc_type: body.doc_type || body.payload?.doc_type || 'INVOICE_IN',\n    confidence: body.confidence || body.payload?.confidence || 0.9,\n    \n    // Email body (from MX_03 V2)\n    body_preview: body.body_preview || body.payload?.body_preview || '',\n    \n    // Idempotency base key (will be extended per file in Split File IDs)\n    idempotency_key: `m6_${body.superchat_message_id || body.payload?.superchat_message_id}`\n  }\n};"
+      },
+      "id": "5554cd0f-6fda-4ca4-a829-7654cb642bd8",
+      "name": "📥 Extract Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// FIX 2: Detect credit notes based on sender and subject\nconst data = $input.first().json;\nconst emailFrom = (data.email_from || '').toLowerCase();\nconst emailSubject = (data.email_subject || '').toLowerCase();\n\nlet invoiceType = 'invoice';\nlet docType = data.doc_type || 'INVOICE_IN';\n\n// Rule 1: besser zuhause sendet NUR Gutschriften\nif (emailFrom.includes('besser zuhause') || emailFrom.includes('besserzuhause')) {\n  invoiceType = 'credit_note';\n  docType = 'CREDIT_NOTE';\n}\n\n// Rule 2: Betreff enthält Gutschrift/Storno\nif (emailSubject.includes('gutschrift') || emailSubject.includes('storno') || emailSubject.includes('credit note')) {\n  invoiceType = 'credit_note';\n  docType = 'CREDIT_NOTE';\n}\n\nreturn {\n  json: {\n    ...data,\n    invoice_type: invoiceType,\n    doc_type: docType\n  }\n};"
+      },
+      "id": "14857601-d5ef-4d84-9ac8-2eab844eab2a",
+      "name": "🏷️ Detect Credit Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1024,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT EXISTS(\n  SELECT 1 FROM purchase_invoices\n  WHERE email_message_id = '{{ $json.superchat_message_id }}'\n) AS already_processed;",
+        "options": {}
+      },
+      "id": "e43cbee3-87db-414d-8122-b9c1533a790a",
+      "name": "🔍 Idempotency Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -816,
+        400
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "not-processed",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.already_processed }}",
+              "rightValue": false
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "908e2a30-1ab5-44ec-84fa-f1c1496d36b0",
+      "name": "❓ New Invoice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const eventData = $('🏷️ Detect Credit Note').first().json;\nconst bodyPreview = eventData.body_preview || '';\nconst hasFiles = (eventData.file_ids || []).length > 0;\n\n// Invoice indicators in email body\nconst invoicePatterns = [\n  /rechnung/i, /invoice/i, /receipt/i, /quittung/i,\n  /betrag|amount|total|summe/i,\n  /€|\\$|EUR|USD/,\n  /\\d+[.,]\\d{2}/,\n  /zahlungsziel|payment.?due|fällig/i,\n  /rechnungsnummer|invoice.?(?:no|number|nr)/i\n];\n\nconst matchCount = invoicePatterns.filter(p => p.test(bodyPreview)).length;\n// Need at least 3 indicators AND body must have content\nconst looksLikeInvoice = bodyPreview.length > 50 && matchCount >= 3;\n\nreturn {\n  json: {\n    ...eventData,\n    body_preview: bodyPreview,\n    body_looks_like_invoice: looksLikeInvoice,\n    body_match_count: matchCount,\n    has_files: hasFiles,\n    extraction_source: looksLikeInvoice ? 'EMAIL_BODY' : (hasFiles ? 'ATTACHMENT' : 'NONE')\n  }\n};"
+      },
+      "id": "8e960b5b-22fa-4fde-8849-5949ce893b19",
+      "name": "🔍 Check Email Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-inline",
+              "leftValue": "={{ $json.body_looks_like_invoice }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e56dcbaf-a89b-474a-8101-b78e9f2e640e",
+      "name": "❓ Inline Invoice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-sonnet-4-5-20250929",
+          "mode": "list",
+          "cachedResultName": "claude-sonnet-4-5-20250929"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Der folgende Text stammt aus einer Email, die als Rechnung klassifiziert wurde. Extrahiere die Rechnungsinformationen aus dem Email-Text.\n\nEMAIL VON: {{ $('📥 Extract Event Data').first().json.email_from }}\nBETREFF: {{ $('📥 Extract Event Data').first().json.email_subject }}\n\nEMAIL-INHALT:\n{{ $('🔍 Check Email Body').first().json.body_preview }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "Du extrahierst Rechnungsdaten aus Email-Texten für ein Bauunternehmen (Deine Baulöwen). Der Email-Text enthält eine eingebettete Rechnung (z.B. von Replit, Apple, Stripe, etc.).\n\nExtrahiere ALLE folgenden Informationen:\n\nSCHRITT 1: Lieferant identifizieren\n- Name wie im Text\n- Kurzcode (z.B. \"REPL\" für Replit, max 4 Zeichen, nur Großbuchstaben)\n- Typ: BAUMARKT, GROSSHANDEL, FACHHANDEL, TANKSTELLE, RESTAURANT, SOFTWARE, SONSTIGE\n\nSCHRITT 2: Kostenkategorie bestimmen\n- MATERIAL: Baumärkte, Baustoffhandel, Werkzeug, Fliesen, Sanitär, Elektro\n- SUBCONTRACTOR: Handwerker-Rechnungen, Subunternehmer\n- VEHICLE_FUEL: Tankstellen\n- VEHICLE_RENTAL: Autovermietung, Parken\n- VEHICLE_REPAIR: Werkstatt, Autowäsche\n- ENTERTAINMENT: Restaurant, Café, Bewirtung\n- SOFTWARE: IT-Dienste, Apps, SaaS-Abonnements\n- OFFICE: Bürobedarf, Telefon\n- DISPOSAL: Entsorgung\n- OTHER: Alles andere\n\nSCHRITT 3: Rechnungsdaten\n- Rechnungsnummer (oder \"UNKNOWN\")\n- Datum (Format: YYYY-MM-DD)\n- Nettobetrag (summe_netto) als Zahl — die Summe OHNE MwSt.\n- Bruttobetrag (summe_brutto) als Zahl — die Endsumme MIT MwSt. (der höhere Betrag)\n- MwSt-Satz (meist 19, bei ausländischen Anbietern evtl. 0)\n\nWICHTIG: summe_brutto ist IMMER der ENDPREIS. summe_netto ist die Summe VOR der MwSt.\nBei ausländischen Anbietern ohne MwSt: summe_brutto = summe_netto, mwst_prozent = 0.\nBei USD-Beträgen: Werte trotzdem als Zahlen extrahieren, Währung wird ignoriert.\n\nSCHRITT 4: Zahlungsinformationen\n- IBAN (falls im Text, sonst \"\")\n- BIC (falls vorhanden, sonst \"\")\n- Zahlungsziel in Tagen (falls nicht angegeben: 14)\n- Fälligkeitsdatum (Rechnungsdatum + Zahlungsziel, Format: YYYY-MM-DD)\n- Skonto Prozent (falls angegeben, sonst 0)\n- Skonto Tage (falls angegeben, sonst 0)\n\nSCHRITT 5: Positionen (maximal 20)\nFür jeden Artikel/Posten:\n- artikel_nummer (falls vorhanden, sonst \"\")\n- beschreibung (wie im Text)\n- internal_name (kleinbuchstaben, normalisiert)\n- menge als Zahl\n- einheit (Stk, kg, m, m², l, Pack, Monat)\n- einzelpreis_brutto als Zahl\n- kategorie (z.B. Software-Lizenz, SaaS, Hosting, etc.)\n\nSCHRITT 6: Projekt-Referenzen\n- Suche nach Projektnummer im Format BL-YYYY-NNN (z.B. BL-2026-014)\n- Suche nach Lieferadresse / Baustellenadresse (Straße + PLZ/Stadt)\n- Suche nach Bestellreferenz oder Auftragsnummer\nGib zurück: project_reference (die BL-Nummer falls gefunden, sonst \"\"), delivery_address (Lieferadresse falls gefunden, sonst \"\")\n\nAUSGABE: Nur JSON, keine Backticks, kein Markdown, keine Erklärung.\n\n{\"lieferant\":{\"name\":\"Musterfirma GmbH\",\"code\":\"MUST\",\"typ\":\"SOFTWARE\"},\"expense_category\":\"SOFTWARE\",\"rechnung\":{\"nummer\":\"INV-001\",\"datum\":\"2026-01-15\",\"summe_netto\":20.00,\"summe_brutto\":20.00,\"mwst_prozent\":0},\"zahlung\":{\"iban\":\"\",\"bic\":\"\",\"zahlungsziel_tage\":14,\"faellig_am\":\"2026-01-29\",\"skonto_prozent\":0,\"skonto_tage\":0},\"positionen\":[{\"artikel_nummer\":\"\",\"beschreibung\":\"Pro Plan Monthly\",\"internal_name\":\"pro plan monthly\",\"menge\":1,\"einheit\":\"Monat\",\"einzelpreis_brutto\":20.00,\"kategorie\":\"SaaS\"}],\"projekt\":{\"project_reference\":\"\",\"delivery_address\":\"\"}}",
+          "maxTokens": 8000
+        }
+      },
+      "id": "818be9c3-1537-4045-8e4f-e119c7f9e811",
+      "name": "🤖 Claude Text Extract",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        0,
+        288
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "DSb7Itt2r6kfGiHs",
+          "name": "Anthropic account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "text": "=Der folgende Text stammt aus einer Email, die als Rechnung klassifiziert wurde. Extrahiere die Rechnungsinformationen aus dem Email-Text.\n\nEMAIL VON: {{ $('📥 Extract Event Data').first().json.email_from }}\nBETREFF: {{ $('📥 Extract Event Data').first().json.email_subject }}\n\nEMAIL-INHALT:\n{{ $('🔍 Check Email Body').first().json.body_preview }}\n\nExtrahiere ALLE Informationen als JSON:\n\nSCHRITT 1: Lieferant identifizieren (name, code max 4 Zeichen, typ: BAUMARKT/GROSSHANDEL/FACHHANDEL/TANKSTELLE/RESTAURANT/SOFTWARE/SONSTIGE)\nSCHRITT 2: Kostenkategorie (MATERIAL/SUBCONTRACTOR/VEHICLE_FUEL/VEHICLE_RENTAL/VEHICLE_REPAIR/ENTERTAINMENT/SOFTWARE/OFFICE/DISPOSAL/OTHER)\nSCHRITT 3: Rechnungsdaten (nummer, datum YYYY-MM-DD, summe_netto, summe_brutto, mwst_prozent)\nSCHRITT 4: Zahlungsinformationen (iban, bic, zahlungsziel_tage, faellig_am, skonto_prozent, skonto_tage)\nSCHRITT 5: Positionen (artikel_nummer, beschreibung, internal_name, menge, einheit, einzelpreis_brutto, kategorie)\nSCHRITT 6: Projekt-Referenzen\n- Suche nach Projektnummer im Format BL-YYYY-NNN (z.B. BL-2026-014)\n- Suche nach Lieferadresse / Baustellenadresse (Straße + PLZ/Stadt)\n- Suche nach Bestellreferenz oder Auftragsnummer\nGib zurück: project_reference (die BL-Nummer falls gefunden, sonst \"\"), delivery_address (Lieferadresse falls gefunden, sonst \"\")\n\nWICHTIG: Bei ausländischen Anbietern ohne MwSt: summe_brutto = summe_netto, mwst_prozent = 0\n\nAUSGABE: Nur JSON, keine Backticks.\n{\"lieferant\":{\"name\":\"\",\"code\":\"\",\"typ\":\"\"},\"expense_category\":\"\",\"rechnung\":{\"nummer\":\"\",\"datum\":\"\",\"summe_netto\":0,\"summe_brutto\":0,\"mwst_prozent\":0},\"zahlung\":{\"iban\":\"\",\"bic\":\"\",\"zahlungsziel_tage\":14,\"faellig_am\":\"\",\"skonto_prozent\":0,\"skonto_tage\":0},\"positionen\":[],\"projekt\":{\"project_reference\":\"\",\"delivery_address\":\"\"}}",
+        "options": {}
+      },
+      "id": "15a46a6f-e6ad-4456-a531-cee0cda95bff",
+      "name": "🔄 Gemini Text Fallback",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        96
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "rqgijFs7YZOdtthC",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare text extraction result to match the shape expected by Parse JSON\n// This mirrors what Prepare Upload does for the binary path, but without binary data\nconst eventData = $('🏷️ Detect Credit Note').first().json;\n\nconst storagePath = null; // No file to store for inline invoices\n\n// Generate invoice_id for inline path\nconst invoiceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {\n  const r = Math.random() * 16 | 0;\n  const v = c === 'x' ? r : (r & 0x3 | 0x8);\n  return v.toString(16);\n});\n\nreturn {\n  json: {\n    invoice_id: invoiceId,\n    storage_path: storagePath,\n    storage_filename: null,\n    original_filename: 'email-body-invoice.html',\n    mime_type: 'text/html',\n    binary_key: null,\n    extraction_source: 'EMAIL_BODY',\n    \n    // Pass through metadata\n    superchat_message_id: eventData.superchat_message_id,\n    superchat_conversation_id: eventData.superchat_conversation_id,\n    email_from: eventData.email_from,\n    email_subject: eventData.email_subject,\n    email_received_at: eventData.email_received_at,\n    doc_type: eventData.doc_type,\n    invoice_type: eventData.invoice_type\n  }\n};"
+      },
+      "id": "351858b2-5531-4ef0-8a3e-699e60e18606",
+      "name": "📋 Prepare Text Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-has-files",
+              "leftValue": "={{ $json.has_files }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9ecb8d76-3f05-4a1e-9d4a-aa0abab3404f",
+      "name": "❓ Has Files?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"error\": \"No invoice data found - no inline invoice and no file attachments\",\n  \"superchat_message_id\": \"{{ $('📥 Extract Event Data').first().json.superchat_message_id }}\"\n}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "eb1ac9e9-3d60-4764-8232-53dd599c8b7e",
+      "name": "⚠️ No Invoice Data",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// FIX 1: Split file_ids into individual items for multi-attachment processing\nconst eventData = $('🔍 Check Email Body').first().json;\nconst fileIds = eventData.file_ids || [];\n\nreturn fileIds.map((fileId, index) => {\n  // Generate unique invoice_id per attachment\n  const invoiceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {\n    const r = Math.random() * 16 | 0;\n    const v = c === 'x' ? r : (r & 0x3 | 0x8);\n    return v.toString(16);\n  });\n\n  return {\n    json: {\n      file_id: fileId,\n      file_index: index,\n      invoice_id: invoiceId,\n      idempotency_key: `m6_${eventData.superchat_message_id}_${index}`,\n      \n      // Pass through all event data\n      superchat_message_id: eventData.superchat_message_id,\n      superchat_conversation_id: eventData.superchat_conversation_id,\n      email_from: eventData.email_from,\n      email_subject: eventData.email_subject,\n      email_received_at: eventData.email_received_at,\n      doc_type: eventData.doc_type,\n      invoice_type: eventData.invoice_type || 'invoice',\n      confidence: eventData.confidence\n    }\n  };\n});"
+      },
+      "id": "76de3a37-599e-4020-a8d2-49c8860933b6",
+      "name": "🔄 Split File IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.superchat.com/v1.0/files/{{ $json.file_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "1afbef7e-ed85-4a8c-920b-b3b6300a7984"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        400,
+        512
+      ],
+      "id": "7cf08cbd-d92c-4e7a-8821-d88511034baf",
+      "name": "📎 Get File Info"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n\n// Superchat API returns { results: [...] } or direct object\nconst file = response.results ? response.results[0] : response;\n\nif (!file || !file.link || !file.link.url) {\n  throw new Error(`Keine Download-URL gefunden. Response keys: ${Object.keys(response).join(', ')}`);\n}\n\nreturn {\n  json: {\n    file_id: file.id,\n    filename: file.name,\n    mime_type: file.mime_type,\n    download_url: file.link.url\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        512
+      ],
+      "id": "e9e08485-ed73-455f-80d5-d6786a6f76aa",
+      "name": "📎 Extract File URL"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.download_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        784,
+        512
+      ],
+      "id": "cedc88b0-bd97-4639-91cf-12961283ff3d",
+      "name": "📎 Download Binary"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare for Claude Vision & Storage upload\n// V4: invoice_id comes from Split File IDs (per attachment)\nconst splitData = $('🔄 Split File IDs').item.json;\nconst binary = $input.first().binary;\n\n// Get binary key (usually 'data')\nconst binaryKey = Object.keys(binary || {})[0] || 'data';\nconst binaryData = binary?.[binaryKey];\n\nconst invoiceId = splitData.invoice_id;\nconst storagePath = `receipts/${invoiceId}.pdf`;\n\nreturn {\n  json: {\n    invoice_id: invoiceId,\n    storage_path: storagePath,\n    storage_filename: `${invoiceId}.pdf`,\n    original_filename: binaryData?.fileName || 'invoice.pdf',\n    mime_type: binaryData?.mimeType || 'application/pdf',\n    binary_key: binaryKey,\n    extraction_source: 'ATTACHMENT',\n    \n    // Pass through metadata from Split File IDs\n    superchat_message_id: splitData.superchat_message_id,\n    superchat_conversation_id: splitData.superchat_conversation_id,\n    email_from: splitData.email_from,\n    email_subject: splitData.email_subject,\n    email_received_at: splitData.email_received_at,\n    doc_type: splitData.doc_type,\n    invoice_type: splitData.invoice_type,\n    idempotency_key: splitData.idempotency_key,\n    file_index: splitData.file_index\n  },\n  binary: binary\n};"
+      },
+      "id": "58741c18-35ff-4cbc-980a-af7e0e1f2a1e",
+      "name": "🔧 Prepare Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://yetwntwayhmzmhhgdkli.supabase.co/storage/v1/object/receipts/{{ $json.storage_filename }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "={{ $json.mime_type }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "={{ $json.binary_key }}",
+        "options": {}
+      },
+      "id": "e8648ee7-2edd-4bae-83cb-4ecee5330e34",
+      "name": "📤 Upload to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        784
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PmuDiYzfBjPqDSFV",
+          "name": "Supabase Service Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "claude-sonnet-4-5-20250929"
+        },
+        "text": "Analysiere diesen Beleg/Rechnung und extrahiere alle Informationen.\n\nSCHRITT 1: Lieferant identifizieren\n- Name wie auf Beleg\n- Kurzcode (z.B. \"HORN\" für Hornbach, max 4 Zeichen, nur Großbuchstaben)\n- Typ: BAUMARKT, GROSSHANDEL, FACHHANDEL, TANKSTELLE, RESTAURANT, SOFTWARE, SONSTIGE\n\nSCHRITT 2: Kostenkategorie bestimmen\n- MATERIAL: Baumärkte, Baustoffhandel, Werkzeug, Fliesen, Sanitär, Elektro\n- SUBCONTRACTOR: Handwerker-Rechnungen, Subunternehmer\n- VEHICLE_FUEL: Tankstellen\n- VEHICLE_RENTAL: Autovermietung, Parken\n- VEHICLE_REPAIR: Werkstatt, Autowäsche\n- ENTERTAINMENT: Restaurant, Café, Bewirtung\n- SOFTWARE: IT-Dienste, Apps\n- OFFICE: Bürobedarf, Telefon\n- DISPOSAL: Entsorgung\n- OTHER: Alles andere\n\nSCHRITT 3: Rechnungsdaten\n- Rechnungsnummer (oder \"UNKNOWN\")\n- Datum (Format: YYYY-MM-DD)\n- Nettobetrag (summe_netto) als Zahl — die Summe OHNE MwSt.\n- Bruttobetrag (summe_brutto) als Zahl — die Endsumme MIT MwSt. (der höhere Betrag)\n- MwSt-Satz (meist 19)\n\nWICHTIG: summe_brutto ist IMMER der ENDPREIS (der höchste Betrag auf der Rechnung).\nsumme_netto ist die Summe VOR der MwSt. Es gilt: summe_brutto = summe_netto * (1 + mwst_prozent/100)\n\nSCHRITT 4: Zahlungsinformationen\n- IBAN (falls auf Rechnung, sonst \"\")\n- BIC (falls vorhanden, sonst \"\")\n- Zahlungsziel in Tagen (aus Text wie \"zahlbar innerhalb 14 Tagen\" - falls nicht angegeben: 14)\n- Fälligkeitsdatum (Rechnungsdatum + Zahlungsziel, Format: YYYY-MM-DD)\n- Skonto Prozent (falls angegeben, sonst 0)\n- Skonto Tage (falls angegeben, sonst 0)\n\nSCHRITT 5: Positionen (maximal 20)\nFür jeden Artikel:\n- artikel_nummer (falls vorhanden, sonst \"\")\n- beschreibung (wie auf Beleg)\n- internal_name (kleinbuchstaben, ohne Marke, normalisiert)\n- menge als Zahl\n- einheit (Stk, kg, m, m², l, Pack)\n- einzelpreis_brutto als Zahl\n- kategorie (z.B. Elektroinstallation, Sanitär, Werkzeug, Baustoffe)\n\nSCHRITT 6: Projekt-Referenzen\n- Suche nach Projektnummer im Format BL-YYYY-NNN (z.B. BL-2026-014)\n- Suche nach Lieferadresse / Baustellenadresse (Straße + PLZ/Stadt)\n- Suche nach Bestellreferenz oder Auftragsnummer\nGib zurück: project_reference (die BL-Nummer falls gefunden, sonst \"\"), delivery_address (Lieferadresse falls gefunden, sonst \"\")\n\nAUSGABE: Nur JSON, keine Backticks, kein Markdown, keine Erklärung.\n\n{\"lieferant\":{\"name\":\"Musterfirma GmbH\",\"code\":\"MUST\",\"typ\":\"GROSSHANDEL\"},\"expense_category\":\"MATERIAL\",\"rechnung\":{\"nummer\":\"R-2025-001\",\"datum\":\"2025-01-15\",\"summe_netto\":100.00,\"summe_brutto\":119.00,\"mwst_prozent\":19},\"zahlung\":{\"iban\":\"DE89370400440532013000\",\"bic\":\"COBADEFFXXX\",\"zahlungsziel_tage\":14,\"faellig_am\":\"2025-01-29\",\"skonto_prozent\":2,\"skonto_tage\":7},\"positionen\":[{\"artikel_nummer\":\"12345\",\"beschreibung\":\"Beispielartikel\",\"internal_name\":\"beispielartikel\",\"menge\":1,\"einheit\":\"Stk\",\"einzelpreis_brutto\":100.00,\"kategorie\":\"Sonstiges\"}],\"projekt\":{\"project_reference\":\"\",\"delivery_address\":\"\"}}",
+        "inputType": "binary",
+        "binaryPropertyName": "={{ $('🔧 Prepare Upload').item.json.binary_key }}",
+        "options": {
+          "maxTokens": 8000
+        }
+      },
+      "id": "3f94be1d-24c5-4438-bc1e-14e43ac0193d",
+      "name": "🤖 Claude Vision",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        512
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "DSb7Itt2r6kfGiHs",
+          "name": "Anthropic account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "text": "Analysiere diesen Beleg/Rechnung und extrahiere alle Informationen.\n\nSCHRITT 1: Lieferant identifizieren (name, code max 4 Zeichen Großbuchstaben, typ: BAUMARKT/GROSSHANDEL/FACHHANDEL/TANKSTELLE/RESTAURANT/SOFTWARE/SONSTIGE)\nSCHRITT 2: Kostenkategorie (MATERIAL/SUBCONTRACTOR/VEHICLE_FUEL/VEHICLE_RENTAL/VEHICLE_REPAIR/ENTERTAINMENT/SOFTWARE/OFFICE/DISPOSAL/OTHER)\nSCHRITT 3: Rechnungsdaten (nummer oder UNKNOWN, datum YYYY-MM-DD, summe_netto, summe_brutto, mwst_prozent)\nWICHTIG: summe_brutto = ENDPREIS, summe_netto = VOR MwSt. summe_brutto = summe_netto × (1 + mwst_prozent/100)\nSCHRITT 4: Zahlungsinformationen (iban, bic, zahlungsziel_tage default 14, faellig_am, skonto_prozent, skonto_tage)\nSCHRITT 5: Positionen max 20 (artikel_nummer, beschreibung, internal_name, menge, einheit, einzelpreis_brutto, kategorie)\nSCHRITT 6: Projekt-Referenzen\n- Suche nach Projektnummer im Format BL-YYYY-NNN (z.B. BL-2026-014)\n- Suche nach Lieferadresse / Baustellenadresse (Straße + PLZ/Stadt)\n- Suche nach Bestellreferenz oder Auftragsnummer\nGib zurück: project_reference (die BL-Nummer falls gefunden, sonst \"\"), delivery_address (Lieferadresse falls gefunden, sonst \"\")\n\nAUSGABE: Nur JSON, keine Backticks, kein Markdown.\n{\"lieferant\":{\"name\":\"\",\"code\":\"\",\"typ\":\"\"},\"expense_category\":\"\",\"rechnung\":{\"nummer\":\"\",\"datum\":\"\",\"summe_netto\":0,\"summe_brutto\":0,\"mwst_prozent\":0},\"zahlung\":{\"iban\":\"\",\"bic\":\"\",\"zahlungsziel_tage\":14,\"faellig_am\":\"\",\"skonto_prozent\":0,\"skonto_tage\":0},\"positionen\":[],\"projekt\":{\"project_reference\":\"\",\"delivery_address\":\"\"}}",
+        "inputType": "binary",
+        "binaryPropertyName": "={{ $('🔧 Prepare Upload').item.json.binary_key }}",
+        "options": {}
+      },
+      "id": "6069da97-c727-4b2e-85e2-03684ec96c33",
+      "name": "🔄 Gemini Vision Fallback",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        272
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "rqgijFs7YZOdtthC",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude response and merge with upload data\n// V4: Support both attachment path (Claude Vision) and inline path (Claude Text Extract)\n// FIX 3: Extract project_reference and delivery_address\nlet uploadData, claudeResponse;\n\ntry {\n  // Try inline path first\n  uploadData = $('📋 Prepare Text Result').first().json;\n  const claudeNode = $('🤖 Claude Text Extract').first().json;\n  if (claudeNode.content && Array.isArray(claudeNode.content)) {\n    claudeResponse = claudeNode.content[0]?.text;\n  } else {\n    claudeResponse = claudeNode.content || claudeNode.text || JSON.stringify(claudeNode);\n  }\n} catch (e) {\n  // Fall back to attachment path\n  uploadData = $('🔧 Prepare Upload').item.json;\n  const claudeNode = $('🤖 Claude Vision').item.json;\n  if (claudeNode.content && Array.isArray(claudeNode.content)) {\n    claudeResponse = claudeNode.content[0]?.text;\n  } else {\n    claudeResponse = claudeNode.content || claudeNode.text || JSON.stringify(claudeNode);\n  }\n}\n\n// Clean response - remove markdown\nlet cleanJson = claudeResponse;\nif (typeof cleanJson === 'string') {\n  cleanJson = cleanJson.replace(/```json\\s*/gi, '');\n  cleanJson = cleanJson.replace(/```\\s*/g, '');\n  cleanJson = cleanJson.trim();\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleanJson);\n} catch (e) {\n  throw new Error(`JSON Parse Error: ${e.message}\\n\\nRaw:\\n${cleanJson.substring(0, 500)}`);\n}\n\n// V2: Smart net/gross handling - trust Claude when both provided, fallback to calculation\nconst vatPercent = parsed.rechnung?.mwst_prozent || 19;\nconst rawGross = Number(parsed.rechnung?.summe_brutto) || 0;\nconst rawNet = Number(parsed.rechnung?.summe_netto) || 0;\n\nlet grossAmount, netAmount;\n\nif (rawNet > 0 && rawGross > 0) {\n  // Both provided — validate plausibility\n  const expectedGross = Math.round(rawNet * (1 + vatPercent / 100) * 100) / 100;\n  if (Math.abs(expectedGross - rawGross) < 1.0) {\n    grossAmount = rawGross;\n    netAmount = rawNet;\n  } else {\n    // Inconsistent — trust brutto (Endpreis)\n    grossAmount = rawGross;\n    netAmount = Math.round((rawGross / (1 + vatPercent / 100)) * 100) / 100;\n  }\n} else if (rawGross > 0) {\n  grossAmount = rawGross;\n  netAmount = Math.round((rawGross / (1 + vatPercent / 100)) * 100) / 100;\n} else if (rawNet > 0) {\n  netAmount = rawNet;\n  grossAmount = Math.round(rawNet * (1 + vatPercent / 100) * 100) / 100;\n} else {\n  grossAmount = 0;\n  netAmount = 0;\n}\n\n// Type mapping\nconst typeMapping = {\n  'BAUMARKT': 'BAUMARKT',\n  'GROSSHANDEL': 'GROSSHANDEL',\n  'FACHHANDEL': 'FACHHANDEL',\n  'HERSTELLER': 'HERSTELLER',\n  'ONLINE': 'ONLINE',\n  'TANKSTELLE': 'SONSTIGE',\n  'RESTAURANT': 'SONSTIGE',\n  'SOFTWARE': 'SONSTIGE',\n  'SONSTIGE': 'SONSTIGE'\n};\n\n// Escape SQL\nconst escapeSql = (str) => str ? String(str).replace(/'/g, \"''\") : '';\n\n// Supplier code\nlet supplierCode = parsed.lieferant?.code || parsed.lieferant?.name?.substring(0, 4) || 'UNBK';\nsupplierCode = supplierCode.toUpperCase().replace(/[^A-Z]/g, '').substring(0, 4);\nif (supplierCode.length < 2) supplierCode = 'UNBK';\n\n// Payment data with defaults\nconst zahlung = parsed.zahlung || {};\nconst rechnungsDatum = parsed.rechnung?.datum || new Date().toISOString().split('T')[0];\nconst zahlungszielTage = zahlung.zahlungsziel_tage || 14;\n\n// Calculate due date if not provided\nlet faelligAm = zahlung.faellig_am;\nif (!faelligAm) {\n  const d = new Date(rechnungsDatum);\n  d.setDate(d.getDate() + zahlungszielTage);\n  faelligAm = d.toISOString().split('T')[0];\n}\n\n// FIX 3: Project reference extraction\nconst projectReference = parsed.projekt?.project_reference || '';\nconst deliveryAddress = parsed.projekt?.delivery_address || '';\n\nreturn {\n  json: {\n    invoice_id: uploadData.invoice_id,\n    storage_path: uploadData.storage_path || '',\n    original_filename: uploadData.original_filename,\n    binary_key: uploadData.binary_key,\n    extraction_source: uploadData.extraction_source || 'ATTACHMENT',\n    \n    // Superchat metadata\n    superchat_message_id: uploadData.superchat_message_id,\n    superchat_conversation_id: uploadData.superchat_conversation_id,\n    email_from: escapeSql(uploadData.email_from || ''),\n    email_subject: escapeSql(uploadData.email_subject || ''),\n    email_received_at: uploadData.email_received_at,\n    doc_type: uploadData.doc_type,\n    invoice_type: uploadData.invoice_type || 'invoice',\n    \n    // Supplier\n    lieferant_name: parsed.lieferant?.name || 'UNBEKANNT',\n    lieferant_name_escaped: escapeSql(parsed.lieferant?.name || 'UNBEKANNT'),\n    lieferant_code: supplierCode,\n    lieferant_typ: typeMapping[parsed.lieferant?.typ] || 'SONSTIGE',\n    \n    expense_category: parsed.expense_category || 'MATERIAL',\n    \n    // Invoice\n    rechnung_nummer: parsed.rechnung?.nummer || `SC-${uploadData.invoice_id.substring(0, 8)}`,\n    rechnung_datum: rechnungsDatum,\n    summe_brutto: grossAmount,\n    summe_netto: netAmount,\n    mwst_prozent: vatPercent,\n    \n    // Payment\n    payment_iban: zahlung.iban || '',\n    payment_bic: zahlung.bic || '',\n    payment_terms_days: zahlungszielTage,\n    due_date: faelligAm,\n    discount_percent: zahlung.skonto_prozent || 0,\n    discount_days: zahlung.skonto_tage || 0,\n    \n    // Positions\n    positionen: parsed.positionen || [],\n    positionen_count: (parsed.positionen || []).length,\n    \n    // FIX 3: Project reference\n    project_reference: projectReference,\n    delivery_address: deliveryAddress,\n    \n    needs_assignment: ['MATERIAL', 'SUBCONTRACTOR', 'ENTERTAINMENT'].includes(parsed.expense_category)\n  }\n};"
+      },
+      "id": "fd045ccc-cb44-402f-98bf-9d8bf8a57864",
+      "name": "📋 Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get parsed data from previous node\nconst parsed = $input.first().json;\n\n// Check if we have binary data (attachment path only)\nlet binary = {};\ntry {\n  const downloadNode = $('📎 Download Binary').first();\n  binary = downloadNode.binary || {};\n} catch (e) {\n  // Inline path - no binary available, that's fine\n}\n\n// Pass everything through\nconst result = { json: { ...parsed } };\nif (Object.keys(binary).length > 0) {\n  result.binary = binary;\n}\nreturn [result];"
+      },
+      "id": "60fbed0f-99ac-4e1f-b05b-750360f59ea2",
+      "name": "🔧 Prep Validator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "text": "Du bist ein Daten-Validator für Rechnungen.\n\nAKTUELLES DATUM: {{ $now.format('yyyy-MM-dd') }}\n\nEXTRAHIERTE DATEN (von anderer AI):\n{{ JSON.stringify({\n  rechnung_datum: $json.rechnung_datum,\n  rechnung_nummer: $json.rechnung_nummer,\n  lieferant_name: $json.lieferant_name,\n  summe_brutto: $json.summe_brutto,\n  summe_netto: $json.summe_netto,\n  mwst_prozent: $json.mwst_prozent,\n  positionen_count: $json.positionen_count,\n  extraction_source: $json.extraction_source\n}) }}\n\nPRÜFE die extrahierten Daten:\n\n1. DATUM: Jahr muss 2020-2030 sein. Bei \"24\" oder \"26\" → 2024/2026, NICHT 2014\n2. BETRÄGE: brutto >= netto. Bei mwst_prozent > 0: brutto ≈ netto × (1 + mwst/100) (±2€). Bei mwst_prozent = 0: brutto = netto\n3. LIEFERANT + RECHNUNGSNUMMER: Plausibel?\n4. Bei extraction_source EMAIL_BODY: Beträge und Währung prüfen (USD vs EUR)\n\nAUSGABE NUR JSON:\n{\"valid\":true,\"corrections\":{},\"confidence\":0.95,\"issues\":[]}\n\nBei Korrekturen:\n{\"valid\":false,\"corrections\":{\"rechnung_datum\":\"2024-01-26\"},\"confidence\":0.85,\"issues\":[\"Jahr korrigiert: 2014→2024\"]}",
+        "options": {}
+      },
+      "id": "874a314d-ff58-4309-a09c-4df9cc6e72c7",
+      "name": "🔍 Gemini Validator",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1616,
+        592
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "rqgijFs7YZOdtthC",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get original parsed data\nconst parsed = $('📋 Parse JSON').first().json;\n\n// Get Gemini response\nconst geminiResponse = $input.first().json;\n\nlet result = { ...parsed };\n\n// Parse Gemini response\nlet validatorData;\ntry {\n  const text = geminiResponse.content?.parts?.[0]?.text || \n               geminiResponse.text || \n               JSON.stringify(geminiResponse);\n  const cleanJson = text.replace(/```json\\s*/gi, '').replace(/```/g, '').trim();\n  validatorData = JSON.parse(cleanJson);\n} catch (e) {\n  return [{ \n    json: { \n      ...result, \n      _validation_skipped: true,\n      _validation_error: e.message \n    }\n  }];\n}\n\n// Apply corrections\nif (validatorData.corrections) {\n  for (const [key, value] of Object.entries(validatorData.corrections)) {\n    result[key] = value;\n  }\n}\n\n// Recalculate due_date if datum corrected\nif (validatorData.corrections?.rechnung_datum) {\n  const d = new Date(validatorData.corrections.rechnung_datum);\n  d.setDate(d.getDate() + (result.payment_terms_days || 14));\n  result.due_date = d.toISOString().split('T')[0];\n}\n\n// Recalculate net/gross if corrected\nif (validatorData.corrections?.summe_brutto || validatorData.corrections?.summe_netto) {\n  const vat = result.mwst_prozent || 19;\n  if (validatorData.corrections.summe_brutto && !validatorData.corrections.summe_netto) {\n    result.summe_netto = Math.round((result.summe_brutto / (1 + vat / 100)) * 100) / 100;\n  } else if (validatorData.corrections.summe_netto && !validatorData.corrections.summe_brutto) {\n    result.summe_brutto = Math.round(result.summe_netto * (1 + vat / 100) * 100) / 100;\n  }\n}\n\n// Add validation metadata\nresult._validated = validatorData.valid;\nresult._confidence = validatorData.confidence;\nresult._issues = validatorData.issues || [];\n\nreturn [{ json: result }];"
+      },
+      "id": "17ab99ba-1172-43aa-8c7a-c9f9db40a10c",
+      "name": "🔧 Merge Corrections",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1824,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"status\": \"duplicate\",\n  \"message\": \"Already processed: {{ $('🏷️ Detect Credit Note').first().json.superchat_message_id }}\"\n}",
+        "options": {}
+      },
+      "id": "b45f2f8c-03fa-4531-aabc-ac337053e921",
+      "name": "⏭️ Respond Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -624,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (\n  project_id,\n  event_type,\n  payload,\n  source_system,\n  source_flow,\n  idempotency_key\n)\nVALUES (\n  NULL,\n  'INVOICE_EXTRACTED',\n  jsonb_build_object(\n    'invoice_id', '{{ $('🔧 Merge Corrections').first().json.invoice_id }}',\n    'extraction_source', '{{ $('🔧 Merge Corrections').first().json.extraction_source }}',\n    'storage_path', '{{ $('🔧 Merge Corrections').first().json.storage_path }}',\n    'rechnung_nummer', '{{ $('🔧 Merge Corrections').first().json.rechnung_nummer }}',\n    'rechnung_datum', '{{ $('🔧 Merge Corrections').first().json.rechnung_datum }}',\n    'lieferant_name', '{{ $('🔧 Merge Corrections').first().json.lieferant_name }}',\n    'lieferant_name_escaped', '{{ $('🔧 Merge Corrections').first().json.lieferant_name_escaped }}',\n    'summe_netto', {{ $('🔧 Merge Corrections').first().json.summe_netto }},\n    'summe_brutto', {{ $('🔧 Merge Corrections').first().json.summe_brutto }},\n    'mwst_prozent', {{ $('🔧 Merge Corrections').first().json.mwst_prozent }},\n    'positionen', '{{ JSON.stringify($('🔧 Merge Corrections').first().json.positionen || []) }}'::jsonb,\n    'positionen_count', {{ $('🔧 Merge Corrections').first().json.positionen_count ?? 0 }},\n    'payment_iban', '{{ $('🔧 Merge Corrections').first().json.payment_iban ?? \"\" }}',\n    'payment_bic', '{{ $('🔧 Merge Corrections').first().json.payment_bic ?? \"\" }}',\n    'payment_terms_days', {{ $('🔧 Merge Corrections').first().json.payment_terms_days ?? 14 }},\n    'due_date', '{{ $('🔧 Merge Corrections').first().json.due_date }}',\n    'discount_percent', {{ $('🔧 Merge Corrections').first().json.discount_percent ?? 0 }},\n    'discount_days', {{ $('🔧 Merge Corrections').first().json.discount_days ?? 0 }},\n    'project_reference', '{{ $('🔧 Merge Corrections').first().json.project_reference ?? \"\" }}',\n    'delivery_address', '{{ $('🔧 Merge Corrections').first().json.delivery_address ?? \"\" }}',\n    'expense_category', '{{ $('🔧 Merge Corrections').first().json.expense_category ?? \"MATERIAL\" }}',\n    'email_from', '{{ $('🔧 Merge Corrections').first().json.email_from ?? \"\" }}',\n    'email_subject', '{{ $('🔧 Merge Corrections').first().json.email_subject ?? \"\" }}',\n    'email_received_at', '{{ $('🔧 Merge Corrections').first().json.email_received_at }}',\n    'superchat_message_id', '{{ $('🔧 Merge Corrections').first().json.superchat_message_id ?? \"\" }}',\n    'doc_type', '{{ $('🔧 Merge Corrections').first().json.doc_type ?? \"INVOICE_IN\" }}',\n    'invoice_type', '{{ $('🔧 Merge Corrections').first().json.invoice_type ?? \"invoice\" }}',\n    'original_filename', '{{ $('🔧 Merge Corrections').first().json.original_filename ?? \"\" }}'\n  ),\n  'n8n',\n  'M6_01a_Extract_Invoice',\n  'M6_01a_' || '{{ $('📥 Extract Event Data').first().json.idempotency_key }}'\n)\nON CONFLICT (idempotency_key) DO NOTHING\nRETURNING id::text;",
+        "options": {}
+      },
+      "id": "6ad6c6d7-a60a-4d0d-8b01-f1a7f128a06f",
+      "name": "📢 Emit INVOICE_EXTRACTED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2200,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"success\",\"event\":\"INVOICE_EXTRACTED\",\"invoice_id\":\"{{ $(\"🔧 Merge Corrections\").first().json.invoice_id }}\",\"extraction_source\":\"{{ $(\"🔧 Merge Corrections\").first().json.extraction_source }}\"}",
+        "options": {}
+      },
+      "id": "2bd5d5bd-4b0c-4653-99d5-2a2e1dc0b981",
+      "name": "✅ Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2400,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "🔔 Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "📥 Extract Event Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Extract Event Data": {
+      "main": [
+        [
+          {
+            "node": "🏷️ Detect Credit Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🏷️ Detect Credit Note": {
+      "main": [
+        [
+          {
+            "node": "🔍 Idempotency Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Idempotency Check": {
+      "main": [
+        [
+          {
+            "node": "❓ New Invoice?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ New Invoice?": {
+      "main": [
+        [
+          {
+            "node": "🔍 Check Email Body",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "⏭️ Respond Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Check Email Body": {
+      "main": [
+        [
+          {
+            "node": "❓ Inline Invoice?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Inline Invoice?": {
+      "main": [
+        [
+          {
+            "node": "🤖 Claude Text Extract",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "❓ Has Files?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🤖 Claude Text Extract": {
+      "main": [
+        [
+          {
+            "node": "📋 Prepare Text Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🔄 Gemini Text Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔄 Gemini Text Fallback": {
+      "main": [
+        [
+          {
+            "node": "📋 Prepare Text Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Prepare Text Result": {
+      "main": [
+        [
+          {
+            "node": "📋 Parse JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Has Files?": {
+      "main": [
+        [
+          {
+            "node": "🔄 Split File IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "⚠️ No Invoice Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔄 Split File IDs": {
+      "main": [
+        [
+          {
+            "node": "📎 Get File Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📎 Get File Info": {
+      "main": [
+        [
+          {
+            "node": "📎 Extract File URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📎 Extract File URL": {
+      "main": [
+        [
+          {
+            "node": "📎 Download Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📎 Download Binary": {
+      "main": [
+        [
+          {
+            "node": "🔧 Prepare Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Prepare Upload": {
+      "main": [
+        [
+          {
+            "node": "📤 Upload to Storage",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "🤖 Claude Vision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🤖 Claude Vision": {
+      "main": [
+        [
+          {
+            "node": "📋 Parse JSON",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🔄 Gemini Vision Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔄 Gemini Vision Fallback": {
+      "main": [
+        [
+          {
+            "node": "📋 Parse JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Parse JSON": {
+      "main": [
+        [
+          {
+            "node": "🔧 Prep Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Prep Validator": {
+      "main": [
+        [
+          {
+            "node": "🔍 Gemini Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Gemini Validator": {
+      "main": [
+        [
+          {
+            "node": "🔧 Merge Corrections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Merge Corrections": {
+      "main": [
+        [
+          {
+            "node": "📢 Emit INVOICE_EXTRACTED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📢 Emit INVOICE_EXTRACTED": {
+      "main": [
+        [
+          {
+            "node": "✅ Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "zAFieMcnwATMcHhY",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

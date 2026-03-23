@@ -1,0 +1,172 @@
+{
+  "name": "M6_01e_Folder_Route",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-01e-folder-route",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b0da9047-382a-4992-9141-1238a529e1ed",
+      "name": "🔔 Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst payload = body.payload || body;\nconst storagePath = payload.storage_path || '';\nif (!storagePath) return { json: { skip: true, reason: 'no_storage_path' }};\n\nconst supplierCode = payload.supplier_code || 'UNKNOWN';\n// Use invoice_number for drive filename\nconst invoiceNumber = payload.invoice_number || 'UNKNOWN';\nconst totalGross = payload.total_gross || 0;\n\nreturn { json: {\n  skip: false,\n  invoice_id: payload.invoice_id,\n  storage_path: storagePath,\n  folder_type: 'receipts',\n  drive_filename: supplierCode + '_' + invoiceNumber + '_' + totalGross.toFixed(2).replace('.', ',') + 'EUR.pdf',\n  supplier_code: supplierCode,\n}};"
+      },
+      "id": "f1b21bac-d589-4ae1-9ee7-b0c1d3e7a6e3",
+      "name": "📥 Parse Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "174773ea-eb7b-49ea-96df-de2a85506b45",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "621c5902-eb4b-4c36-b4b8-4432b128d734",
+      "name": "❓ Has File?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.srv1045913.hstgr.cloud/webhook/mx-02-folder-manager",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"folder_type\": \"{{ $json.folder_type }}\",\n  \"year\": \"{{ $json.year }}\",\n  \"month\": \"{{ $json.month }}\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "abf1c2f8-4b51-4142-84f7-7770143ffe75",
+      "name": "📥 Get Folder via MX_02",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"success\",\"filed\":true}",
+        "options": {}
+      },
+      "id": "9dfa534f-1fc4-4224-b8b6-5bafe6c58618",
+      "name": "✅ Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"skipped\",\"reason\":\"no_file\"}",
+        "options": {}
+      },
+      "id": "9fb5e6ec-07d8-474e-8cb4-86d1e21181d0",
+      "name": "⏭️ Respond Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "🔔 Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "📥 Parse Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Parse Event": {
+      "main": [
+        [
+          {
+            "node": "❓ Has File?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Has File?": {
+      "main": [
+        [
+          {
+            "node": "📥 Get Folder via MX_02",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "⏭️ Respond Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Get Folder via MX_02": {
+      "main": [
+        [
+          {
+            "node": "✅ Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "zAFieMcnwATMcHhY",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

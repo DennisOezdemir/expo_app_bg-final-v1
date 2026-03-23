@@ -1,0 +1,115 @@
+{
+  "name": "M6_01d_Notify",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "m6-01d-notify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7d8fd107-b330-46a3-a90b-968f90dbc9af",
+      "name": "🔔 Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst payload = body.payload || body;\nreturn { json: {\n  invoice_id: payload.invoice_id,\n  invoice_number: payload.invoice_number || 'N/A',\n  supplier_code: payload.supplier_code || '?',\n  total_gross: payload.total_gross || 0,\n  expense_category: payload.expense_category || 'MATERIAL',\n  extraction_source: payload.extraction_source || 'UNKNOWN',\n  email_from: payload.email_from || '',\n  email_subject: payload.email_subject || '',\n  positions_count: payload.positions_count || 0,\n}};"
+      },
+      "id": "6d2d6625-433a-41f9-891b-57c49cafbfeb",
+      "name": "📥 Parse Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "6088921678",
+        "text": "=📧 *Rechnung erfasst*\n\n🏢 Lieferant: {{ $('📥 Parse Event').first().json.supplier_code }}\n💰 Betrag: {{ ($('📥 Parse Event').first().json.total_gross || 0).toFixed(2).replace('.', ',') }}€\n📁 Kategorie: {{ $('📥 Parse Event').first().json.expense_category }}\n📦 Positionen: {{ $('📥 Parse Event').first().json.positions_count }}\n📨 Quelle: {{ $('📥 Parse Event').first().json.extraction_source }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "c0cb3389-e25f-4c9d-a865-bbc397c20bde",
+      "name": "📱 Telegram Notify",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        400
+      ],
+      "webhookId": "m601-telegram",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "HV1wc491unUQKfmd",
+          "name": "BabyAgiBot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"success\",\"notified\":true}",
+        "options": {}
+      },
+      "id": "26739f71-79e8-4b59-941b-42087c206b44",
+      "name": "✅ Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "🔔 Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "📥 Parse Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Parse Event": {
+      "main": [
+        [
+          {
+            "node": "📱 Telegram Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📱 Telegram Notify": {
+      "main": [
+        [
+          {
+            "node": "✅ Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "zAFieMcnwATMcHhY",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

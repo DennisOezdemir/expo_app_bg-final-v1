@@ -92,12 +92,17 @@ Gmail Labels/
 |------|----|----------------|
 | **M5_01_Approval_Dispatcher** | `zCs5Hwy9NmUhodI6KiyS3` | 2026-02-11 |
 
-### M6: Finance (7 aktiv, 3 deaktiviert, 12 inaktiv gesamt)
+### M6: Finance (11 aktiv, 4 deaktiviert)
 
 | Flow | ID | Letztes Update | Status |
 |------|----|----------------|--------|
-| **M6_01_Invoice_Processor v2** | `gV76hOPVjNXPqZdT` | 2026-03-20 | aktiv |
-| ~~M6_02a_Lexware_Push_Prepare~~ | `B4IOCwfxNg` | 2026-02-18 | deaktiviert (ersetzt durch Email-Forward in M6_01) |
+| **M6_01a_Extract_Invoice** | `DIIMg0WHbNePR19K` | 2026-03-23 | aktiv |
+| **M6_01b_Match_Create** | `lu5eDVGkt2Kw1AcH` | 2026-03-23 | aktiv |
+| **M6_01c_Lexware_Forward** | `JP2jpaevZAnZtKqT` | 2026-03-23 | aktiv |
+| **M6_01d_Notify** | `Avyj2V3rpi5k3dPC` | 2026-03-23 | aktiv |
+| **M6_01e_Folder_Route** | `RCBLxz6jItpRNO8Z` | 2026-03-23 | aktiv |
+| ~~M6_01_Invoice_Processor v2~~ | `gV76hOPVjNXPqZdT` | 2026-03-23 | deaktiviert (ersetzt durch M6_01a-e Staffellauf) |
+| ~~M6_02a_Lexware_Push_Prepare~~ | `B4IOCwfxNg` | 2026-02-18 | deaktiviert |
 | ~~M6_02b_Lexware_Contact_Sync~~ | `ilYyrjOQoG` | 2026-02-18 | deaktiviert |
 | ~~M6_02c_Lexware_Push_Voucher~~ | `6C8MshufHT` | 2026-02-19 | deaktiviert |
 | **M6_03_Lexware_Pull_Sales** | `AjRF0GnZVaLeckOu` | 2026-02-27 | aktiv |
@@ -107,11 +112,13 @@ Gmail Labels/
 | **M6_04d_Lexware_Voucher_Status** | `pkJmfUhp9VcOHwb8` | 2026-02-27 | aktiv |
 | **M6_10_Lexware_Reconciliation** | `D7IYZ6HXEo4lFO03` | 2026-03-20 | aktiv |
 
-#### M6_01 v2 Aenderungen (2026-03-20):
-- Multi-Attachment: Loop ueber alle file_ids statt nur [0]
-- Gutschrift-Erkennung: besser zuhause / Betreff "Gutschrift" → CREDIT_NOTE
-- Projektzuordnung: Claude Vision extrahiert BL-Nummer + Adresse → fn_match_project_by_reference
-- Email-Forward: PDF automatisch an bauloewen@inbox.lexware.email
+#### M6_01 Staffellauf-Refactoring (2026-03-23):
+Alter 41-Node-Monolith aufgespalten in 5 Flows nach Staffellauf-Prinzip:
+- **M6_01a** Extract Invoice (27 Nodes): Intake → Claude/Gemini Extraktion → Validierung → `INVOICE_EXTRACTED` Event
+- **M6_01b** Match & Create (11 Nodes): Supplier Match → Project Match → DB Insert → Positionen → `PURCHASE_INVOICE_CREATED` Event
+- **M6_01c** Lexware Forward (8 Nodes): PDF Download → Email an `bauloewen@inbox.lexware.email` (mit storage_path Guard)
+- **M6_01d** Notify (4 Nodes): Telegram-Benachrichtigung
+- **M6_01e** Folder Route (6 Nodes): PDF in Drive-Ordner via MX_02
 
 #### M6_10 Reconciliation (NEU 2026-03-20):
 - Cron taeglich 06:00 — Lexware API Pull → DB Abgleich → Status-Sync
