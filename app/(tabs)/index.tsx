@@ -524,8 +524,6 @@ function GFHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["
           <View style={{ flex: 1 }} />
         </View>
       </View>
-
-      <ActivityFeed />
     </>
   );
 }
@@ -612,8 +610,6 @@ function BauleiterHome({ metrics }: { metrics: ReturnType<typeof useDashboardMet
           <View style={{ flex: 1 }} />
         </View>
       </View>
-
-      <ActivityFeed />
     </>
   );
 }

@@ -32,6 +32,8 @@ import { captureAndUploadPhoto } from "@/lib/photo-capture";
 import { useOffline } from "@/contexts/OfflineContext";
 import { useProjectDetail } from "@/hooks/queries/useProjectDetail";
 import { useProjectChangeOrders } from "@/hooks/queries/useChangeOrders";
+import { useProjectActivities } from "@/hooks/queries/useActivities";
+import type { Activity } from "@/lib/api/activities";
 import { SkeletonBox, SkeletonLine } from "@/components/Skeleton";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -1717,6 +1719,8 @@ export default function ProjectDetailScreen() {
 
   // Nachträge (Change Orders)
   const { data: changeOrders = [] } = useProjectChangeOrders(id);
+  const { data: activitiesData, hasNextPage: hasMoreActivities, fetchNextPage: fetchMoreActivities, isFetchingNextPage: loadingMoreActivities } = useProjectActivities(id);
+  const projectActivities = activitiesData?.pages.flat() ?? [];
 
   const handleCapturePhoto = useCallback(async () => {
     if (!id || photoUploading) return;
@@ -2551,6 +2555,33 @@ export default function ProjectDetailScreen() {
             <Ionicons name="arrow-forward" size={16} color={Colors.raw.amber500} />
           </Pressable>
         </SectionCard>
+
+        {/* Aktivitaeten */}
+        {projectActivities.length > 0 && (
+          <SectionCard>
+            <SectionHeader title="Aktivit\u00E4ten" badge={projectActivities.length > 0 ? String(projectActivities.length) : undefined} />
+            {projectActivities.slice(0, 10).map((act: Activity) => {
+              const diffMs = Date.now() - new Date(act.created_at).getTime();
+              const diffMin = Math.floor(diffMs / 60_000);
+              const timeLabel = diffMin < 1 ? "gerade" : diffMin < 60 ? `${diffMin}m` : Math.floor(diffMin / 60) < 24 ? `${Math.floor(diffMin / 60)}h` : Math.floor(diffMin / 60 / 24) === 1 ? "gestern" : `${Math.floor(diffMin / 60 / 24)}d`;
+              const label = act.title.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+              const LABELS: Record<string, string> = { "AUTO PLAN COMPLETED": "Autoplanung fertig", "INSPECTION PROTOCOL COMPLETED": "Begehung abgeschlossen", "GODMODE LEARNING COMPLETED": "KI-Lernlauf fertig", "Projekt angelegt": "Projekt angelegt", "NOTIFICATION SENT": "Benachrichtigung gesendet", "DRIVE TREE CREATED": "Ordner erstellt", "DRIVE YEAR READY": "Jahresordner bereit" };
+              return (
+                <View key={act.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: Colors.raw.zinc800 }}>
+                  <Ionicons name="flash" size={16} color={Colors.raw.amber500} />
+                  <Text style={{ fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc300, flex: 1 }} numberOfLines={1}>{LABELS[act.title] || label}</Text>
+                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc600 }}>{timeLabel}</Text>
+                </View>
+              );
+            })}
+            {hasMoreActivities && (
+              <Pressable onPress={() => fetchMoreActivities()} style={({ pressed }) => [styles.allMessagesBtn, { opacity: pressed ? 0.7 : 1 }]}>
+                <Text style={styles.allMessagesText}>{loadingMoreActivities ? "Laden..." : "Mehr laden"}</Text>
+                <Ionicons name="arrow-forward" size={16} color={Colors.raw.amber500} />
+              </Pressable>
+            )}
+          </SectionCard>
+        )}
 
         {/* Dokumente */}
         <SectionCard>
