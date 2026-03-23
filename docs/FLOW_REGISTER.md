@@ -1,9 +1,9 @@
 # BAUGENIUS FLOW-REGISTER
 
-> **Stand:** 2026-03-21 (Live-API-Export, alle 44 aktiven Flows in `n8n-workflows/`)
+> **Stand:** 2026-03-23 (Forensische Bereinigung — 16 tote Flows deaktiviert)
 > **n8n:** `https://n8n.srv1045913.hstgr.cloud`
 > **Architektur:** Event-Driven State Machine
-> **Flows:** 44 aktiv | 77 inaktiv/archiviert | 121 gesamt
+> **Flows:** 28 aktiv | 93 inaktiv/archiviert | 121 gesamt
 
 ---
 
@@ -48,43 +48,53 @@ Gmail Labels/
 
 ## AKTIVE FLOWS
 
-### M1: Intake (6 Flows)
+### M1: Intake (2 aktiv, 4 deaktiviert)
 
-| Flow | ID | Letztes Update |
-|------|----|----------------|
-| **M1_02_PDF_Parser_Vision** | `8KDtJKgrTIOV8LTw` | 2026-03-08 |
-| **M1_03_Position_Extractor_V3** | `eVbTku3Jsyf0dFdQ` | 2026-01-19 |
-| **M1_04a_Prepare_Drive** | `kdXetd4FMCISdE4J` | 2026-01-13 |
-| **M1_04b_Create_Project_Tree** | `P0ETfL7ZozQKEeM6` | 2026-01-03 |
-| **M1_04c_Sync_Initial_Files** | `RNifQ36TwyKqKxOJ` | 2026-01-03 |
-| **M1_05_Notification** | `ixnrOVeJhF3veYwJ` | 2026-01-03 |
+| Flow | ID | Letztes Update | Status |
+|------|----|----------------|--------|
+| **M1_02_PDF_Parser_Vision** | `8KDtJKgrTIOV8LTw` | 2026-03-23 | aktiv |
+| **M1_03_Position_Extractor_V3** | `eVbTku3Jsyf0dFdQ` | 2026-01-19 | aktiv (ACHTUNG: nie geroutet, PDF_PARSED → Nirgendwo) |
+| ~~M1_04a_Prepare_Drive~~ | `kdXetd4FMCISdE4J` | 2026-01-13 | **deaktiviert 2026-03-23** (ersetzt: DB-Trigger `create_default_project_folders`) |
+| ~~M1_04b_Create_Project_Tree~~ | `P0ETfL7ZozQKEeM6` | 2026-01-03 | **deaktiviert 2026-03-23** (ersetzt: gleicher DB-Trigger) |
+| ~~M1_04c_Sync_Initial_Files~~ | `RNifQ36TwyKqKxOJ` | 2026-01-03 | **deaktiviert 2026-03-23** (ersetzt: `fn_file_intake_to_folder()`) |
+| **M1_05_Notification** | `ixnrOVeJhF3veYwJ` | 2026-01-03 | aktiv (OFFER_ATTACHED Route aktiv, Events feuern nicht) |
 
-### M2: Baustelle (7 Flows)
+### M2: Baustelle (4 aktiv, 3 deaktiviert)
 
-| Flow | ID | Letztes Update |
-|------|----|----------------|
-| **M2_01_Monteur_Auftrag_PDF** | `v2b5w05D-CR5WxCsbbmAi` | 2026-02-27 |
-| **M2_02_Sync_ZB_Progress** | `TQoWuDki_q9IDVIJCHcHE` | 2026-02-20 |
-| **M2_03_Generate_Protocol_PDF** | `lDrZnW4bYMCpumiTbmkKl` | 2026-02-20 |
-| **M2_04_Inspection_Finalize** | `fkP3zcOg0WCCSmz3I-ivp` | 2026-02-11 |
-| **M2_10_Sub_Order_Generator** | `Kqp7EajcP0ZmJ-A1-PJUI` | 2026-01-17 |
-| **M2_10a_Schedule_Approve** | `t3HR7lIWYUjx52F2` | 2026-02-27 |
-| **M2_10b_Schedule_Notification** | `DKR3TSn8J7sa01m3` | 2026-02-27 |
+| Flow | ID | Letztes Update | Status |
+|------|----|----------------|--------|
+| **M2_01_Monteur_Auftrag_PDF** | `v2b5w05D-CR5WxCsbbmAi` | 2026-02-27 | aktiv |
+| **M2_02_Sync_ZB_Progress** | `TQoWuDki_q9IDVIJCHcHE` | 2026-02-20 | aktiv |
+| **M2_03_Generate_Protocol_PDF** | `lDrZnW4bYMCpumiTbmkKl` | 2026-02-20 | aktiv |
+| ~~M2_04_Inspection_Finalize~~ | `fkP3zcOg0WCCSmz3I-ivp` | 2026-02-11 | **deaktiviert 2026-03-23** (Feature nicht implementiert) |
+| ~~M2_10_Sub_Order_Generator~~ | `Kqp7EajcP0ZmJ-A1-PJUI` | 2026-01-17 | **deaktiviert 2026-03-23** (Sub-Auftraege nicht implementiert) |
+| **M2_10a_Schedule_Approve** | `t3HR7lIWYUjx52F2` | 2026-02-27 | aktiv |
+| ~~M2_10b_Schedule_Notification~~ | `DKR3TSn8J7sa01m3` | 2026-02-27 | **deaktiviert 2026-03-23** (ersetzt: M2_10a macht beides) |
 
-### M4: Material (10 Flows)
+#### M2 DB-Funktionen (kein n8n noetig):
+- `auto_plan_project()` — Phasen generieren + Monteur zuweisen (3-Tier Matching)
+- `fn_approve_schedule()` + `confirm_proposed_phases()` — proposed → planned
+- `fn_learn_schedule()` — Lernender Trigger: nach 3x gleicher Monteur → Default
 
-| Flow | ID | Letztes Update |
-|------|----|----------------|
-| **M4_01_Material_Planner** | `tywkXZoNvDf624tB1Qh6R` | 2026-01-28 |
-| **M4_01a_Receipt_Intake** | `sw2yaCHpuaGHSKdE` | 2026-02-02 |
-| **M4_01b_Receipt_Processor_V2_MX02** | `WSy5sWWXY29bW93b` | 2026-02-02 |
-| **M4_03a_Order_Approve** | `INJkwNIVjAn8TKox` | 2026-02-27 |
-| **M4_03b_Order_Suggester** | `UlyBjJpyUsCi2rSs` | 2026-02-27 |
-| **M4_05_Material_List_Generator** | `S5gFkRmPiZ0OZYAt_Ap7T` | 2026-02-11 |
-| **M4_06_Order_Agent** | `fPY6wSReqQ4ksxlG` | 2026-02-27 |
-| **M4_07_Order_Send** | `BOkKFTEUCyKagfC0` | 2026-02-27 |
-| **M4_08_Schedule_Order_Trigger** | `Ycs3lFXe5JCFDIo1` | 2026-02-27 |
-| **M4_10_MagicPlan_Parser** | `Tjbz4nIiHlav6Y7hr7yld` | 2026-01-25 |
+### M4: Material (5 aktiv, 5 deaktiviert)
+
+| Flow | ID | Letztes Update | Status |
+|------|----|----------------|--------|
+| **M4_01_Material_Planner** | `tywkXZoNvDf624tB1Qh6R` | 2026-01-28 | aktiv |
+| **M4_01a_Receipt_Intake** | `sw2yaCHpuaGHSKdE` | 2026-02-02 | aktiv |
+| **M4_01b_Receipt_Processor_V2_MX02** | `WSy5sWWXY29bW93b` | 2026-02-02 | aktiv (trotz Name: ruft MX_02 NICHT auf) |
+| ~~M4_03a_Order_Approve~~ | `INJkwNIVjAn8TKox` | 2026-02-27 | **deaktiviert 2026-03-23** (nie verdrahtet) |
+| ~~M4_03b_Order_Suggester~~ | `UlyBjJpyUsCi2rSs` | 2026-02-27 | **deaktiviert 2026-03-23** (Upstream-Event fehlt) |
+| ~~M4_05_Material_List_Generator~~ | `S5gFkRmPiZ0OZYAt_Ap7T` | 2026-02-11 | **deaktiviert 2026-03-23** (Upstream M4_01 laeuft nie) |
+| ~~M4_06_Order_Agent~~ | `fPY6wSReqQ4ksxlG` | 2026-02-27 | **deaktiviert 2026-03-23** (Duplikat M4_03b) |
+| ~~M4_07_Order_Send~~ | `BOkKFTEUCyKagfC0` | 2026-02-27 | **deaktiviert 2026-03-23** (Approval-Kette tot) |
+| **M4_08_Schedule_Order_Trigger** | `Ycs3lFXe5JCFDIo1` | 2026-02-27 | aktiv |
+| **M4_10_MagicPlan_Parser** | `Tjbz4nIiHlav6Y7hr7yld` | 2026-01-25 | aktiv |
+
+#### M4 DB-Funktionen (kein n8n noetig):
+- `auto_plan_materials()` — Materialbedarf aus Angebotspositionen berechnen
+- `fn_approve_material_order()` — planned → ordered Statuswechsel
+- Bestellung-Screen braucht nur DB-Query statt Dummy-Daten
 
 ### M5: Freigabe (1 Flow)
 
@@ -100,16 +110,16 @@ Gmail Labels/
 | **M6_01b_Match_Create** | `lu5eDVGkt2Kw1AcH` | 2026-03-23 | aktiv |
 | **M6_01c_Lexware_Forward** | `JP2jpaevZAnZtKqT` | 2026-03-23 | aktiv |
 | **M6_01d_Notify** | `Avyj2V3rpi5k3dPC` | 2026-03-23 | aktiv |
-| **M6_01e_Folder_Route** | `RCBLxz6jItpRNO8Z` | 2026-03-23 | aktiv |
+| ~~M6_01e_Folder_Route~~ | `RCBLxz6jItpRNO8Z` | 2026-03-23 | **deaktiviert 2026-03-23** (ersetzt: MX_08 File Router) |
 | ~~M6_01_Invoice_Processor v2~~ | `gV76hOPVjNXPqZdT` | 2026-03-23 | deaktiviert (ersetzt durch M6_01a-e Staffellauf) |
 | ~~M6_02a_Lexware_Push_Prepare~~ | `B4IOCwfxNg` | 2026-02-18 | deaktiviert |
 | ~~M6_02b_Lexware_Contact_Sync~~ | `ilYyrjOQoG` | 2026-02-18 | deaktiviert |
 | ~~M6_02c_Lexware_Push_Voucher~~ | `6C8MshufHT` | 2026-02-19 | deaktiviert |
 | **M6_03_Lexware_Pull_Sales** | `AjRF0GnZVaLeckOu` | 2026-02-27 | aktiv |
-| **M6_04a_Lexware_Webhook_Router** | `RbUQUOpAzYQ4Lsae` | 2026-02-27 | aktiv |
-| **M6_04b_Lexware_Payment_Handler** | `ORyFbRUD5EpA6uh0` | 2026-02-27 | aktiv |
-| **M6_04c_Lexware_Invoice_Sync** | `HK788ajphACicmwL` | 2026-02-27 | aktiv |
-| **M6_04d_Lexware_Voucher_Status** | `pkJmfUhp9VcOHwb8` | 2026-02-27 | aktiv |
+| ~~M6_04a_Lexware_Webhook_Router~~ | `RbUQUOpAzYQ4Lsae` | 2026-02-27 | **deaktiviert 2026-03-23** (Pull-Modell: M6_03 + M6_10) |
+| ~~M6_04b_Lexware_Payment_Handler~~ | `ORyFbRUD5EpA6uh0` | 2026-02-27 | **deaktiviert 2026-03-23** (ersetzt: M6_10 Reconciliation) |
+| ~~M6_04c_Lexware_Invoice_Sync~~ | `HK788ajphACicmwL` | 2026-02-27 | **deaktiviert 2026-03-23** (ersetzt: M6_03 Pull Sales) |
+| ~~M6_04d_Lexware_Voucher_Status~~ | `pkJmfUhp9VcOHwb8` | 2026-02-27 | deaktiviert (Lexware Webhooks nie konfiguriert) |
 | **M6_10_Lexware_Reconciliation** | `D7IYZ6HXEo4lFO03` | 2026-03-20 | aktiv |
 
 #### M6_01 Staffellauf-Refactoring (2026-03-23):
@@ -118,7 +128,7 @@ Alter 41-Node-Monolith aufgespalten in 5 Flows nach Staffellauf-Prinzip:
 - **M6_01b** Match & Create (11 Nodes): Supplier Match → Project Match → DB Insert → Positionen → `PURCHASE_INVOICE_CREATED` Event
 - **M6_01c** Lexware Forward (8 Nodes): PDF Download → Email an `bauloewen@inbox.lexware.email` (mit storage_path Guard)
 - **M6_01d** Notify (4 Nodes): Telegram-Benachrichtigung
-- **M6_01e** Folder Route (6 Nodes): PDF in Drive-Ordner via MX_02
+- ~~M6_01e Folder Route~~ (deaktiviert 2026-03-23, ersetzt durch MX_08)
 
 #### M6_10 Reconciliation (NEU 2026-03-20):
 - Cron taeglich 06:00 — Lexware API Pull → DB Abgleich → Status-Sync
@@ -133,7 +143,7 @@ Alter 41-Node-Monolith aufgespalten in 5 Flows nach Staffellauf-Prinzip:
 | **MX_00_Event_Router v2** | `eNHx0TACVcF6MIdAYIKSl` | 2026-03-08 |
 | **MX_01_Agent_Dispatcher** | `aEI4OkO36SyQFZlS` | 2026-03-14 |
 | **MX_01_Error_Handler_v2** | `zAFieMcnwATMcHhY` | 2026-02-27 |
-| **MX_02_Folder_Manager** | `ZcAhUCdouxnfP4HB` | 2026-01-03 |
+| ~~MX_02_Folder_Manager~~ | `ZcAhUCdouxnfP4HB` | 2026-01-03 | **deaktiviert 2026-03-23** (Drive tot, ersetzt: project_folders DB) |
 | **MX_03_V2_Superchat_Intake** | `9eBOez2Q0vBNuQov` | 2026-03-04 |
 | **MX_04_Dispatch_Doctor** | `wT9ubypWwaOmZhkYSKpm1` | 2026-03-20 |
 | **MX_05_Attachment_Processor** | `qAiKaCpDUF3yQUvcZA2rd` | 2026-01-28 |
@@ -155,15 +165,21 @@ Alter 41-Node-Monolith aufgespalten in 5 Flows nach Staffellauf-Prinzip:
 
 | Event | Ziel-Flow | Aktiv |
 |-------|-----------|-------|
-| `DOC_CLASSIFIED_PROJECT_ORDER` | MX_05 Attachment Processor | Ja |
-| `DOC_CLASSIFIED_INVOICE_IN` | M6_01 Invoice Processor | Ja |
+| `DOC_CLASSIFIED_PROJECT_ORDER` | MX_05 Attachment Processor + M1_02 PDF Parser | Ja |
+| `DOC_CLASSIFIED_INVOICE_IN` | M6_01a Extract Invoice | Ja |
+| `DOC_CLASSIFIED_CREDIT_NOTE` | M6_01a Extract Invoice | Ja |
+| `INVOICE_EXTRACTED` | M6_01b Match Create | Ja |
+| `PURCHASE_INVOICE_CREATED` | M6_01c Lexware + M6_01d Notify | Ja |
+| `PURCHASE_INVOICE_CREATED` | ~~M6_01e Folder Route~~ | **Nein** (deaktiviert 2026-03-23) |
 | `PROJECT_FILES_READY` | M1_02 PDF Parser | Ja |
-| `PROJECT_CREATED` | M1_04a Prepare Drive + M1_03 Positionen | Ja |
-| `DRIVE_YEAR_READY` | M1_04b Create Tree | Ja |
-| `DRIVE_TREE_CREATED` | M1_04c Sync Files | Ja |
-| `DRIVE_SETUP_COMPLETE` | M1_05 Notification | Ja |
+| `PROJECT_CREATED` | ~~M1_04a Prepare Drive~~ | **Nein** (deaktiviert, DB-Trigger uebernimmt) |
+| `PROJECT_CREATED` | M1_05 Notification | Ja (Events feuern aber nicht) |
+| ~~`DRIVE_YEAR_READY`~~ | ~~M1_04b Create Tree~~ | **Nein** (deaktiviert 2026-03-23) |
+| ~~`DRIVE_TREE_CREATED`~~ | ~~M1_04c Sync Files~~ | **Nein** (deaktiviert 2026-03-23) |
+| ~~`DRIVE_SETUP_COMPLETE`~~ | ~~M1_05 Notification~~ | **Nein** (deaktiviert 2026-03-23) |
+| ~~`LEXWARE_*_CHANGED`~~ | ~~M6_04a/b/c/d~~ | **Nein** (deaktiviert, Pull-Modell aktiv) |
 | `POSITIONS_EXTRACTED` | M4_01 Material Planner | Ja |
-| `PURCHASE_INVOICE_CREATED` | ~~M6_02a Lexware Push~~ | Nein (ersetzt durch Email-Forward in M6_01) |
+| `MATERIALS_CALCULATED` | M4_06 Order Agent | **Nein** (deaktiviert, Event kommt nie) |
 | `RECONCILIATION_COMPLETED` | (Event-Log only) | Ja |
 | `MONTEUR_AUFTRAG_CREATED` | M2_01 Monteur PDF | Ja |
 
@@ -209,16 +225,29 @@ dispatch_errors (
 
 ## MODUL-ZUSAMMENFASSUNG
 
-| Modul | Aktiv | Inaktiv | JSON in Git |
-|-------|-------|---------|-------------|
-| M1: Intake | 6 | 3 | 6 ✅ |
-| M2: Baustelle | 7 | 1 | 7 ✅ |
-| M4: Material | 10 | 2 | 10 ✅ |
-| M5: Freigabe | 1 | 0 | 1 ✅ |
-| M6: Finance | 7 | 12 | 7 ✅ (+6 in `_archive/`) |
-| MX: Infrastructure | 10 | 4 | 10 ✅ |
-| Sonstige | 3 | 55 | 3 ✅ |
-| **Gesamt** | **44** | **77** | **44 ✅** |
+| Modul | Aktiv | Deaktiviert (23.03.) | Grund |
+|-------|:-----:|:--------------------:|-------|
+| M1: Intake | 3 | 3 | Drive-Flows → DB-Trigger |
+| M2: Baustelle | 4 | 3 | Scaffolding + Duplikat |
+| M4: Material | 5 | 5 | Unfertige Event-Kette |
+| M5: Freigabe | 1 | 0 | - |
+| M6: Finance | 6 | 5 | M6_01e (Drive) + M6_04 (Webhooks nie aktiv) |
+| MX: Infrastructure | 9 | 1 | MX_02 (Drive) |
+| **Gesamt** | **28** | **16** | |
+
+### DB vs n8n — Was braucht noch Flows?
+
+| Feature | DB-Funktionen vorhanden | n8n noetig? |
+|---------|:-----------------------:|:-----------:|
+| Materialberechnung | `auto_plan_materials()` | Nein |
+| Material-Approval | `fn_approve_material_order()` | Nein |
+| Monteur-Planung | `auto_plan_project()` (V2, 3-Tier Matching) | Nein |
+| Zeitplanung-Approval | `fn_approve_schedule()` + `confirm_proposed_phases()` | Nein |
+| Lernender Planer | `fn_learn_schedule()` Trigger | Nein |
+| Bestellungen an Lieferanten | - | **Ja** (Email-Versand) |
+| Lieferbestaetigungen | - | **Ja** (Webhook von Lieferant) |
+| Monteur-Benachrichtigung | - | **Ja** (SMS/Push) |
+| PDF-Extraktion (Rechnungen) | - | **Ja** (Claude/Gemini Vision) |
 
 ---
 
@@ -258,4 +287,4 @@ for wf in data.get('data', []):
 
 ---
 
-*Zuletzt aktualisiert: 2026-03-21 (Issue #21)*
+*Zuletzt aktualisiert: 2026-03-23 (Forensische Bereinigung, Issue #48)*
