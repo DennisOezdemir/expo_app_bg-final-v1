@@ -6,7 +6,7 @@
 import { handleCors, corsHeaders } from "../_shared/cors.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { errorResponse } from "../_shared/response.ts";
-import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.39.0";
+import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.52.0";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -27,8 +27,8 @@ interface LLMResponse {
 
 // ── Configuration ──────────────────────────────────────────────────
 
-const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6-20250514";
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-2.0-flash";
+const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6";
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash";
 const GEMINI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY") || "";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
