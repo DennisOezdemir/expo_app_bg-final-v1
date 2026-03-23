@@ -16,6 +16,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useState, useCallback, useMemo, useEffect } from "react";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withRepeat,
+  withSequence,
+} from "react-native-reanimated";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import * as Haptics from "expo-haptics";
@@ -259,8 +266,7 @@ export default function BegehungScreen() {
   return <ErstbegehungView type={type || "erstbegehung"} projectId={projectId} protocolId={protocolId} offerId={offerId} />;
 }
 
-/* ─── MaterialSearchPanel ───────────────────── */
-/* Aufklappbares Materialfeld unter jeder Position in der EB */
+/* ─── Material Types ───────────────────────── */
 
 interface MaterialAssignment {
   productId: string;
@@ -269,348 +275,147 @@ interface MaterialAssignment {
   supplier: string;
 }
 
-function MaterialSearchPanel({
-  positionId,
-  positionNr,
-  trade,
-  projectId,
-  offerId,
-  onAssigned,
-  assignedProduct,
-}: {
-  positionId: string;
-  positionNr: string;
-  trade: string;
-  projectId: string;
-  offerId: string | null;
-  onAssigned: (posId: string, product: MaterialAssignment) => void;
-  assignedProduct?: MaterialAssignment | null;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [searchText, setSearchText] = useState("");
-  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
-  const [duplicateInfo, setDuplicateInfo] = useState<{ count: number; positionIds: string[] }>({ count: 0, positionIds: [] });
-  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
-  const [assigning, setAssigning] = useState(false);
+/* ─── PulsingBadge ─────────────────────────── */
+/* Pulsierendes Badge für "Material zuordnen" */
 
-  const { data: products = [], isLoading } = useProductSearch(
-    expanded ? (searchText || undefined) : undefined,
-    expanded ? trade : undefined,
-  );
+function PulsingMaterialBadge({ onPress, assigned }: { onPress: () => void; assigned?: MaterialAssignment | null }) {
+  const pulseAnim = useSharedValue(0.15);
 
-  const handleSelectProduct = useCallback(async (product: Product) => {
-    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    // Prüfe ob dieselbe Position mehrfach im Angebot vorkommt
-    if (offerId && positionNr) {
-      try {
-        const dupes = await findDuplicatePositions(offerId, positionNr);
-        if (dupes.count > 1) {
-          setDuplicateInfo(dupes);
-          setPendingProduct(product);
-          setShowDuplicateDialog(true);
-          return;
-        }
-      } catch {
-        // Bei Fehler einfach nur diese Position zuweisen
-      }
+  useEffect(() => {
+    if (!assigned) {
+      pulseAnim.value = withRepeat(
+        withSequence(
+          withTiming(0.35, { duration: 1200 }),
+          withTiming(0.15, { duration: 1200 }),
+        ),
+        -1,
+        false,
+      );
     }
+  }, [assigned]);
 
-    // Nur diese eine Position
-    await doAssign(product, [positionId]);
-  }, [offerId, positionNr, positionId, projectId, trade]);
+  const pulseStyle = useAnimatedStyle(() => ({
+    backgroundColor: assigned
+      ? Colors.raw.emerald500 + "20"
+      : `rgba(245, 158, 11, ${pulseAnim.value})`,
+  }));
 
-  const doAssign = useCallback(async (product: Product, posIds: string[]) => {
-    setAssigning(true);
-    try {
-      await assignProductToPositions(projectId, product.id, posIds, product.name, trade);
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onAssigned(positionId, {
-        productId: product.id,
-        productName: product.name,
-        price: product.price,
-        supplier: product.supplier,
-      });
-      // Auch für die anderen Positionen merken
-      for (const pId of posIds) {
-        if (pId !== positionId) {
-          onAssigned(pId, {
-            productId: product.id,
-            productName: product.name,
-            price: product.price,
-            supplier: product.supplier,
-          });
-        }
-      }
-      setExpanded(false);
-      setSearchText("");
-      setShowDuplicateDialog(false);
-    } catch (err: any) {
-      Alert.alert("Fehler", err.message || "Zuordnung fehlgeschlagen");
-    } finally {
-      setAssigning(false);
-    }
-  }, [projectId, trade, positionId, onAssigned]);
-
-  const handleDuplicateChoice = useCallback((applyToAll: boolean) => {
-    if (!pendingProduct) return;
-    if (applyToAll) {
-      doAssign(pendingProduct, duplicateInfo.positionIds);
-    } else {
-      doAssign(pendingProduct, [positionId]);
-    }
-  }, [pendingProduct, duplicateInfo, positionId, doAssign]);
-
-  // Bereits zugeordnet → kompakte Anzeige
-  if (assignedProduct) {
+  if (assigned) {
     return (
-      <View style={ms.assignedRow}>
-        <Ionicons name="cube" size={14} color={Colors.raw.emerald500} />
-        <Text style={ms.assignedText} numberOfLines={1}>
-          {assignedProduct.productName}
-        </Text>
-        <Text style={ms.assignedPrice}>{"\u20AC"}{assignedProduct.price}</Text>
-        <Pressable onPress={() => { setExpanded(true); }} style={{ padding: 4 }}>
-          <Ionicons name="swap-horizontal" size={14} color={Colors.raw.zinc500} />
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (!expanded) {
-    return (
-      <Pressable
-        onPress={() => setExpanded(true)}
-        style={({ pressed }) => [ms.expandBtn, { opacity: pressed ? 0.7 : 1 }]}
-      >
-        <Ionicons name="cube-outline" size={14} color={Colors.raw.amber500} />
-        <Text style={ms.expandText}>Material zuordnen</Text>
+      <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+        <View style={ms.badgeAssigned}>
+          <Ionicons name="cube" size={14} color={Colors.raw.emerald500} />
+          <Text style={ms.badgeAssignedText} numberOfLines={1}>{assigned.productName}</Text>
+          <Text style={ms.badgeAssignedPrice}>{"\u20AC"}{assigned.price}</Text>
+          <Ionicons name="swap-horizontal" size={12} color={Colors.raw.zinc500} />
+        </View>
       </Pressable>
     );
   }
 
   return (
-    <View style={ms.container}>
-      {/* Suchfeld */}
-      <View style={ms.searchRow}>
-        <Ionicons name="search" size={16} color={Colors.raw.zinc500} />
-        <TextInput
-          style={ms.searchInput}
-          placeholder="Material suchen..."
-          placeholderTextColor={Colors.raw.zinc600}
-          value={searchText}
-          onChangeText={setSearchText}
-          autoCapitalize="none"
-          autoFocus
-        />
-        {searchText.length > 0 && (
-          <Pressable onPress={() => setSearchText("")}>
-            <Ionicons name="close-circle" size={16} color={Colors.raw.zinc500} />
-          </Pressable>
-        )}
-        <Pressable onPress={() => { setExpanded(false); setSearchText(""); }} style={{ marginLeft: 4 }}>
-          <Ionicons name="chevron-up" size={16} color={Colors.raw.zinc500} />
-        </Pressable>
-      </View>
-
-      {/* Trade-Hinweis */}
-      {!searchText && (
-        <Text style={ms.tradeHint}>
-          Vorschl{"\u00E4"}ge ({trade} vorgefiltert)
-        </Text>
-      )}
-
-      {/* Loading */}
-      {isLoading && (
-        <View style={ms.loadingRow}>
-          <ActivityIndicator size="small" color={Colors.raw.amber500} />
-        </View>
-      )}
-
-      {/* Produktliste */}
-      {!isLoading && products.length === 0 && (
-        <Text style={ms.emptyText}>Keine Produkte gefunden</Text>
-      )}
-      {!isLoading && products.slice(0, 5).map((product) => (
-        <Pressable
-          key={product.id}
-          onPress={() => handleSelectProduct(product)}
-          style={({ pressed }) => [ms.productRow, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <View style={ms.productInfo}>
-            {product.favorite && <Ionicons name="star" size={12} color={Colors.raw.amber500} />}
-            <Text style={ms.productName} numberOfLines={1}>{product.name}</Text>
-          </View>
-          <Text style={ms.productPrice}>{"\u20AC"}{product.price}</Text>
-          <View style={ms.selectChip}>
-            <Text style={ms.selectChipText}>W{"\u00C4"}HLEN</Text>
-          </View>
-        </Pressable>
-      ))}
-
-      {assigning && (
-        <View style={ms.loadingRow}>
-          <ActivityIndicator size="small" color={Colors.raw.amber500} />
-          <Text style={ms.assigningText}>Wird zugeordnet...</Text>
-        </View>
-      )}
-
-      {/* Duplikat-Dialog */}
-      <Modal visible={showDuplicateDialog} transparent animationType="fade" onRequestClose={() => setShowDuplicateDialog(false)}>
-        <View style={ms.dialogOverlay}>
-          <View style={ms.dialogCard}>
-            <Ionicons name="copy-outline" size={28} color={Colors.raw.amber500} style={{ alignSelf: "center", marginBottom: 12 }} />
-            <Text style={ms.dialogTitle}>Position kommt {duplicateInfo.count}x vor</Text>
-            <Text style={ms.dialogDesc}>
-              "{positionNr}" kommt {duplicateInfo.count}x in diesem Angebot vor.{"\n"}
-              {pendingProduct?.name} auch f{"\u00FC"}r die anderen {"\u00FC"}bernehmen?
-            </Text>
-            <Text style={ms.dialogHint}>
-              Gleiche Position kann unterschiedliches Material brauchen (z.B. UP vs. AP)
-            </Text>
-            <View style={ms.dialogBtns}>
-              <Pressable
-                onPress={() => handleDuplicateChoice(false)}
-                style={({ pressed }) => [ms.dialogBtn, ms.dialogBtnSecondary, { opacity: pressed ? 0.7 : 1 }]}
-              >
-                <Text style={ms.dialogBtnSecondaryText}>Nur diese</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => handleDuplicateChoice(true)}
-                style={({ pressed }) => [ms.dialogBtn, ms.dialogBtnPrimary, { opacity: pressed ? 0.7 : 1 }]}
-              >
-                <Text style={ms.dialogBtnPrimaryText}>Alle {duplicateInfo.count}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </View>
+    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
+      <Animated.View style={[ms.badgePulse, pulseStyle]}>
+        <Ionicons name="cube-outline" size={16} color={Colors.raw.amber500} />
+        <Text style={ms.badgePulseText}>Material zuordnen</Text>
+        <Ionicons name="chevron-forward" size={14} color={Colors.raw.amber500} />
+      </Animated.View>
+    </Pressable>
   );
 }
 
 const ms = StyleSheet.create({
-  expandBtn: {
+  badgePulse: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    marginTop: 4,
-    marginLeft: 52,
-  },
-  expandText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.raw.amber500 },
-  assignedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    marginTop: 4,
-    marginLeft: 52,
-    backgroundColor: Colors.raw.emerald500 + "10",
-    borderRadius: 8,
-  },
-  assignedText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.raw.emerald500, flex: 1 },
-  assignedPrice: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.zinc400 },
-  container: {
-    marginTop: 6,
-    marginLeft: 52,
-    backgroundColor: Colors.raw.zinc900,
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
-    padding: 10,
-  },
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: Colors.raw.zinc800,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    height: 38,
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.raw.white,
-    height: 38,
-  },
-  tradeHint: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: Colors.raw.zinc500,
+    borderWidth: 1.5,
+    borderColor: Colors.raw.amber500 + "50",
     marginTop: 6,
-    marginLeft: 4,
   },
-  loadingRow: {
+  badgePulseText: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.amber500, flex: 1 },
+  badgeAssigned: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-  },
-  assigningText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.raw.zinc400 },
-  emptyText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.raw.zinc600,
-    textAlign: "center",
-    paddingVertical: 12,
-  },
-  productRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    gap: 6,
     paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: Colors.raw.emerald500 + "15",
+    borderWidth: 1,
+    borderColor: Colors.raw.emerald500 + "30",
+    marginTop: 6,
+  },
+  badgeAssignedText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.emerald400, flex: 1 },
+  badgeAssignedPrice: { fontFamily: "Inter_700Bold", fontSize: 12, color: Colors.raw.emerald400 },
+  // Modal styles
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" },
+  modalSheet: {
+    backgroundColor: Colors.raw.zinc900,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "80%",
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc700,
+  },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.raw.zinc600, alignSelf: "center", marginTop: 10, marginBottom: 8 },
+  modalHeader: { paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.raw.zinc800 },
+  modalPosNr: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.amber500 },
+  modalPosTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.raw.white, marginTop: 4 },
+  modalPosMeta: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc400, marginTop: 4 },
+  modalSearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: Colors.raw.zinc800,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 48,
+    marginHorizontal: 20,
+    marginTop: 16,
+  },
+  modalSearchInput: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 15, color: Colors.raw.white, height: 48 },
+  modalTradeHint: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, marginLeft: 24, marginTop: 8, marginBottom: 4 },
+  modalProductRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: Colors.raw.zinc800,
   },
-  productInfo: { flex: 1, flexDirection: "row", alignItems: "center", gap: 4 },
-  productName: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.white, flex: 1 },
-  productPrice: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc300 },
-  selectChip: {
-    backgroundColor: Colors.raw.amber500 + "20",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  selectChipText: { fontFamily: "Inter_700Bold", fontSize: 10, color: Colors.raw.amber500, letterSpacing: 0.5 },
-  dialogOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
+  modalProductInfo: { flex: 1 },
+  modalProductName: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.white },
+  modalProductMeta: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, marginTop: 2 },
+  modalProductPrice: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.raw.white, marginRight: 10 },
+  modalSelectBtn: {
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minWidth: 80,
     alignItems: "center",
-    padding: 24,
   },
-  dialogCard: {
-    backgroundColor: Colors.raw.zinc900,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.raw.zinc700,
-    padding: 24,
-    maxWidth: 380,
-    width: "100%",
-  },
-  dialogTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.raw.white, textAlign: "center", marginBottom: 8 },
-  dialogDesc: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.raw.zinc300, textAlign: "center", lineHeight: 20 },
-  dialogHint: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.raw.zinc500,
-    textAlign: "center",
-    marginTop: 8,
-    fontStyle: "italic",
-  },
-  dialogBtns: { flexDirection: "row", gap: 10, marginTop: 20 },
-  dialogBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center" },
-  dialogBtnSecondary: { backgroundColor: Colors.raw.zinc800 },
-  dialogBtnSecondaryText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc300 },
-  dialogBtnPrimary: { backgroundColor: Colors.raw.amber500 },
-  dialogBtnPrimaryText: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.zinc950 },
+  modalSelectText: { fontFamily: "Inter_700Bold", fontSize: 12, color: Colors.raw.zinc950 },
+  modalEmpty: { alignItems: "center", paddingVertical: 32, gap: 8 },
+  modalEmptyText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc600 },
+  modalLoading: { alignItems: "center", paddingVertical: 32 },
+  // Duplikat dialog
+  dupeOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 24 },
+  dupeCard: { backgroundColor: Colors.raw.zinc900, borderRadius: 16, borderWidth: 1, borderColor: Colors.raw.zinc700, padding: 24, maxWidth: 380, width: "100%" },
+  dupeTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.raw.white, textAlign: "center", marginBottom: 8 },
+  dupeDesc: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.raw.zinc300, textAlign: "center", lineHeight: 20 },
+  dupeHint: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc500, textAlign: "center", marginTop: 8, fontStyle: "italic" },
+  dupeBtns: { flexDirection: "row", gap: 10, marginTop: 20 },
+  dupeBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center" },
+  dupeBtnSecondary: { backgroundColor: Colors.raw.zinc800 },
+  dupeBtnSecondaryText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.raw.zinc300 },
+  dupeBtnPrimary: { backgroundColor: Colors.raw.amber500 },
+  dupeBtnPrimaryText: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.zinc950 },
 });
 
 function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: string; projectId: string; protocolId?: string; offerId?: string }) {
@@ -656,10 +461,94 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
   const [plannedStart, setPlannedStart] = useState("");
   const [plannedEnd, setPlannedEnd] = useState("");
   const [materialAssignments, setMaterialAssignments] = useState<Record<string, MaterialAssignment>>({});
+  const [materialModalPos, setMaterialModalPos] = useState<BegehungPosition | null>(null);
+  const [materialSearch, setMaterialSearch] = useState("");
+  const [materialProducts, setMaterialProducts] = useState<Product[]>([]);
+  const [materialLoading, setMaterialLoading] = useState(false);
+  const [materialAssigning, setMaterialAssigning] = useState(false);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [duplicateInfo, setDuplicateInfo] = useState<{ count: number; positionIds: string[] }>({ count: 0, positionIds: [] });
+  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
 
   const handleMaterialAssigned = useCallback((posId: string, product: MaterialAssignment) => {
     setMaterialAssignments((prev) => ({ ...prev, [posId]: product }));
   }, []);
+
+  const openMaterialModal = useCallback((pos: BegehungPosition) => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setMaterialModalPos(pos);
+    setMaterialSearch("");
+    setMaterialLoading(true);
+    // Initial load: trade-filtered products
+    searchProducts(undefined, pos.trade).then((prods) => {
+      setMaterialProducts(prods);
+      setMaterialLoading(false);
+    }).catch(() => setMaterialLoading(false));
+  }, []);
+
+  const closeMaterialModal = useCallback(() => {
+    setMaterialModalPos(null);
+    setMaterialSearch("");
+    setMaterialProducts([]);
+    setShowDuplicateDialog(false);
+  }, []);
+
+  // Debounced search when user types
+  useEffect(() => {
+    if (!materialModalPos) return;
+    const timer = setTimeout(() => {
+      setMaterialLoading(true);
+      searchProducts(materialSearch || undefined, materialSearch ? undefined : materialModalPos.trade)
+        .then((prods) => { setMaterialProducts(prods); setMaterialLoading(false); })
+        .catch(() => setMaterialLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [materialSearch, materialModalPos]);
+
+  const handleSelectMaterialProduct = useCallback(async (product: Product) => {
+    if (!materialModalPos) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Check duplicates
+    if (resolvedOfferId && materialModalPos.nr) {
+      try {
+        const dupes = await findDuplicatePositions(resolvedOfferId, materialModalPos.nr);
+        if (dupes.count > 1) {
+          setDuplicateInfo(dupes);
+          setPendingProduct(product);
+          setShowDuplicateDialog(true);
+          return;
+        }
+      } catch { /* ignore */ }
+    }
+    await doMaterialAssign(product, [materialModalPos.id]);
+  }, [materialModalPos, resolvedOfferId]);
+
+  const doMaterialAssign = useCallback(async (product: Product, posIds: string[]) => {
+    if (!materialModalPos) return;
+    setMaterialAssigning(true);
+    try {
+      await assignProductToPositions(projectId, product.id, posIds, product.name, materialModalPos.trade);
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      for (const pId of posIds) {
+        handleMaterialAssigned(pId, { productId: product.id, productName: product.name, price: product.price, supplier: product.supplier });
+      }
+      closeMaterialModal();
+    } catch (err: any) {
+      Alert.alert("Fehler", err.message || "Zuordnung fehlgeschlagen");
+    } finally {
+      setMaterialAssigning(false);
+    }
+  }, [materialModalPos, projectId, handleMaterialAssigned, closeMaterialModal]);
+
+  const handleDuplicateChoice = useCallback((applyToAll: boolean) => {
+    if (!pendingProduct || !materialModalPos) return;
+    if (applyToAll) {
+      doMaterialAssign(pendingProduct, duplicateInfo.positionIds);
+    } else {
+      doMaterialAssign(pendingProduct, [materialModalPos.id]);
+    }
+  }, [pendingProduct, duplicateInfo, materialModalPos, doMaterialAssign]);
   const [showDateModal, setShowDateModal] = useState(false);
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
@@ -1001,42 +890,52 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                 <View style={s.roomBody}>
                   {room.positions.map((pos) => {
                     const ps = getPosState(pos.id);
+                    const hasMaterial = !!materialAssignments[pos.id];
+                    const isConfirmed = ps.status === "confirmed";
+                    const isRejected = ps.status === "rejected";
+                    // Farb-Status: grün = bestätigt + Material, orange = bestätigt ohne Material, default = keine Aktion
+                    const posRowBg = isConfirmed && hasMaterial
+                      ? Colors.raw.emerald500 + "12"
+                      : isConfirmed
+                        ? Colors.raw.amber500 + "12"
+                        : isRejected
+                          ? Colors.raw.rose500 + "08"
+                          : "transparent";
+                    const posBorderColor = isConfirmed && hasMaterial
+                      ? Colors.raw.emerald500 + "30"
+                      : isConfirmed
+                        ? Colors.raw.amber500 + "30"
+                        : Colors.raw.zinc800 + "60";
+
                     return (
-                      <View key={pos.id} testID={`pos-${pos.id}`}>
-                        <View style={s.posRow}>
-                          <View style={s.posActions}>
-                            <Pressable onPress={() => togglePosStatus(pos.id, "confirmed")} style={({ pressed }) => [s.posActionBtn, ps.status === "confirmed" && s.posActionConfirmed, { opacity: pressed ? 0.7 : 1 }]} testID={`confirm-${pos.id}`}>
-                              <Ionicons name="checkmark" size={18} color={ps.status === "confirmed" ? Colors.raw.white : Colors.raw.zinc600} />
-                            </Pressable>
-                            <Pressable onPress={() => togglePosStatus(pos.id, "rejected")} style={({ pressed }) => [s.posActionBtn, ps.status === "rejected" && s.posActionRejected, { opacity: pressed ? 0.7 : 1 }]} testID={`reject-${pos.id}`}>
-                              <Ionicons name="close" size={18} color={ps.status === "rejected" ? Colors.raw.white : Colors.raw.zinc600} />
-                            </Pressable>
-                          </View>
-                          <View style={s.posBody}>
-                            <View style={s.posTitleRow}><Text style={s.posNr}>{pos.nr}</Text><Text style={[s.posTitle, ps.status === "rejected" && s.posTitleRejected]} numberOfLines={1}>{pos.title}</Text></View>
-                            <Text style={s.posDesc} numberOfLines={2}>{pos.desc}</Text>
-                            <View style={s.posMetaRow}>
-                              <Text style={s.posMeta}>{pos.qty} {pos.unit}</Text><View style={s.posDot} /><Text style={s.posMeta}>{formatEuro(pos.price)}/{pos.unit}</Text><View style={s.posDot} />
-                              <View style={s.posTradeBadge}><Text style={s.posTradeText}>{pos.trade}</Text></View>
-                            </View>
-                          </View>
-                          <Pressable onPress={() => addPhoto(pos.id, room.id, room.name, pos.title)} style={({ pressed }) => [s.posPhotoBtn, { opacity: pressed ? 0.7 : 1 }]} testID={`photo-${pos.id}`}>
-                            <Ionicons name="camera" size={18} color={Colors.raw.zinc500} />
-                            {ps.photoCount > 0 && <View style={s.photoBadge}><Text style={s.photoBadgeText}>{ps.photoCount}</Text></View>}
+                      <View key={pos.id} testID={`pos-${pos.id}`} style={[s.posRow, { backgroundColor: posRowBg, borderBottomColor: posBorderColor }]}>
+                        <View style={s.posActions}>
+                          <Pressable onPress={() => togglePosStatus(pos.id, "confirmed")} style={({ pressed }) => [s.posActionBtn, isConfirmed && s.posActionConfirmed, { opacity: pressed ? 0.7 : 1 }]} testID={`confirm-${pos.id}`}>
+                            <Ionicons name="checkmark" size={18} color={isConfirmed ? Colors.raw.white : Colors.raw.zinc600} />
+                          </Pressable>
+                          <Pressable onPress={() => togglePosStatus(pos.id, "rejected")} style={({ pressed }) => [s.posActionBtn, isRejected && s.posActionRejected, { opacity: pressed ? 0.7 : 1 }]} testID={`reject-${pos.id}`}>
+                            <Ionicons name="close" size={18} color={isRejected ? Colors.raw.white : Colors.raw.zinc600} />
                           </Pressable>
                         </View>
-                        {/* Material-Zuordnung unter jeder Position */}
-                        {!finalized && (
-                          <MaterialSearchPanel
-                            positionId={pos.id}
-                            positionNr={pos.nr}
-                            trade={pos.trade}
-                            projectId={projectId}
-                            offerId={resolvedOfferId}
-                            onAssigned={handleMaterialAssigned}
-                            assignedProduct={materialAssignments[pos.id] || null}
-                          />
-                        )}
+                        <View style={s.posBody}>
+                          <View style={s.posTitleRow}><Text style={s.posNr}>{pos.nr}</Text><Text style={[s.posTitle, isRejected && s.posTitleRejected]} numberOfLines={1}>{pos.title}</Text></View>
+                          <Text style={s.posDesc} numberOfLines={2}>{pos.desc}</Text>
+                          <View style={s.posMetaRow}>
+                            <Text style={s.posMeta}>{pos.qty} {pos.unit}</Text><View style={s.posDot} /><Text style={s.posMeta}>{formatEuro(pos.price)}/{pos.unit}</Text><View style={s.posDot} />
+                            <View style={s.posTradeBadge}><Text style={s.posTradeText}>{pos.trade}</Text></View>
+                          </View>
+                          {/* Material Badge */}
+                          {!finalized && (
+                            <PulsingMaterialBadge
+                              onPress={() => openMaterialModal(pos)}
+                              assigned={materialAssignments[pos.id] || null}
+                            />
+                          )}
+                        </View>
+                        <Pressable onPress={() => addPhoto(pos.id, room.id, room.name, pos.title)} style={({ pressed }) => [s.posPhotoBtn, { opacity: pressed ? 0.7 : 1 }]} testID={`photo-${pos.id}`}>
+                          <Ionicons name="camera" size={18} color={Colors.raw.zinc500} />
+                          {ps.photoCount > 0 && <View style={s.photoBadge}><Text style={s.photoBadgeText}>{ps.photoCount}</Text></View>}
+                        </Pressable>
                       </View>
                     );
                   })}
@@ -1144,6 +1043,131 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                 testID="confirm-finalize"
               >
                 {finalizing ? <ActivityIndicator size="small" color={Colors.raw.zinc950} /> : <Text style={[s.confirmSubmitText, (!editStart || !editEnd) && { color: Colors.raw.zinc500 }]}>Festschreiben</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── Material-Zuordnung Modal ─── */}
+      <Modal visible={!!materialModalPos} transparent animationType="slide" onRequestClose={closeMaterialModal}>
+        <View style={ms.modalOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={closeMaterialModal} />
+          <View style={ms.modalSheet}>
+            <View style={ms.modalHandle} />
+
+            {materialModalPos && (
+              <>
+                {/* Position-Info */}
+                <View style={ms.modalHeader}>
+                  <Text style={ms.modalPosNr}>Position {materialModalPos.nr}</Text>
+                  <Text style={ms.modalPosTitle}>{materialModalPos.title}</Text>
+                  <Text style={ms.modalPosMeta}>
+                    {materialModalPos.qty} {materialModalPos.unit} {"\u00B7"} {formatEuro(materialModalPos.price)}/{materialModalPos.unit} {"\u00B7"} {materialModalPos.trade}
+                  </Text>
+                </View>
+
+                {/* Suchfeld */}
+                <View style={ms.modalSearchRow}>
+                  <Ionicons name="search" size={18} color={Colors.raw.zinc500} />
+                  <TextInput
+                    style={ms.modalSearchInput}
+                    placeholder="Material suchen..."
+                    placeholderTextColor={Colors.raw.zinc600}
+                    value={materialSearch}
+                    onChangeText={setMaterialSearch}
+                    autoCapitalize="none"
+                    autoFocus
+                  />
+                  {materialSearch.length > 0 && (
+                    <Pressable onPress={() => setMaterialSearch("")}>
+                      <Ionicons name="close-circle" size={18} color={Colors.raw.zinc500} />
+                    </Pressable>
+                  )}
+                </View>
+
+                {!materialSearch && (
+                  <Text style={ms.modalTradeHint}>
+                    Vorschl{"\u00E4"}ge f{"\u00FC"}r {materialModalPos.trade}
+                  </Text>
+                )}
+
+                {/* Produktliste */}
+                <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  {materialLoading ? (
+                    <View style={ms.modalLoading}>
+                      <ActivityIndicator size="large" color={Colors.raw.amber500} />
+                    </View>
+                  ) : materialProducts.length === 0 ? (
+                    <View style={ms.modalEmpty}>
+                      <Ionicons name="search-outline" size={32} color={Colors.raw.zinc700} />
+                      <Text style={ms.modalEmptyText}>Keine Produkte gefunden</Text>
+                    </View>
+                  ) : (
+                    materialProducts.map((product) => (
+                      <Pressable
+                        key={product.id}
+                        onPress={() => handleSelectMaterialProduct(product)}
+                        style={({ pressed }) => [ms.modalProductRow, { opacity: pressed ? 0.85 : 1 }]}
+                        disabled={materialAssigning}
+                      >
+                        <View style={ms.modalProductInfo}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            {product.favorite && <Ionicons name="star" size={14} color={Colors.raw.amber500} />}
+                            <Text style={ms.modalProductName} numberOfLines={1}>{product.name}</Text>
+                          </View>
+                          <Text style={ms.modalProductMeta}>
+                            {product.supplier} {"\u00B7"} {product.useCount}x verwendet
+                          </Text>
+                        </View>
+                        <Text style={ms.modalProductPrice}>{"\u20AC"}{product.price}</Text>
+                        <View style={ms.modalSelectBtn}>
+                          <Text style={ms.modalSelectText}>W{"\u00C4"}HLEN</Text>
+                        </View>
+                      </Pressable>
+                    ))
+                  )}
+
+                  {materialAssigning && (
+                    <View style={ms.modalLoading}>
+                      <ActivityIndicator size="small" color={Colors.raw.amber500} />
+                      <Text style={{ fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.raw.zinc400, marginTop: 8 }}>Wird zugeordnet...</Text>
+                    </View>
+                  )}
+
+                  <View style={{ height: 40 }} />
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Duplikat-Dialog */}
+      <Modal visible={showDuplicateDialog} transparent animationType="fade" onRequestClose={() => setShowDuplicateDialog(false)}>
+        <View style={ms.dupeOverlay}>
+          <View style={ms.dupeCard}>
+            <Ionicons name="copy-outline" size={28} color={Colors.raw.amber500} style={{ alignSelf: "center", marginBottom: 12 }} />
+            <Text style={ms.dupeTitle}>Position kommt {duplicateInfo.count}x vor</Text>
+            <Text style={ms.dupeDesc}>
+              {materialModalPos?.nr ? `"${materialModalPos.nr}"` : "Diese Position"} kommt {duplicateInfo.count}x in diesem Angebot vor.{"\n"}
+              {pendingProduct?.name} auch f{"\u00FC"}r die anderen {"\u00FC"}bernehmen?
+            </Text>
+            <Text style={ms.dupeHint}>
+              Gleiche Position kann unterschiedliches Material brauchen (z.B. UP vs. AP)
+            </Text>
+            <View style={ms.dupeBtns}>
+              <Pressable
+                onPress={() => handleDuplicateChoice(false)}
+                style={({ pressed }) => [ms.dupeBtn, ms.dupeBtnSecondary, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={ms.dupeBtnSecondaryText}>Nur diese</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleDuplicateChoice(true)}
+                style={({ pressed }) => [ms.dupeBtn, ms.dupeBtnPrimary, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={ms.dupeBtnPrimaryText}>Alle {duplicateInfo.count}</Text>
               </Pressable>
             </View>
           </View>
