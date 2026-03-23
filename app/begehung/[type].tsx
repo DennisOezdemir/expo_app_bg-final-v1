@@ -1026,7 +1026,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                           </Pressable>
                         </View>
                         {/* Material-Zuordnung unter jeder Position */}
-                        {!finalized && ps.status === "confirmed" && (
+                        {!finalized && (
                           <MaterialSearchPanel
                             positionId={pos.id}
                             positionNr={pos.nr}
