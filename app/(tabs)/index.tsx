@@ -134,7 +134,7 @@ function ChatWidget() {
           messages.slice(-4).map((msg, i) => (
             <View key={i} style={[chatStyles.bubble, msg.role === "user" ? chatStyles.bubbleUser : chatStyles.bubbleAssistant]}>
               {msg.role === "assistant" && <Ionicons name="sparkles" size={12} color={Colors.raw.amber500} style={{ marginRight: 6 }} />}
-              <Text style={[chatStyles.bubbleText, msg.role === "user" && chatStyles.bubbleTextUser]} numberOfLines={4}>{msg.text}</Text>
+              <Text style={[chatStyles.bubbleText, msg.role === "user" && chatStyles.bubbleTextUser]}>{msg.text}</Text>
             </View>
           ))
         )}
@@ -202,7 +202,7 @@ const chatStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     minHeight: 100,
-    maxHeight: 220,
+    maxHeight: 400,
     gap: 8,
   },
   emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 24, gap: 8 },

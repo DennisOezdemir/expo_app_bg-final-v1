@@ -279,7 +279,7 @@ async function callClaude(
   for (let i = 0; i < 5; i++) {
     const response = await anthropic.messages.create({
       model: CLAUDE_MODEL,
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: systemPrompt,
       tools: CLAUDE_TOOLS,
       messages: anthropicMessages,
