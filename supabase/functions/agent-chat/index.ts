@@ -27,8 +27,8 @@ interface LLMResponse {
 
 // ── Configuration ──────────────────────────────────────────────────
 
-const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || "claude-3-5-sonnet-20241022";
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-3.1-flash-preview";
+const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6-20250514";
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-2.0-flash";
 const GEMINI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY") || "";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
