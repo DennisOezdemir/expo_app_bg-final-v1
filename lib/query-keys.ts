@@ -124,4 +124,6 @@ export const queryKeys = {
     detail: (id: string) => ["team", "detail", id] as const,
     stats: () => ["team", "stats"] as const,
   },
+  productSearch: (searchText?: string, trade?: string) =>
+    ["productSearch", searchText ?? "", trade ?? ""] as const,
 } as const;

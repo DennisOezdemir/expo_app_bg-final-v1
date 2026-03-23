@@ -32,9 +32,6 @@ import { captureAndUploadPhoto } from "@/lib/photo-capture";
 import { useOffline } from "@/contexts/OfflineContext";
 import { useProjectDetail } from "@/hooks/queries/useProjectDetail";
 import { useProjectChangeOrders } from "@/hooks/queries/useChangeOrders";
-import { usePipelineRun, usePipelineSteps, useInvalidatePipeline } from "@/hooks/queries/usePipeline";
-import { PipelineProgress } from "@/components/PipelineProgress";
-import { startAutoPlan } from "@/lib/api/pipeline";
 import { SkeletonBox, SkeletonLine } from "@/components/Skeleton";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -113,8 +110,7 @@ function computeNextStep(
   status: string | null,
   offers: OfferData[],
   inspections: InspectionData[],
-  changeOrders: { status: string }[],
-  pipelineRun: { status: string } | null | undefined,
+  changeOrders: { id?: string; status: string }[],
   plannedStart: string | null,
   projectId: string,
 ): NextStepInfo | null {
@@ -147,23 +143,14 @@ function computeNextStep(
     };
   }
 
-  // PLANNING, keine Planung gestartet
-  if (s === "PLANNING" && !pipelineRun && !plannedStart) {
+  // PLANNING → Planung manuell anlegen
+  if (s === "PLANNING" && !plannedStart) {
     return {
-      label: "Planung starten",
-      sublabel: "Erstbegehung abgeschlossen — Autoplanung verfügbar",
-      icon: "flash",
+      label: "Planung anlegen",
+      sublabel: "Monteure und KW zuweisen",
+      icon: "calendar",
       color: "amber",
-    };
-  }
-
-  // Pipeline läuft
-  if (pipelineRun?.status === "running") {
-    return {
-      label: "Planung läuft",
-      sublabel: "Agenten arbeiten — bitte warten",
-      icon: "sync",
-      color: "green",
+      route: "/planung",
     };
   }
 
@@ -1725,15 +1712,8 @@ export default function ProjectDetailScreen() {
   const [showPhotoGallery, setShowPhotoGallery] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showDocManager, setShowDocManager] = useState(false);
-  const [autoPlanLoading, setAutoPlanLoading] = useState(false);
   const [protokollPdfLoading, setProtokollPdfLoading] = useState<string | null>(null); // protocol_id being generated
-  const [monteurSprache, setMonteurSprache] = useState<"DE" | "TR" | "RU">("DE");
   const { isOnline, addToSyncQueue } = useOffline();
-
-  // Pipeline (Autoplanung) state via React Query
-  const { data: pipelineRun, refetch: refetchPipeline } = usePipelineRun(id);
-  const { data: pipelineSteps = [] } = usePipelineSteps(pipelineRun?.id);
-  const invalidatePipeline = useInvalidatePipeline();
 
   // Nachträge (Change Orders)
   const { data: changeOrders = [] } = useProjectChangeOrders(id);
@@ -1854,30 +1834,6 @@ export default function ProjectDetailScreen() {
     setLoading(false);
   }, [id]);
 
-  const handleAutoPlan = useCallback(async () => {
-    if (!id || autoPlanLoading) return;
-    setAutoPlanLoading(true);
-    try {
-      const result = await startAutoPlan(id);
-      if (!result?.success) {
-        showAlert("Fehler", result?.error || "Planung fehlgeschlagen");
-        return;
-      }
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-      // Refresh pipeline status + project data
-      invalidatePipeline(id);
-      void refetchPipeline();
-      void refetchProject();
-      void fetchData();
-    } catch (e: any) {
-      showAlert("Fehler", e.message || "Auto-Planung fehlgeschlagen");
-    } finally {
-      setAutoPlanLoading(false);
-    }
-  }, [id, autoPlanLoading, refetchProject, fetchData, invalidatePipeline, refetchPipeline]);
-
   // ── Protokoll-PDF generieren ──
   const handleProtokollPdf = useCallback(async (
     protocolId: string,
@@ -1997,7 +1953,6 @@ export default function ProjectDetailScreen() {
     offers,
     inspections,
     changeOrders,
-    pipelineRun,
     project.planned_start,
     id!,
   );
@@ -2006,9 +1961,6 @@ export default function ProjectDetailScreen() {
     if (!nextStep) return;
     if (nextStep.route) {
       router.push({ pathname: nextStep.route as any, params: nextStep.params });
-    } else if (nextStep.icon === "flash") {
-      // Planung starten
-      handleAutoPlan();
     }
   };
 
@@ -2053,60 +2005,6 @@ export default function ProjectDetailScreen() {
                 </View>
               );
             })()}
-            {/* Planung starten: nur nach abgeschlossener Erstbegehung */}
-            {(project.status === "PLANNING" || project.status === "ACTIVE") &&
-              inspections.some((i) => i.protocol_type === "erstbegehung" && (i.finalized_at || i.status === "completed")) && (
-              <Pressable
-                onPress={handleAutoPlan}
-                disabled={autoPlanLoading}
-                style={({ pressed }) => [
-                  {
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    backgroundColor: Colors.raw.amber500 + "18",
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
-                    borderRadius: 10,
-                    marginLeft: 8,
-                  },
-                  { opacity: autoPlanLoading ? 0.5 : pressed ? 0.7 : 1 },
-                ]}
-              >
-                {autoPlanLoading ? (
-                  <ActivityIndicator size="small" color={Colors.raw.amber500} />
-                ) : (
-                  <Ionicons name="flash" size={16} color={Colors.raw.amber500} />
-                )}
-                <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.amber500 }}>
-                  Planung starten
-                </Text>
-              </Pressable>
-            )}
-            {/* Pipeline-Status Badge */}
-            {pipelineRun && (
-              <View style={{
-                flexDirection: "row", alignItems: "center", gap: 4,
-                backgroundColor: pipelineRun.status === "completed" ? Colors.raw.emerald500 + "18" : pipelineRun.status === "running" ? Colors.raw.amber500 + "18" : Colors.raw.rose500 + "18",
-                paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, marginLeft: 8,
-              }}>
-                <Ionicons
-                  name={pipelineRun.status === "completed" ? "checkmark-circle" : pipelineRun.status === "running" ? "sync" : "alert-circle"}
-                  size={14}
-                  color={pipelineRun.status === "completed" ? Colors.raw.emerald500 : pipelineRun.status === "running" ? Colors.raw.amber500 : Colors.raw.rose500}
-                />
-                <Text style={{
-                  fontFamily: "Inter_500Medium", fontSize: 11,
-                  color: pipelineRun.status === "completed" ? Colors.raw.emerald500 : pipelineRun.status === "running" ? Colors.raw.amber500 : Colors.raw.rose500,
-                }}>
-                  {pipelineRun.status === "completed"
-                    ? `${pipelineRun.agents_completed?.length ?? 0}/5 Agenten`
-                    : pipelineRun.status === "running"
-                    ? `${pipelineRun.current_agent ?? "..."}`
-                    : "Pipeline gestoppt"}
-                </Text>
-              </View>
-            )}
           </View>
           <Text style={styles.heroAddress}>
             {addressLine || project.display_name || project.name}
@@ -2211,61 +2109,6 @@ export default function ProjectDetailScreen() {
           </View>
         </SectionCard>
 
-        {/* Monteurauftrag Sprachauswahl */}
-        <SectionCard style={{ paddingVertical: 12 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Ionicons name="language" size={18} color={Colors.raw.zinc400} />
-              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.raw.zinc300 }}>
-                Monteurauftrag-Sprache
-              </Text>
-            </View>
-            <View style={{ flexDirection: "row", gap: 6 }}>
-              {(["DE", "TR", "RU"] as const).map((lang) => (
-                <Pressable
-                  key={lang}
-                  onPress={() => setMonteurSprache(lang)}
-                  style={({ pressed }) => ({
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 8,
-                    borderWidth: 1.5,
-                    borderColor: monteurSprache === lang ? Colors.raw.amber500 : Colors.raw.zinc700,
-                    backgroundColor: monteurSprache === lang ? Colors.raw.amber500 + "20" : "transparent",
-                    opacity: pressed ? 0.7 : 1,
-                    minWidth: 44,
-                    alignItems: "center",
-                  })}
-                >
-                  <Text style={{
-                    fontFamily: "Inter_700Bold",
-                    fontSize: 12,
-                    color: monteurSprache === lang ? Colors.raw.amber500 : Colors.raw.zinc500,
-                  }}>
-                    {lang === "DE" ? "🇩🇪 DE" : lang === "TR" ? "🇹🇷 TR" : "🇷🇺 RU"}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-          {monteurSprache === "RU" && (
-            <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Ionicons name="information-circle-outline" size={14} color={Colors.raw.zinc500} />
-              <Text style={{ fontSize: 11, color: Colors.raw.zinc500, flex: 1 }}>
-                Russische Übersetzungen werden vorbereitet
-              </Text>
-            </View>
-          )}
-          {monteurSprache === "TR" && (
-            <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Ionicons name="checkmark-circle-outline" size={14} color={Colors.raw.emerald500} />
-              <Text style={{ fontSize: 11, color: Colors.raw.zinc500, flex: 1 }}>
-                627/1833 Positionen auf Türkisch verfügbar
-              </Text>
-            </View>
-          )}
-        </SectionCard>
-
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -2284,30 +2127,9 @@ export default function ProjectDetailScreen() {
             }}
           />
           <QuickAction
-            icon={<Ionicons name="clipboard" size={24} color={Colors.raw.amber500} />}
-            label="Auftrag"
-            onPress={() => {
-              if (monteurSprache === "RU") {
-                showAlert("Russisch noch nicht verfügbar", "Übersetzungen werden vorbereitet. Bitte wähle Deutsch oder Türkisch.");
-                return;
-              }
-              router.push({ pathname: "/auftrag/[id]", params: { id: id || "1", lang: monteurSprache } });
-            }}
-          />
-          <QuickAction
             icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
             label="Material"
             onPress={() => router.push({ pathname: "/begehung/[type]", params: { type: "erstbegehung", tab: "material", projectId: id || "" } })}
-          />
-          <QuickAction
-            icon={<Ionicons name="people" size={24} color={Colors.raw.amber500} />}
-            label="Team"
-            onPress={() => router.push("/project/team" as any)}
-          />
-          <QuickAction
-            icon={<Ionicons name="add-circle" size={24} color={Colors.raw.amber500} />}
-            label="Nachtrag"
-            onPress={() => router.push({ pathname: "/nachtrag/neu", params: { projectId: id || "" } })}
           />
           <QuickAction
             icon={<Ionicons name="camera" size={24} color={photoUploading ? Colors.raw.zinc600 : Colors.raw.amber500} />}
@@ -2320,17 +2142,6 @@ export default function ProjectDetailScreen() {
             onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "1" } })}
           />
         </ScrollView>
-
-        {/* Autoplanung Pipeline */}
-        <SectionCard>
-          <PipelineProgress
-            projectId={id!}
-            run={pipelineRun}
-            steps={pipelineSteps}
-            onStartPlan={handleAutoPlan}
-            isStarting={autoPlanLoading}
-          />
-        </SectionCard>
 
         {/* Begehungen */}
         <SectionCard>
