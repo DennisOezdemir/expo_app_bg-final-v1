@@ -380,19 +380,26 @@ Deno.serve(async (req: Request) => {
     if (!authHeader?.startsWith("Bearer ")) return errorResponse("Missing authorization", 401);
 
     const body: ChatRequest = await req.json();
-    const { project_id, message, user_role, user_id, attachments = [] } = body;
+    const { project_id: rawProjectId, message, user_role, user_id, attachments = [] } = body;
     const sb = createServiceClient();
 
-    // 1. Kontext laden
-    const { data: project } = await sb
-      .from("projects")
-      .select("name, address, status, trade_type, client_name")
-      .eq("id", project_id)
-      .single();
+    // "general" oder leere IDs → null (kein Projektbezug)
+    const isGeneralChat = !rawProjectId || rawProjectId === "general";
+    const project_id = isGeneralChat ? null : rawProjectId;
 
-    const projectContext = project
-      ? `Projekt: ${project.name}\nAdresse: ${project.address}\nStatus: ${project.status}\nGewerk: ${project.trade_type}\nAuftraggeber: ${user_role === "monteur" ? "[verborgen]" : project.client_name}`
-      : "Kein Projektkontext (allgemeine Anfrage).";
+    // 1. Kontext laden (nur bei echtem Projekt)
+    let projectContext = "Kein Projektkontext (allgemeine Anfrage).";
+    if (project_id) {
+      const { data: project } = await sb
+        .from("projects")
+        .select("name, address, status, trade_type, client_name")
+        .eq("id", project_id)
+        .single();
+
+      if (project) {
+        projectContext = `Projekt: ${project.name}\nAdresse: ${project.address}\nStatus: ${project.status}\nGewerk: ${project.trade_type}\nAuftraggeber: ${user_role === "monteur" ? "[verborgen]" : project.client_name}`;
+      }
+    }
 
     const systemPrompt = `Du bist der BauGenius Assistent. Du hilfst Handwerkern auf der Baustelle.
 Antworte IMMER auf Deutsch. Sei kurz, direkt, hilfreich.
@@ -413,13 +420,18 @@ ${projectContext}`;
     });
 
     // 3. History laden (letzte 20 Nachrichten)
-    const { data: history } = await sb
+    let historyQuery = sb
       .from("chat_messages")
       .select("role, content")
-      .eq("project_id", project_id)
       .eq("user_id", user_id)
       .order("created_at", { ascending: true })
       .limit(20);
+    if (project_id) {
+      historyQuery = historyQuery.eq("project_id", project_id);
+    } else {
+      historyQuery = historyQuery.is("project_id", null);
+    }
+    const { data: history } = await historyQuery;
     const chatMessages = (history || []).map((r: any) => ({ role: r.role, content: r.content }));
 
     // 4. Routing: Claude Primary, Gemini Fallback
