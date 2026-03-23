@@ -36,12 +36,20 @@ export async function searchProducts(
   let items: any[] | null = null;
 
   if (searchText) {
-    // Freitextsuche: über alle Produkte
-    const { data, error } = await supabase
+    // Freitextsuche: Jedes Wort muss in name ODER sku ODER material_type vorkommen
+    // "busch rahmen" → name ILIKE %busch% AND name ILIKE %rahmen% (oder sku/material_type)
+    const words = searchText.trim().split(/\s+/).filter(Boolean);
+    let query = supabase
       .from("products")
       .select(SELECT_COLS)
-      .eq("is_active", true)
-      .or(`name.ilike.%${searchText}%,sku.ilike.%${searchText}%,material_type.ilike.%${searchText}%`)
+      .eq("is_active", true);
+
+    // Jedes Wort als eigenen Filter: Produkt muss ALLE Wörter enthalten (in name, sku oder material_type)
+    for (const word of words) {
+      query = query.or(`name.ilike.%${word}%,sku.ilike.%${word}%,material_type.ilike.%${word}%`);
+    }
+
+    const { data, error } = await query
       .order("use_count", { ascending: false })
       .limit(30);
     if (error) throw error;
