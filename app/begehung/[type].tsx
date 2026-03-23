@@ -641,9 +641,13 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
     setMaterialAssignments((prev) => ({ ...prev, [posId]: product }));
   }, []);
 
+  const [materialModalNuName, setMaterialModalNuName] = useState<string | null>(null);
+
   const openMaterialModal = useCallback((pos: BegehungPosition) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMaterialModalPos(pos);
+    const teamInfo = teamAssignments[pos.id];
+    setMaterialModalNuName(teamInfo?.type === "fremd" ? teamInfo.name : null);
     setMaterialSearch("");
     setMaterialLoading(true);
     // Initial load: trade-filtered products
@@ -651,10 +655,11 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
       setMaterialProducts(prods);
       setMaterialLoading(false);
     }).catch(() => setMaterialLoading(false));
-  }, []);
+  }, [teamAssignments]);
 
   const closeMaterialModal = useCallback(() => {
     setMaterialModalPos(null);
+    setMaterialModalNuName(null);
     setMaterialSearch("");
     setMaterialProducts([]);
     setShowDuplicateDialog(false);
@@ -720,8 +725,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
   const handleNuBesorgtMaterial = useCallback(async () => {
     if (!materialModalPos) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const nuInfo = teamAssignments[materialModalPos.id];
-    const nuName = nuInfo?.name || "NU";
+    const nuName = materialModalNuName || "NU";
     const marker: MaterialAssignment = { productId: "nu_self", productName: "NU besorgt Material", price: "\u2014", supplier: nuName };
 
     if (resolvedOfferId && materialModalPos.nr) {
@@ -742,7 +746,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
     }
     handleMaterialAssigned(materialModalPos.id, marker);
     closeMaterialModal();
-  }, [materialModalPos, teamAssignments, resolvedOfferId, handleMaterialAssigned, closeMaterialModal]);
+  }, [materialModalPos, materialModalNuName, resolvedOfferId, handleMaterialAssigned, closeMaterialModal]);
 
   // --- Team assignment handlers ---
   const handleTeamAssigned = useCallback((posId: string, assignment: TeamAssignment) => {
@@ -1360,7 +1364,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                 </View>
 
                 {/* NU besorgt Material — Quick Button */}
-                {teamAssignments[materialModalPos.id]?.type === "fremd" && (
+                {materialModalNuName !== null && (
                   <Pressable
                     onPress={handleNuBesorgtMaterial}
                     style={({ pressed }) => ({
@@ -1381,7 +1385,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                     <Ionicons name="business" size={20} color={Colors.raw.blue500} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.blue500 }}>NU BESORGT MATERIAL</Text>
-                      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400, marginTop: 2 }}>{teamAssignments[materialModalPos.id]?.name} beschafft selbst</Text>
+                      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400, marginTop: 2 }}>{materialModalNuName} beschafft selbst</Text>
                     </View>
                     <Ionicons name="checkmark-circle" size={22} color={Colors.raw.blue500} />
                   </Pressable>
