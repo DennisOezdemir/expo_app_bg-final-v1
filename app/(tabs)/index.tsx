@@ -94,8 +94,8 @@ function ChatWidget() {
         user_id: user.id,
       });
       setMessages((prev) => [...prev, { role: "assistant", text: res.message }]);
-    } catch {
-      setMessages((prev) => [...prev, { role: "assistant", text: "Verbindung fehlgeschlagen. Bitte nochmal versuchen." }]);
+    } catch (err: any) {
+      setMessages((prev) => [...prev, { role: "assistant", text: `Fehler: ${err?.message || "Verbindung fehlgeschlagen"}` }]);
     } finally {
       setSending(false);
     }

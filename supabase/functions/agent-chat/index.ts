@@ -519,8 +519,16 @@ ${projectContext}`;
   } catch (err) {
     const errMsg = (err as Error).message || String(err);
     const errStack = (err as Error).stack || "";
-    console.error("[agent-chat] FATAL:", errMsg);
-    console.error("[agent-chat] Stack:", errStack);
-    return errorResponse(`Agent-Fehler: ${errMsg}`, 500);
+    console.error("[agent-chat] FATAL:", errMsg, errStack);
+    // Debug: Fehler detailliert zurückgeben
+    return new Response(JSON.stringify({
+      success: false,
+      error: errMsg,
+      stack: errStack,
+      hint: "Debug-Modus aktiv",
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
