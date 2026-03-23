@@ -8,6 +8,7 @@ export interface DashboardMetrics {
   totalOfferVolume: number;
   teamCount: number;
   openInspections: number;
+  openInvoices: number;
 }
 
 export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
@@ -18,6 +19,7 @@ export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
     offerVolumeRes,
     teamCountRes,
     openInspectionsRes,
+    openInvoicesRes,
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -42,6 +44,10 @@ export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
       .from("inspection_protocols")
       .select("id", { count: "exact", head: true })
       .neq("status", "completed"),
+    supabase
+      .from("sales_invoices")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["DRAFT", "OPEN", "SENT"]),
   ]);
 
   if (activeProjectsRes.error) throw activeProjectsRes.error;
@@ -50,6 +56,7 @@ export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
   if (offerVolumeRes.error) throw offerVolumeRes.error;
   if (teamCountRes.error) throw teamCountRes.error;
   if (openInspectionsRes.error) throw openInspectionsRes.error;
+  if (openInvoicesRes.error) throw openInvoicesRes.error;
 
   const projectRows = activeProjectsRes.data ?? [];
   const activeProjects = projectRows.filter((project) => (project.status ?? "") !== "COMPLETED" && (project.status ?? "") !== "ARCHIVED").length;
@@ -67,5 +74,6 @@ export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
     totalOfferVolume,
     teamCount: teamCountRes.count ?? 0,
     openInspections: openInspectionsRes.count ?? 0,
+    openInvoices: openInvoicesRes.count ?? 0,
   };
 }

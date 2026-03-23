@@ -9,9 +9,9 @@ import {
   Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useClients, useProjectOptions } from "@/hooks/queries/useInvoices";
@@ -236,15 +236,23 @@ export default function NeueRechnungScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 34 : insets.bottom;
+  const params = useLocalSearchParams<{
+    prefillClientId?: string;
+    prefillProjectId?: string;
+    prefillType?: string;
+    prefillDescription?: string;
+  }>();
 
   const { data: clients = [] } = useClients();
   const { data: projects = [] } = useProjectOptions();
   const createMutation = useCreateInvoice();
 
-  const [invoiceType, setInvoiceType] = useState<SalesInvoiceType>("SCHLUSS");
-  const [clientId, setClientId] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [description, setDescription] = useState("");
+  const [invoiceType, setInvoiceType] = useState<SalesInvoiceType>(
+    (params.prefillType as SalesInvoiceType) || "SCHLUSS"
+  );
+  const [clientId, setClientId] = useState<string | null>(params.prefillClientId || null);
+  const [projectId, setProjectId] = useState<string | null>(params.prefillProjectId || null);
+  const [description, setDescription] = useState(params.prefillDescription || "");
   const [reverseCharge, setReverseCharge] = useState(true);
   const [paymentDays, setPaymentDays] = useState("14");
 

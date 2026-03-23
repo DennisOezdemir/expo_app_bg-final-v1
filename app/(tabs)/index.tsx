@@ -508,11 +508,20 @@ function GFHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["
             onPress={() => router.push("/angebote")}
           />
           <Tile
+            icon={<Ionicons name="receipt" size={28} color={Colors.raw.emerald500} />}
+            label="Rechnungen"
+            rightContent={<TileSubtext text={`${metrics?.openInvoices ?? 0} offen`} color={Colors.raw.zinc400} />}
+            onPress={() => router.push("/rechnung" as any)}
+          />
+        </View>
+        <View style={styles.tilesRow}>
+          <Tile
             icon={<MaterialCommunityIcons name="finance" size={28} color={Colors.raw.emerald500} />}
             label="Finanzen"
-            rightContent={<TileCounter value={`${formatCompactCurrency(offerVolume)} €`} color={Colors.raw.emerald500} />}
+            rightContent={<TileCounter value={`${formatCompactCurrency(offerVolume)} \u20AC`} color={Colors.raw.emerald500} />}
             onPress={() => router.push("/finanzen")}
           />
+          <View style={{ flex: 1 }} />
         </View>
       </View>
 
@@ -592,6 +601,15 @@ function BauleiterHome({ metrics }: { metrics: ReturnType<typeof useDashboardMet
             rightContent={<TileSubtext text={`${openOffers} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/angebote")}
           />
+        </View>
+        <View style={styles.tilesRow}>
+          <Tile
+            icon={<Ionicons name="receipt" size={28} color={Colors.raw.emerald500} />}
+            label="Rechnungen"
+            rightContent={<TileSubtext text={`${metrics?.openInvoices ?? 0} offen`} color={Colors.raw.zinc400} />}
+            onPress={() => router.push("/rechnung" as any)}
+          />
+          <View style={{ flex: 1 }} />
         </View>
       </View>
 

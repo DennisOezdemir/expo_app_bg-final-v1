@@ -2272,6 +2272,47 @@ export default function ProjectDetailScreen() {
                               indent={48}
                             />
                           );
+                          // Rechnung erstellen Button nach Abnahme
+                          rows.push(
+                            <Pressable
+                              key={`invoice-${offer.id}`}
+                              onPress={() => {
+                                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                // Status auf BILLING setzen
+                                supabase.from("projects").update({ status: "BILLING" }).eq("id", id).then(() => {});
+                                router.push({
+                                  pathname: "/rechnung/neu" as any,
+                                  params: {
+                                    prefillClientId: project?.client_id || "",
+                                    prefillProjectId: id,
+                                    prefillType: "SCHLUSS",
+                                    prefillDescription: `${project?.name || ""} - Schlussrechnung`,
+                                  },
+                                });
+                              }}
+                              style={({ pressed }) => ({
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 10,
+                                marginLeft: 48,
+                                marginTop: 8,
+                                paddingVertical: 12,
+                                paddingHorizontal: 16,
+                                backgroundColor: Colors.raw.emerald500 + "15",
+                                borderRadius: 12,
+                                borderWidth: 1.5,
+                                borderColor: Colors.raw.emerald500 + "40",
+                                opacity: pressed ? 0.8 : 1,
+                              })}
+                            >
+                              <Ionicons name="receipt" size={20} color={Colors.raw.emerald500} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.emerald500 }}>Rechnung erstellen</Text>
+                                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400, marginTop: 2 }}>Abnahme abgeschlossen {"\u2192"} Abrechnung</Text>
+                              </View>
+                              <Ionicons name="chevron-forward" size={18} color={Colors.raw.emerald500} />
+                            </Pressable>
+                          );
                         }
                       } else {
                         rows.push(
