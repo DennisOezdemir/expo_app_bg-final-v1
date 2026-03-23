@@ -717,6 +717,33 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
     }
   }, [pendingProduct, duplicateInfo, materialModalPos, doMaterialAssign]);
 
+  const handleNuBesorgtMaterial = useCallback(async () => {
+    if (!materialModalPos) return;
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const nuInfo = teamAssignments[materialModalPos.id];
+    const nuName = nuInfo?.name || "NU";
+    const marker: MaterialAssignment = { productId: "nu_self", productName: "NU besorgt Material", price: "\u2014", supplier: nuName };
+
+    if (resolvedOfferId && materialModalPos.nr) {
+      try {
+        const dupes = await findDuplicatePositions(resolvedOfferId, materialModalPos.nr);
+        if (dupes.count > 1) {
+          Alert.alert(
+            `Position kommt ${dupes.count}x vor`,
+            `"NU besorgt Material" auch f\u00FCr die anderen ${dupes.count - 1}?`,
+            [
+              { text: "Nur diese", onPress: () => { handleMaterialAssigned(materialModalPos.id, marker); closeMaterialModal(); } },
+              { text: `Alle ${dupes.count}`, onPress: () => { for (const pId of dupes.positionIds) handleMaterialAssigned(pId, marker); closeMaterialModal(); } },
+            ],
+          );
+          return;
+        }
+      } catch { /* ignore */ }
+    }
+    handleMaterialAssigned(materialModalPos.id, marker);
+    closeMaterialModal();
+  }, [materialModalPos, teamAssignments, resolvedOfferId, handleMaterialAssigned, closeMaterialModal]);
+
   // --- Team assignment handlers ---
   const handleTeamAssigned = useCallback((posId: string, assignment: TeamAssignment) => {
     setTeamAssignments((prev) => ({ ...prev, [posId]: assignment }));
@@ -1331,6 +1358,34 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                     {materialModalPos.qty} {materialModalPos.unit} {"\u00B7"} {formatEuro(materialModalPos.price)}/{materialModalPos.unit} {"\u00B7"} {materialModalPos.trade}
                   </Text>
                 </View>
+
+                {/* NU besorgt Material — Quick Button */}
+                {teamAssignments[materialModalPos.id]?.type === "fremd" && (
+                  <Pressable
+                    onPress={handleNuBesorgtMaterial}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                      marginHorizontal: 20,
+                      marginTop: 16,
+                      paddingVertical: 14,
+                      paddingHorizontal: 16,
+                      backgroundColor: Colors.raw.blue500 + "15",
+                      borderRadius: 12,
+                      borderWidth: 1.5,
+                      borderColor: Colors.raw.blue500 + "40",
+                      opacity: pressed ? 0.8 : 1,
+                    })}
+                  >
+                    <Ionicons name="business" size={20} color={Colors.raw.blue500} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.raw.blue500 }}>NU BESORGT MATERIAL</Text>
+                      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.raw.zinc400, marginTop: 2 }}>{teamAssignments[materialModalPos.id]?.name} beschafft selbst</Text>
+                    </View>
+                    <Ionicons name="checkmark-circle" size={22} color={Colors.raw.blue500} />
+                  </Pressable>
+                )}
 
                 {/* Suchfeld */}
                 <View style={ms.modalSearchRow}>
