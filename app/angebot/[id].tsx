@@ -16,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { useOfferWithSections } from "@/hooks/queries/useOffers";
 import type { OfferWithSections, OfferSection, OfferPositionRow } from "@/lib/api/offers";
+import OfferAssistantModal from "@/components/OfferAssistantModal";
 
 // ── Status-Mapping: DB-Status → UI ──
 
@@ -266,6 +267,7 @@ export default function AngebotScreen() {
 
   const { data: offer, isLoading, error } = useOfferWithSections(id);
   const [showMenu, setShowMenu] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
 
   // Aus DB-Daten ableiten
   const status = offer ? mapStatus(offer.status) : "entwurf";
@@ -446,6 +448,13 @@ export default function AngebotScreen() {
         </View>
       </ScrollView>
 
+      {/* Offer Assistant Modal */}
+      <OfferAssistantModal
+        visible={showAssistant}
+        onClose={() => setShowAssistant(false)}
+        offerId={id}
+      />
+
       {/* Sticky Actions */}
       <View style={[styles.stickyActions, { paddingBottom: bottomInset + 12 }]}>
         {status === "entwurf" && (
@@ -457,9 +466,12 @@ export default function AngebotScreen() {
               <Feather name="edit-2" size={18} color={Colors.raw.amber500} />
               <Text style={styles.actionOutlineText}>Bearbeiten</Text>
             </Pressable>
-            <Pressable style={({ pressed }) => [styles.actionPrimary, { flex: 1, opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }]}>
-              <Ionicons name="checkmark-circle" size={18} color="#000" />
-              <Text style={styles.actionPrimaryText}>Zur Freigabe</Text>
+            <Pressable
+              onPress={() => setShowAssistant(true)}
+              style={({ pressed }) => [styles.actionPrimary, { flex: 1, opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }]}
+            >
+              <Ionicons name="sparkles" size={18} color="#000" />
+              <Text style={styles.actionPrimaryText}>KI-Langtexte</Text>
             </Pressable>
           </>
         )}
