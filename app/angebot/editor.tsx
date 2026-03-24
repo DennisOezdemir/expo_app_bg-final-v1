@@ -23,6 +23,7 @@ import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCatalogs, useCatalogSearch } from "@/hooks/queries/useOffers";
+import OfferAssistantModal from "@/components/OfferAssistantModal";
 
 interface Project {
   id: string;
@@ -1358,6 +1359,7 @@ export default function OfferEditorScreen() {
   const [pdfSaving, setPdfSaving] = useState(false);
   const [pdfSaved, setPdfSaved] = useState(false);
   const [pdfError, setPdfError] = useState("");
+  const [showAssistant, setShowAssistant] = useState(false);
 
   // Projekt per projectId URL-Param aus Supabase laden
   useEffect(() => {
@@ -2925,6 +2927,15 @@ export default function OfferEditorScreen() {
         </Pressable>
       </ScrollView>
 
+      {/* Offer Assistant Modal */}
+      {offerId && (
+        <OfferAssistantModal
+          visible={showAssistant}
+          onClose={() => setShowAssistant(false)}
+          offerId={offerId}
+        />
+      )}
+
       {/* ── Footer (collapsible) ── */}
       <View style={[s.stickyFooter, { paddingBottom: bottomInset + 10 }]}>
         {/* Slim bar — always visible */}
@@ -2940,6 +2951,11 @@ export default function OfferEditorScreen() {
             </View>
           </View>
           <View style={s.footerSlimActions}>
+            {offerId && (
+              <Pressable onPress={() => setShowAssistant(true)} style={({ pressed }) => [s.footerIconBtn, { opacity: pressed ? 0.7 : 1, borderColor: Colors.raw.amber500 }]} testID="ai-longtext-btn">
+                <Ionicons name="sparkles" size={20} color={Colors.raw.amber500} />
+              </Pressable>
+            )}
             <Pressable onPress={() => handlePreview("preview")} style={({ pressed }) => [s.footerIconBtn, { opacity: pressed ? 0.7 : 1 }]} testID="preview-btn">
               <Ionicons name="eye-outline" size={20} color={Colors.raw.amber500} />
             </Pressable>
