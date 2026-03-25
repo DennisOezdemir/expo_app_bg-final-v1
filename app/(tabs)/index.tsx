@@ -483,41 +483,39 @@ function GFHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["
       <View style={styles.tilesGrid}>
         <View style={styles.tilesRow}>
           <Tile
-            icon={<Ionicons name="clipboard" size={28} color={Colors.raw.amber500} />}
+            icon={<Ionicons name="clipboard" size={22} color={Colors.raw.amber500} />}
             label="Projekte"
             rightContent={<TileSubtext text={`${activeProjects} aktiv`} color={Colors.raw.zinc400} />}
             onPress={() => router.navigate("/(tabs)/projekte")}
           />
           <Tile
-            icon={<Ionicons name="checkmark-circle" size={28} color={Colors.raw.emerald500} />}
+            icon={<Ionicons name="checkmark-circle" size={22} color={Colors.raw.emerald500} />}
             label="Freigaben"
             rightContent={<TileBadge count={String(pendingApprovals)} />}
             onPress={() => router.navigate("/(tabs)/freigaben")}
           />
+          <Tile
+            icon={<MaterialCommunityIcons name="package-variant" size={22} color={Colors.raw.amber400} />}
+            label="Material"
+            rightContent={<TileSubtext text={`${criticalProjects} krit.`} color={Colors.raw.zinc400} />}
+            onPress={() => router.navigate("/(tabs)/material")}
+          />
         </View>
         <View style={styles.tilesRow}>
           <Tile
-            icon={<MaterialCommunityIcons name="package-variant" size={28} color={Colors.raw.amber400} />}
-            label="Material"
-            rightContent={<TileSubtext text={`${criticalProjects} kritisch`} color={Colors.raw.zinc400} />}
-            onPress={() => router.navigate("/(tabs)/material")}
-          />
-          <Tile
-            icon={<Ionicons name="calendar" size={28} color="#3b82f6" />}
+            icon={<Ionicons name="calendar" size={22} color="#3b82f6" />}
             label="Planung"
             rightContent={<TileSubtext text={`${metrics?.teamCount ?? 0} aktiv`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/planung")}
           />
-        </View>
-        <View style={styles.tilesRow}>
           <Tile
-            icon={<Ionicons name="document-text" size={28} color={Colors.raw.amber500} />}
+            icon={<Ionicons name="document-text" size={22} color={Colors.raw.amber500} />}
             label="Angebote"
             rightContent={<TileSubtext text={`${openOffers} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/angebote")}
           />
           <Tile
-            icon={<Ionicons name="receipt" size={28} color={Colors.raw.emerald500} />}
+            icon={<Ionicons name="receipt" size={22} color={Colors.raw.emerald500} />}
             label="Rechnungen"
             rightContent={<TileSubtext text={`${metrics?.openInvoices ?? 0} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/rechnung" as any)}
@@ -525,11 +523,12 @@ function GFHome({ metrics }: { metrics: ReturnType<typeof useDashboardMetrics>["
         </View>
         <View style={styles.tilesRow}>
           <Tile
-            icon={<MaterialCommunityIcons name="finance" size={28} color={Colors.raw.emerald500} />}
+            icon={<MaterialCommunityIcons name="finance" size={22} color={Colors.raw.emerald500} />}
             label="Finanzen"
             rightContent={<TileCounter value={`${formatCompactCurrency(offerVolume)} \u20AC`} color={Colors.raw.emerald500} />}
             onPress={() => router.push("/finanzen")}
           />
+          <View style={{ flex: 1 }} />
           <View style={{ flex: 1 }} />
         </View>
       </View>
@@ -571,54 +570,43 @@ function BauleiterHome({ metrics }: { metrics: ReturnType<typeof useDashboardMet
       <View style={styles.tilesGrid}>
         <View style={styles.tilesRow}>
           <Tile
-            icon={<Ionicons name="clipboard" size={28} color={Colors.raw.amber500} />}
+            icon={<Ionicons name="clipboard" size={22} color={Colors.raw.amber500} />}
             label="Projekte"
             rightContent={<TileSubtext text={`${activeProjects} aktiv`} color={Colors.raw.zinc400} />}
             onPress={() => router.navigate("/(tabs)/projekte")}
           />
           <Tile
-            icon={<MaterialCommunityIcons name="package-variant" size={28} color={Colors.raw.amber400} />}
+            icon={<MaterialCommunityIcons name="package-variant" size={22} color={Colors.raw.amber400} />}
             label="Material"
-            rightContent={<TileSubtext text={`${metrics?.teamCount ?? 0} im Team`} color={Colors.raw.zinc400} />}
+            rightContent={<TileSubtext text={`${metrics?.teamCount ?? 0} Team`} color={Colors.raw.zinc400} />}
             onPress={() => router.navigate("/(tabs)/material")}
+          />
+          <Tile
+            icon={<Ionicons name="calendar" size={22} color="#3b82f6" />}
+            label="Planung"
+            rightContent={<TileSubtext text={`${metrics?.teamCount ?? 0} aktiv`} color={Colors.raw.zinc400} />}
+            onPress={() => router.push("/planung")}
           />
         </View>
         <View style={styles.tilesRow}>
           <Tile
-            icon={<Ionicons name="calendar" size={28} color="#3b82f6" />}
-            label="Planung"
-            rightContent={<TileSubtext text={`${metrics?.teamCount ?? 0} verfügbar`} color={Colors.raw.zinc400} />}
-            onPress={() => router.push("/planung")}
-          />
-          <Tile
-            icon={<Ionicons name="walk" size={28} color={Colors.raw.emerald500} />}
+            icon={<Ionicons name="walk" size={22} color={Colors.raw.emerald500} />}
             label="Begehungen"
             rightContent={<TileSubtext text={`${openInspections} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/begehung/abnahme" as any)}
           />
-        </View>
-        <View style={styles.tilesRow}>
           <Tile
-            icon={<Ionicons name="camera" size={28} color={Colors.raw.amber500} />}
-            label="Schnellfoto"
-            rightContent={<View />}
-            onPress={() => router.push("/foto")}
-          />
-          <Tile
-            icon={<Ionicons name="document-text" size={28} color={Colors.raw.amber500} />}
+            icon={<Ionicons name="document-text" size={22} color={Colors.raw.amber500} />}
             label="Angebote"
             rightContent={<TileSubtext text={`${openOffers} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/angebote")}
           />
-        </View>
-        <View style={styles.tilesRow}>
           <Tile
-            icon={<Ionicons name="receipt" size={28} color={Colors.raw.emerald500} />}
+            icon={<Ionicons name="receipt" size={22} color={Colors.raw.emerald500} />}
             label="Rechnungen"
             rightContent={<TileSubtext text={`${metrics?.openInvoices ?? 0} offen`} color={Colors.raw.zinc400} />}
             onPress={() => router.push("/rechnung" as any)}
           />
-          <View style={{ flex: 1 }} />
         </View>
       </View>
 
@@ -841,21 +829,21 @@ const styles = StyleSheet.create({
     color: Colors.raw.rose400,
   },
   tilesGrid: {
-    gap: 12,
-    marginBottom: 32,
+    gap: 8,
+    marginBottom: 20,
   },
   tilesRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
   },
   tile: {
     flex: 1,
     backgroundColor: Colors.raw.zinc900,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.raw.zinc800,
-    padding: 18,
-    minHeight: 120,
+    padding: 12,
+    minHeight: 80,
     justifyContent: "space-between",
   },
   tileLarge: {
@@ -879,9 +867,9 @@ const styles = StyleSheet.create({
   },
   tileLabel: {
     fontFamily: "Inter_700Bold",
-    fontSize: 16,
+    fontSize: 13,
     color: Colors.raw.white,
-    marginTop: 8,
+    marginTop: 4,
   },
   tileLabelLarge: {
     fontSize: 18,
