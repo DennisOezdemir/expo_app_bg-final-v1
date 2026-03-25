@@ -122,14 +122,25 @@ const TOOL_DEFS = [
   },
   {
     name: "update_project_status",
-    description: "Projektstatus ändern (z.B. auf abgeschlossen, in Arbeit, etc.)",
+    description: "Projektstatus ändern (z.B. auf abgeschlossen, in Arbeit, Rechnung versendet, etc.)",
     parameters: {
       type: "object",
       properties: {
         project_id: { type: "string", description: "Projekt-UUID" },
-        status: { type: "string", description: "Neuer Status: DRAFT, ACTIVE, IN_PROGRESS, COMPLETED, ARCHIVED" },
+        status: { type: "string", description: "Neuer Status: DRAFT, INTAKE, INSPECTION, PLANNING, IN_PROGRESS, COMPLETED, INVOICED, ARCHIVED" },
       },
       required: ["project_id", "status"],
+    },
+  },
+  {
+    name: "search_projects",
+    description: "Projekte nach Name, Adresse oder Projektnummer suchen. Nutze dieses Tool wenn der User ein Projekt namentlich nennt und du die UUID brauchst.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Suchbegriff (Name, Adresse, Projektnummer)" },
+      },
+      required: ["query"],
     },
   },
 ];
@@ -246,9 +257,23 @@ async function executeTool(
         return JSON.stringify({ phases: data || [], count: (data || []).length });
       }
 
+      case "search_projects": {
+        const q = toolInput.query as string;
+        const cols = userRole === "gf"
+          ? "id, project_number, name, address, status, client_name, trade_type"
+          : "id, project_number, name, address, status, trade_type";
+        const { data, error } = await sb
+          .from("projects")
+          .select(cols)
+          .or(`name.ilike.%${q}%,address.ilike.%${q}%,project_number.ilike.%${q}%,client_name.ilike.%${q}%`)
+          .limit(10);
+        if (error) return JSON.stringify({ error: error.message });
+        return JSON.stringify({ projects: data || [], count: (data || []).length });
+      }
+
       case "update_project_status": {
         if (userRole === "monteur") return JSON.stringify({ error: "Monteure dürfen den Projektstatus nicht ändern." });
-        const validStatuses = ["DRAFT", "ACTIVE", "IN_PROGRESS", "COMPLETED", "ARCHIVED"];
+        const validStatuses = ["DRAFT", "INTAKE", "INSPECTION", "PLANNING", "ACTIVE", "IN_PROGRESS", "COMPLETED", "INVOICED", "ARCHIVED"];
         const newStatus = (toolInput.status as string || "").toUpperCase();
         if (!validStatuses.includes(newStatus)) {
           return JSON.stringify({ error: `Ungültiger Status. Erlaubt: ${validStatuses.join(", ")}` });
