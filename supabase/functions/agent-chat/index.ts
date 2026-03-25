@@ -120,6 +120,18 @@ const TOOL_DEFS = [
       required: ["project_id"],
     },
   },
+  {
+    name: "update_project_status",
+    description: "Projektstatus ändern (z.B. auf abgeschlossen, in Arbeit, etc.)",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Projekt-UUID" },
+        status: { type: "string", description: "Neuer Status: DRAFT, ACTIVE, IN_PROGRESS, COMPLETED, ARCHIVED" },
+      },
+      required: ["project_id", "status"],
+    },
+  },
 ];
 
 // Claude format
@@ -232,6 +244,21 @@ async function executeTool(
         const { data, error } = await sb.from("schedule_phases").select("id, trade_type, start_date, end_date, status, assigned_member_name").eq("project_id", toolInput.project_id as string).order("start_date", { ascending: true });
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify({ phases: data || [], count: (data || []).length });
+      }
+
+      case "update_project_status": {
+        if (userRole === "monteur") return JSON.stringify({ error: "Monteure dürfen den Projektstatus nicht ändern." });
+        const validStatuses = ["DRAFT", "ACTIVE", "IN_PROGRESS", "COMPLETED", "ARCHIVED"];
+        const newStatus = (toolInput.status as string || "").toUpperCase();
+        if (!validStatuses.includes(newStatus)) {
+          return JSON.stringify({ error: `Ungültiger Status. Erlaubt: ${validStatuses.join(", ")}` });
+        }
+        const { error } = await sb
+          .from("projects")
+          .update({ status: newStatus, updated_at: new Date().toISOString() })
+          .eq("id", toolInput.project_id as string);
+        if (error) return JSON.stringify({ error: error.message });
+        return JSON.stringify({ success: true, project_id: toolInput.project_id, new_status: newStatus, message: `Projektstatus auf ${newStatus} gesetzt.` });
       }
 
       default:

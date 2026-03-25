@@ -1127,7 +1127,7 @@ export default function ChatScreen() {
               data={listData}
               renderItem={renderItem}
               keyExtractor={(item) => item.key}
-              contentContainerStyle={{ paddingBottom: 8, paddingTop: 8 }}
+              contentContainerStyle={{ paddingBottom: 120, paddingTop: 8 }}
               showsVerticalScrollIndicator={false}
               onContentSizeChange={() => {
                 flatListRef.current?.scrollToEnd({ animated: false });
