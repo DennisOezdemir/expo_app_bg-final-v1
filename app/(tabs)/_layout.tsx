@@ -3,49 +3,14 @@ import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View, Text, Pressable } from "react-native";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import Colors from "@/constants/colors";
-import { FAB, AssistantOverlay } from "@/components/BGAssistant";
-import { useRole, type UserRole } from "@/contexts/RoleContext";
+import { useRole } from "@/contexts/RoleContext";
 import { DebugConsole } from "@/components/DebugConsole";
 import { DebugLogSeeder } from "@/components/DebugLogSeeder";
 import { OfflineBanner } from "@/components/OfflineBanner";
-import { usePendingApprovalCount } from "@/hooks/queries/usePendingApprovalCount";
 import { useRealtimeInvalidation } from "@/hooks/realtime/useRealtimeInvalidation";
 import { queryKeys } from "@/lib/query-keys";
-
-function FreigabenBadge() {
-  const { data: count = 0 } = usePendingApprovalCount();
-
-  if (count === 0) return null;
-
-  return (
-    <View style={badgeStyles.container}>
-      <Text style={badgeStyles.text}>{count > 99 ? "99+" : count}</Text>
-    </View>
-  );
-}
-
-const badgeStyles = StyleSheet.create({
-  container: {
-    position: "absolute",
-    top: -4,
-    right: -10,
-    backgroundColor: Colors.raw.rose500,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 5,
-  },
-  text: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 11,
-    color: "#fff",
-    lineHeight: 13,
-  },
-});
 
 function ImpersonationBanner() {
   const { role: _role, user, isImpersonating, resetRole } = useRole();
@@ -98,54 +63,20 @@ const bannerStyles = StyleSheet.create({
   btnText: { fontFamily: "Inter_700Bold", fontSize: 12, color: Colors.raw.amber500 },
 });
 
-type TabVisibility = {
-  [tab: string]: boolean;
-};
-
-function getTabVisibility(role: UserRole): TabVisibility {
-  return {
-    index: true,
-    projekte: role === "gf" || role === "bauleiter",
-    freigaben: role === "gf" || role === "bauleiter",
-    material: role === "gf" || role === "bauleiter",
-    meinjob: role === "monteur",
-    foto: role === "monteur",
-    zeiten: role === "monteur",
-    profil: true,
-  };
-}
-
 function ClassicTabLayout() {
   const isWeb = Platform.OS === "web";
   const isIOS = Platform.OS === "ios";
-  const { role } = useRole();
-  const vis = getTabVisibility(role);
-  const approvalRealtimeKeys = useMemo(
-    () => [queryKeys.approvals.all, queryKeys.dashboard.metrics()] as const,
-    []
-  );
+
   const projectRealtimeKeys = useMemo(
     () => [queryKeys.projects.all, queryKeys.dashboard.metrics()] as const,
     []
   );
 
   useRealtimeInvalidation({
-    channelName: "rt_approvals_tabs",
-    table: "approvals",
-    queryKeys: approvalRealtimeKeys,
-  });
-
-  useRealtimeInvalidation({
     channelName: "rt_projects_tabs",
     table: "projects",
     queryKeys: projectRealtimeKeys,
   });
-
-  const tabLabels: Record<UserRole, Record<string, string>> = {
-    gf: { index: "Start", projekte: "Projekte", freigaben: "Freigaben", material: "Material", profil: "Profil" },
-    bauleiter: { index: "Start", projekte: "Projekte", freigaben: "Freigaben", material: "Material", profil: "Profil" },
-    monteur: { index: "Start", meinjob: "Mein Job", foto: "Foto", zeiten: "Zeiten", profil: "Profil" },
-  };
 
   return (
     <Tabs
@@ -195,23 +126,9 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="projekte"
         options={{
-          title: tabLabels[role]?.projekte || "Projekte",
-          href: vis.projekte ? "/(tabs)/projekte" : null,
+          title: "Projekte",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="clipboard" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="freigaben"
-        options={{
-          title: "Freigaben",
-          href: vis.freigaben ? "/(tabs)/freigaben" : null,
-          tabBarIcon: ({ color, size }) => (
-            <View>
-              <Ionicons name="checkmark-circle" size={size} color={color} />
-              <FreigabenBadge />
-            </View>
           ),
         }}
       />
@@ -219,19 +136,17 @@ function ClassicTabLayout() {
         name="material"
         options={{
           title: "Material",
-          href: vis.material ? "/(tabs)/material" : null,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="package-variant" size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="meinjob"
+        name="planung"
         options={{
-          title: "Mein Job",
-          href: vis.meinjob ? "/(tabs)/meinjob" : null,
+          title: "Planung",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="construct" size={size} color={color} />
+            <Ionicons name="calendar" size={size} color={color} />
           ),
         }}
       />
@@ -239,19 +154,8 @@ function ClassicTabLayout() {
         name="foto"
         options={{
           title: "Foto",
-          href: vis.foto ? "/(tabs)/foto" : null,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="camera" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="zeiten"
-        options={{
-          title: "Zeiten",
-          href: vis.zeiten ? "/(tabs)/zeiten" : null,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="time" size={size} color={color} />
           ),
         }}
       />
@@ -264,16 +168,15 @@ function ClassicTabLayout() {
           ),
         }}
       />
+      {/* Hidden tabs — bleiben als Routen, nicht in der Tab-Bar */}
+      <Tabs.Screen name="freigaben" options={{ href: null }} />
+      <Tabs.Screen name="meinjob" options={{ href: null }} />
+      <Tabs.Screen name="zeiten" options={{ href: null }} />
     </Tabs>
   );
 }
 
 export default function TabLayout() {
-  const [assistantVisible, setAssistantVisible] = useState(false);
-  const insets = useSafeAreaInsets();
-  const isWeb = Platform.OS === "web";
-  const tabBarHeight = isWeb ? 84 : (Platform.OS === "ios" ? 49 + insets.bottom : 56);
-  const fabBottom = tabBarHeight + 16;
   const { role, isImpersonating } = useRole();
   const showDebug = role === "gf" && __DEV__;
 
@@ -282,10 +185,6 @@ export default function TabLayout() {
       <OfflineBanner />
       {isImpersonating && <ImpersonationBanner />}
       <ClassicTabLayout />
-      <View style={{ position: "absolute", right: 20, bottom: fabBottom, zIndex: 50 }}>
-        <FAB onPress={() => setAssistantVisible(true)} />
-      </View>
-      <AssistantOverlay visible={assistantVisible} onClose={() => setAssistantVisible(false)} />
       {showDebug && <DebugLogSeeder />}
       {showDebug && <DebugConsole />}
     </View>

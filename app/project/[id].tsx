@@ -35,6 +35,7 @@ import { useProjectChangeOrders } from "@/hooks/queries/useChangeOrders";
 import { useProjectActivities } from "@/hooks/queries/useActivities";
 import type { Activity } from "@/lib/api/activities";
 import { SkeletonBox, SkeletonLine } from "@/components/Skeleton";
+import { FAB } from "@/components/BGAssistant";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -2857,6 +2858,13 @@ export default function ProjectDetailScreen() {
           sagaOrders={sagaOrders}
           onDeleteOffer={handleDeleteOffer}
         />
+      )}
+
+      {/* Chat FAB — projektgebunden */}
+      {id && (
+        <View style={{ position: "absolute", bottom: 20, right: 20, zIndex: 50 }}>
+          <FAB projectId={id} />
+        </View>
       )}
     </View>
   );

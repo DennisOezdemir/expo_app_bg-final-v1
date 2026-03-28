@@ -19,11 +19,10 @@ import Colors from "@/constants/colors";
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface FABProps {
-  onPress?: () => void;
-  projectId?: string;
+  projectId: string;
 }
 
-export function FAB({ onPress, projectId }: FABProps) {
+export function FAB({ projectId }: FABProps) {
   const pulse = useSharedValue(1);
   const fabScale = useSharedValue(1);
 
@@ -60,7 +59,7 @@ export function FAB({ onPress, projectId }: FABProps) {
       onPress={() => {
         if (Platform.OS !== "web")
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        router.push(`/chat/${projectId || "general"}`);
+        router.push(`/chat/${projectId}`);
       }}
       testID="fab-assistant"
     >
