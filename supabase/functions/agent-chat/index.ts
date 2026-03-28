@@ -133,6 +133,19 @@ const TOOL_DEFS = [
     },
   },
   {
+    name: "remember",
+    description: "Etwas merken für zukünftige Gespräche. Nutze dieses Tool wenn der User sagt 'merk dir das', 'denk dran', oder wenn du eine wichtige Präferenz erkennst.",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Kurzer Schlüssel (z.B. 'abdichtung_hersteller', 'langtext_stil')" },
+        value: { type: "string", description: "Was gemerkt werden soll" },
+        memory_type: { type: "string", description: "Art: style_rule, term_preference, correction_pattern" },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
     name: "search_projects",
     description: "Projekte nach Name, Adresse oder Projektnummer suchen. Nutze dieses Tool wenn der User ein Projekt namentlich nennt und du die UUID brauchst.",
     parameters: {
@@ -255,6 +268,31 @@ async function executeTool(
         const { data, error } = await sb.from("schedule_phases").select("id, trade_type, start_date, end_date, status, assigned_member_name").eq("project_id", toolInput.project_id as string).order("start_date", { ascending: true });
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify({ phases: data || [], count: (data || []).length });
+      }
+
+      case "remember": {
+        const memType = (toolInput.memory_type as string) || "style_rule";
+        const { data, error } = await sb.from("memory_entries").upsert({
+          scope: "tenant",
+          scope_id: null,
+          memory_type: memType,
+          key: toolInput.key as string,
+          value: toolInput.value as string,
+          confidence: 0.8,
+          observation_count: 1,
+          source: "manual",
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "scope,memory_type,key", ignoreDuplicates: false }).select("id").single();
+        if (error) {
+          // Fallback: insert without upsert
+          const { error: insertErr } = await sb.from("memory_entries").insert({
+            scope: "tenant", scope_id: null, memory_type: memType,
+            key: toolInput.key as string, value: toolInput.value as string,
+            confidence: 0.8, observation_count: 1, source: "manual",
+          });
+          if (insertErr) return JSON.stringify({ error: insertErr.message });
+        }
+        return JSON.stringify({ success: true, message: `Gemerkt: "${toolInput.key}" → "${toolInput.value}"` });
       }
 
       case "search_projects": {
@@ -445,7 +483,38 @@ Deno.serve(async (req: Request) => {
     const isGeneralChat = !rawProjectId || rawProjectId === "general";
     const project_id = isGeneralChat ? null : rawProjectId;
 
-    // 1. Kontext laden (nur bei echtem Projekt)
+    // 1a. Memory laden (global + tenant + user scope, confidence >= 0.6)
+    let memoryBlock = "";
+    try {
+      const { data: memories } = await sb
+        .from("memory_entries")
+        .select("key, value, memory_type, scope, trade")
+        .in("scope", ["global", "tenant", "user"])
+        .gte("confidence", 0.6)
+        .order("confidence", { ascending: false })
+        .limit(30);
+
+      if (memories && memories.length > 0) {
+        const rules = memories.filter((m: any) => m.memory_type === "style_rule").map((m: any) => `- ${m.value}`);
+        const terms = memories.filter((m: any) => m.memory_type === "term_preference").map((m: any) => `- Verwende "${m.value}" statt "${m.key}"`);
+        const examples = memories.filter((m: any) => m.memory_type === "few_shot_example").slice(0, 3);
+        const corrections = memories.filter((m: any) => m.memory_type === "correction_pattern").map((m: any) => `- ${m.value}`);
+
+        const parts: string[] = [];
+        if (rules.length > 0) parts.push("GELERNTE REGELN:\n" + rules.join("\n"));
+        if (terms.length > 0) parts.push("BEVORZUGTE BEGRIFFE:\n" + terms.join("\n"));
+        if (corrections.length > 0) parts.push("KORREKTUREN (vermeide diese Fehler):\n" + corrections.join("\n"));
+        if (examples.length > 0) parts.push("BEISPIELE:\n" + examples.map((e: any) => `${e.key}: ${e.value}`).join("\n"));
+
+        if (parts.length > 0) {
+          memoryBlock = "\n\nGEDÄCHTNIS (aus früheren Gesprächen gelernt):\n" + parts.join("\n\n");
+        }
+      }
+    } catch (memErr) {
+      console.error("[agent-chat] Memory load failed:", (memErr as Error).message);
+    }
+
+    // 1b. Kontext laden (nur bei echtem Projekt)
     let projectContext = "Kein Projektkontext (allgemeine Anfrage).";
     if (project_id) {
       const { data: project } = await sb
@@ -494,7 +563,7 @@ PDF/DOKUMENTE:
 - Bei Rechnungen: Lieferant und Leistung benennen, Beträge NUR bei GF
 
 Projektkontext:
-${projectContext}`;
+${projectContext}${memoryBlock}`;
 
     // 2. Nachricht speichern
     console.log("[agent-chat] Saving user message:", { project_id, user_id, messageLen: message.length });
