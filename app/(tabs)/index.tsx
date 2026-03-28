@@ -681,35 +681,234 @@ function MonteurHome() {
   );
 }
 
+// ── HEUTE-SCREEN (Phase 6) ──────────────────────────────────────
+// Ersetzt die rollen-spezifischen Home-Screens.
+// Alte GFHome/BauleiterHome/MonteurHome bleiben als toter Code
+// bis AgentView steht.
+
+function useTodayProjects() {
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const { supabase } = require("@/lib/supabase");
+      const today = new Date().toISOString().split("T")[0];
+
+      // Projekte wo ich heute eingeplant bin
+      const { data: phases } = await supabase
+        .from("schedule_phases")
+        .select("id, name, trade, status, project_id, projects(name, address, project_number, status)")
+        .lte("start_date", today)
+        .gte("end_date", today)
+        .in("status", ["approved", "in_progress"])
+        .order("start_date");
+
+      // Fallback: Alle aktiven Projekte wenn keine Phasen
+      if (!phases || phases.length === 0) {
+        const { data: active } = await supabase
+          .from("projects")
+          .select("id, name, address, project_number, status")
+          .in("status", ["IN_PROGRESS", "ACTIVE", "PLANNING"])
+          .order("updated_at", { ascending: false })
+          .limit(5);
+        setProjects((active || []).map((p: any) => ({ ...p, phase: null })));
+      } else {
+        // Deduplizieren nach project_id
+        const seen = new Set<string>();
+        const unique = phases.filter((p: any) => {
+          if (seen.has(p.project_id)) return false;
+          seen.add(p.project_id);
+          return true;
+        });
+        setProjects(unique.map((p: any) => ({
+          id: p.project_id,
+          name: p.projects?.name || "—",
+          address: p.projects?.address || "",
+          project_number: p.projects?.project_number || "",
+          status: p.projects?.status || "",
+          phase: { name: p.name, trade: p.trade, status: p.status },
+        })));
+      }
+    } catch { }
+    setLoading(false);
+  }, []);
+
+  return { projects, loading, refetch: load };
+}
+
+function HeuteScreen() {
+  const { user } = useRole();
+  const { data: metrics, refetch: refetchMetrics, isRefetching } = useDashboardMetrics();
+  const { projects, loading: projLoading, refetch: refetchProjects } = useTodayProjects();
+
+  // Load on mount
+  const [mounted, setMounted] = useState(false);
+  if (!mounted) { refetchProjects(); setMounted(true); }
+
+  const today = new Date();
+  const dayNames = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+  const dateStr = `${dayNames[today.getDay()]}, ${today.getDate()}.${today.getMonth() + 1}.${today.getFullYear()}`;
+
+  return (
+    <>
+      {/* Begrüßung */}
+      <View style={styles.greetingSection}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 4 }}>
+          <Image source={require("@/assets/images/logo.png")} style={{ width: 36, height: 36 }} resizeMode="contain" />
+          <Text style={styles.greeting}>Moin {user.name}</Text>
+        </View>
+        <Text style={styles.subtitle}>{dateStr}</Text>
+      </View>
+
+      {/* Heute auf der Baustelle */}
+      <Text style={heuteStyles.sectionTitle}>Heute auf der Baustelle</Text>
+
+      {projLoading ? (
+        <ActivityIndicator size="small" color={Colors.raw.amber500} style={{ marginVertical: 20 }} />
+      ) : projects.length === 0 ? (
+        <View style={heuteStyles.emptyCard}>
+          <Ionicons name="sunny-outline" size={32} color={Colors.raw.zinc600} />
+          <Text style={heuteStyles.emptyText}>Keine Projekte fuer heute eingeplant</Text>
+        </View>
+      ) : (
+        projects.map((project) => (
+          <Pressable
+            key={project.id}
+            onPress={() => {
+              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({ pathname: "/project/[id]", params: { id: project.id } });
+            }}
+            style={({ pressed }) => [heuteStyles.projectCard, { opacity: pressed ? 0.85 : 1 }]}
+          >
+            <View style={heuteStyles.projectCardTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={heuteStyles.projectName}>{project.name}</Text>
+                <Text style={heuteStyles.projectAddress}>{project.address}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc500} />
+            </View>
+            {project.phase && (
+              <View style={heuteStyles.phaseRow}>
+                <View style={heuteStyles.phaseDot} />
+                <Text style={heuteStyles.phaseText}>{project.phase.trade || project.phase.name}</Text>
+                <Text style={heuteStyles.phaseStatus}>
+                  {project.phase.status === "in_progress" ? "Laeuft" : "Geplant"}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        ))
+      )}
+
+      {/* Quick-Links */}
+      <Text style={[heuteStyles.sectionTitle, { marginTop: 28 }]}>Schnellzugriff</Text>
+      <View style={styles.tilesGrid}>
+        <View style={styles.tilesRow}>
+          <Tile
+            icon={<Ionicons name="clipboard" size={22} color={Colors.raw.amber500} />}
+            label="Projekte"
+            rightContent={<TileSubtext text={`${metrics?.activeProjects ?? 0} aktiv`} color={Colors.raw.zinc400} />}
+            onPress={() => router.navigate("/(tabs)/projekte")}
+          />
+          <Tile
+            icon={<MaterialCommunityIcons name="package-variant" size={22} color={Colors.raw.amber400} />}
+            label="Material"
+            rightContent={<View />}
+            onPress={() => router.navigate("/(tabs)/material")}
+          />
+          <Tile
+            icon={<Ionicons name="calendar" size={22} color="#3b82f6" />}
+            label="Planung"
+            rightContent={<View />}
+            onPress={() => router.push("/planung")}
+          />
+        </View>
+      </View>
+    </>
+  );
+}
+
+const heuteStyles = StyleSheet.create({
+  sectionTitle: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 20,
+    color: Colors.raw.white,
+    marginBottom: 12,
+  },
+  emptyCard: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    padding: 32,
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.raw.zinc500,
+  },
+  projectCard: {
+    backgroundColor: Colors.raw.zinc900,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.raw.zinc800,
+    padding: 16,
+    marginBottom: 10,
+  },
+  projectCardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  projectName: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.raw.white,
+  },
+  projectAddress: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.raw.zinc500,
+    marginTop: 2,
+  },
+  phaseRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.raw.zinc800,
+  },
+  phaseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.raw.amber500,
+  },
+  phaseText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.raw.zinc300,
+    flex: 1,
+  },
+  phaseStatus: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.raw.amber500,
+  },
+});
+
 export default function StartScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 84 : 90;
-  const { role, user, isImpersonating } = useRole();
-  const { isOnline, getCacheAge } = useOffline();
+  const { isImpersonating } = useRole();
   const { data: metrics, refetch: refetchMetrics, isRefetching } = useDashboardMetrics();
-  const { refetch: refetchActions } = useDashboardActions();
-
-  const onRefresh = useCallback(async () => {
-    await Promise.all([refetchMetrics(), refetchActions()]);
-  }, [refetchMetrics, refetchActions]);
-
-  const { data: actionsData } = useDashboardActions();
-  const actionCount = actionsData?.totalCount ?? 0;
-
-  const greetings: Record<string, { greeting: string; subtitle: string }> = {
-    gf: {
-      greeting: `Moin ${user.name}`,
-      subtitle: actionCount > 0 ? `${actionCount} Dinge brauchen dich` : "Alles laeuft",
-    },
-    bauleiter: {
-      greeting: `Moin ${user.name}`,
-      subtitle: actionCount > 0 ? `${actionCount} offene Aktionen` : "Alles im Griff",
-    },
-    monteur: { greeting: `Moin ${user.name}`, subtitle: "Dein Tag auf der Baustelle" },
-  };
-
-  const { greeting, subtitle } = greetings[role];
 
   return (
     <View style={styles.container}>
@@ -727,24 +926,13 @@ export default function StartScreen() {
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
-            onRefresh={onRefresh}
+            onRefresh={refetchMetrics}
             tintColor={Colors.raw.amber500}
             colors={[Colors.raw.amber500]}
           />
         }
       >
-        <View style={styles.greetingSection}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 4 }}>
-            <Image source={require("@/assets/images/logo.png")} style={{ width: 36, height: 36 }} resizeMode="contain" />
-            <Text style={styles.greeting}>{greeting}</Text>
-            {!isOnline && <OfflineBadge cacheAge={getCacheAge("projekte")} />}
-          </View>
-          <Text style={styles.subtitle}>{subtitle}</Text>
-        </View>
-
-        {role === "gf" && <GFHome metrics={metrics} />}
-        {role === "bauleiter" && <BauleiterHome metrics={metrics} />}
-        {role === "monteur" && <MonteurHome />}
+        <HeuteScreen />
       </ScrollView>
     </View>
   );
