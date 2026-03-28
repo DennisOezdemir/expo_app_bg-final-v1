@@ -156,6 +156,31 @@ const TOOL_DEFS = [
       required: ["query"],
     },
   },
+  {
+    name: "request_material",
+    description: "Material für die Baustelle anfordern. Erstellt eine Freigabe-Anfrage die der GF genehmigen muss. Alle Rollen dürfen Material anfordern.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Projekt-UUID" },
+        description: { type: "string", description: "Was wird gebraucht (z.B. '12 Rollen Raufaser und 4 Eimer Kleber')" },
+        urgency: { type: "string", description: "Dringlichkeit: normal oder dringend" },
+      },
+      required: ["project_id", "description"],
+    },
+  },
+  {
+    name: "request_tool",
+    description: "Werkzeug oder Gerät für die Baustelle anfordern. Erstellt eine Freigabe-Anfrage die der GF koordinieren muss.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Projekt-UUID" },
+        description: { type: "string", description: "Was wird gebraucht, wann und wohin (z.B. 'Spritzmaschine morgen auf Tegelsbarg')" },
+      },
+      required: ["project_id", "description"],
+    },
+  },
 ];
 
 // Claude format
@@ -228,7 +253,7 @@ async function executeTool(
       }
 
       case "create_change_order": {
-        if (userRole === "monteur") return JSON.stringify({ error: "Monteure dürfen keine Nachträge anlegen." });
+        // Monteure dürfen Nachträge MELDEN — GF genehmigt im AgentView
         const { data, error } = await sb.from("approvals").insert({
           project_id: toolInput.project_id as string,
           approval_type: "CHANGE_ORDER",
@@ -307,6 +332,47 @@ async function executeTool(
           .limit(10);
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify({ projects: data || [], count: (data || []).length });
+      }
+
+      case "request_material": {
+        const { data, error } = await sb.from("approvals").insert({
+          project_id: toolInput.project_id as string,
+          approval_type: "MATERIAL_ORDER",
+          status: "PENDING",
+          requested_by: "chat_agent",
+          request_summary: `Materialanfrage${(toolInput.urgency as string) === "dringend" ? " (DRINGEND)" : ""}: ${toolInput.description}`,
+          request_data: { description: toolInput.description, urgency: toolInput.urgency || "normal", source: "chat_agent", requested_by_role: userRole },
+        }).select("id").single();
+        if (error) return JSON.stringify({ error: error.message });
+        return JSON.stringify({ success: true, approval_id: data.id, message: `Materialanfrage erstellt. Der GF wird benachrichtigt.` });
+      }
+
+      case "request_tool": {
+        const { data, error } = await sb.from("approvals").insert({
+          project_id: toolInput.project_id as string,
+          approval_type: "TOOL_REQUEST",
+          status: "PENDING",
+          requested_by: "chat_agent",
+          request_summary: `Werkzeuganfrage: ${toolInput.description}`,
+          request_data: { description: toolInput.description, source: "chat_agent", requested_by_role: userRole },
+        }).select("id").single();
+        if (error) {
+          // Falls TOOL_REQUEST als approval_type nicht existiert, Fallback auf MATERIAL_ORDER
+          if (error.message.includes("check constraint") || error.message.includes("approval_type")) {
+            const { data: d2, error: e2 } = await sb.from("approvals").insert({
+              project_id: toolInput.project_id as string,
+              approval_type: "MATERIAL_ORDER",
+              status: "PENDING",
+              requested_by: "chat_agent",
+              request_summary: `Werkzeuganfrage: ${toolInput.description}`,
+              request_data: { description: toolInput.description, source: "chat_agent", requested_by_role: userRole, type: "tool_request" },
+            }).select("id").single();
+            if (e2) return JSON.stringify({ error: e2.message });
+            return JSON.stringify({ success: true, approval_id: d2.id, message: `Werkzeuganfrage erstellt. Der GF wird benachrichtigt.` });
+          }
+          return JSON.stringify({ error: error.message });
+        }
+        return JSON.stringify({ success: true, approval_id: data.id, message: `Werkzeuganfrage erstellt. Der GF wird benachrichtigt.` });
       }
 
       case "update_project_status": {
