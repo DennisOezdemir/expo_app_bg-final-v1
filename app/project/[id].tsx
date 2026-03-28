@@ -2082,10 +2082,7 @@ export default function ProjectDetailScreen() {
           )}
         </View>
 
-        {/* Nächster Schritt — prominente Jetzt-tun-Box */}
-        {nextStep && (
-          <NextStepBox step={nextStep} onPress={handleNextStepPress} />
-        )}
+        {/* Nächster Schritt / Freigabe → AgentView */}
 
         {/* Angebot/Marge/Ergebnis → AgentView Dashboard */}
 
