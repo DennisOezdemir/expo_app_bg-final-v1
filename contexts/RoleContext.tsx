@@ -132,7 +132,8 @@ function normalizeUserRole(role?: string | null): UserRole {
     case "gf":
     case "geschäftsführer":
     case "geschaeftsfuehrer":
-      return "gf";
+      // GF wird in der Expo App als BL behandelt — GF-Features sind im AgentView
+      return "bauleiter";
     case "bauleiter":
     case "bauleiterin":
     case "polier":
@@ -142,7 +143,7 @@ function normalizeUserRole(role?: string | null): UserRole {
     case "handwerker":
       return "monteur";
     default:
-      return "gf";
+      return "bauleiter";
   }
 }
 
