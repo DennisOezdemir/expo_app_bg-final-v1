@@ -2087,32 +2087,7 @@ export default function ProjectDetailScreen() {
           <NextStepBox step={nextStep} onPress={handleNextStepPress} />
         )}
 
-        <SectionCard>
-          <View style={styles.marginBreakdown}>
-            <View style={styles.marginCol}>
-              <Text style={styles.marginLabel}>Angebot</Text>
-              <Text style={styles.marginValue}>
-                {angebotValue > 0
-                  ? `\u20AC${Math.round(angebotValue).toLocaleString("de-DE")}`
-                  : "—"}
-              </Text>
-            </View>
-            <View style={styles.marginCol}>
-              <Text style={styles.marginLabel}>Marge</Text>
-              <Text style={[styles.marginValueLarge, { color: angebotValue > 0 ? marginColor : Colors.raw.zinc500 }]}>
-                {angebotValue > 0 ? `${marginPercent}%` : "—"}
-              </Text>
-            </View>
-            <View style={styles.marginCol}>
-              <Text style={styles.marginLabel}>Ergebnis</Text>
-              <Text style={[styles.marginValue, { color: angebotValue > 0 ? marginColor : Colors.raw.zinc500 }]}>
-                {angebotValue > 0
-                  ? `\u20AC${Math.round(ergebnisValue).toLocaleString("de-DE")}`
-                  : "—"}
-              </Text>
-            </View>
-          </View>
-        </SectionCard>
+        {/* Angebot/Marge/Ergebnis → AgentView Dashboard */}
 
         <ScrollView
           horizontal
