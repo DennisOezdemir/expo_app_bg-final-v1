@@ -2093,17 +2093,6 @@ export default function ProjectDetailScreen() {
           style={styles.qaScroll}
         >
           <QuickAction
-            icon={<Ionicons name="document-text" size={24} color={Colors.raw.amber500} />}
-            label="Angebot"
-            onPress={() => {
-              if (offers.length === 0) {
-                router.push({ pathname: "/angebot/editor", params: { projectId: id || "" } });
-              } else {
-                setShowAngebotPicker(true);
-              }
-            }}
-          />
-          <QuickAction
             icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
             label="Material"
             onPress={() => router.push({ pathname: "/begehung/[type]", params: { type: "erstbegehung", tab: "material", projectId: id || "" } })}
