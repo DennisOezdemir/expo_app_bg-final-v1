@@ -816,12 +816,6 @@ function HeuteScreen() {
           rightContent={<View />}
           onPress={() => router.push("/planung")}
         />
-        <Tile
-          icon={<Ionicons name="camera" size={22} color={Colors.raw.amber500} />}
-          label="Foto"
-          rightContent={<View />}
-          onPress={() => router.navigate("/(tabs)/foto")}
-        />
       </View>
     </>
   );

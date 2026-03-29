@@ -142,15 +142,7 @@ function ClassicTabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="foto"
-        options={{
-          title: "Foto",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="camera" size={size} color={color} />
-          ),
-        }}
-      />
+      <Tabs.Screen name="foto" options={{ href: null }} />
       <Tabs.Screen
         name="profil"
         options={{
