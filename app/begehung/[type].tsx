@@ -1207,7 +1207,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                           </Pressable>
                         </View>
                         <View style={s.posBody}>
-                          <View style={s.posTitleRow}><Text style={s.posNr}>{pos.nr}</Text><Text style={[s.posTitle, isRejected && s.posTitleRejected]} numberOfLines={1}>{pos.title}</Text></View>
+                          <View style={s.posTitleRow}><Text style={s.posNr}>{pos.nr}</Text><Text style={[s.posTitle, isRejected && s.posTitleRejected]} >{pos.title}</Text></View>
                           <Text style={s.posDesc} numberOfLines={2}>{pos.desc}</Text>
                           <View style={s.posMetaRow}>
                             <Text style={s.posMeta}>{pos.qty} {pos.unit}</Text><View style={s.posDot} /><Text style={s.posMeta}>{formatEuro(pos.price)}/{pos.unit}</Text><View style={s.posDot} />
@@ -1938,7 +1938,7 @@ function ZwischenbegehungView({ projectId, protocolId, offerId }: { projectId: s
                       <View key={pos.id} style={s.zbPosRow} testID={`zb-pos-${pos.id}`}>
                         <View style={s.zbPosTop}>
                           <View style={s.posBody}>
-                            <View style={s.posTitleRow}><Text style={s.posNr}>{pos.nr}</Text><Text style={s.posTitle} numberOfLines={1}>{pos.title}</Text></View>
+                            <View style={s.posTitleRow}><Text style={s.posNr}>{pos.nr}</Text><Text style={s.posTitle} >{pos.title}</Text></View>
                             <Text style={s.posDesc} numberOfLines={2}>{pos.desc}</Text>
                             <View style={s.posMetaRow}>
                               <Text style={s.posMeta}>{pos.qty} {pos.unit}</Text><View style={s.posDot} /><Text style={s.posMeta}>{formatEuro(pos.price)}/{pos.unit}</Text><View style={s.posDot} />
@@ -2355,7 +2355,7 @@ function AbnahmeView({ projectId, protocolId, offerId }: { projectId: string; pr
                   <View style={s.posBody}>
                     <View style={s.posTitleRow}>
                       <Text style={s.posNr}>{pos.nr}</Text>
-                      <Text style={[s.posTitle, isChecked && { color: Colors.raw.zinc500 }]} numberOfLines={1}>{pos.title}</Text>
+                      <Text style={[s.posTitle, isChecked && { color: Colors.raw.zinc500 }]} >{pos.title}</Text>
                     </View>
                     <View style={s.posMetaRow}>
                       <Text style={s.posMeta}>{pos.qty} {pos.unit}</Text>
@@ -2524,7 +2524,7 @@ function CatalogModal({
                 {filteredEntries.map((entry) => (
                   <Pressable key={entry.id} style={({ pressed }) => [s.catalogEntry, { opacity: pressed ? 0.7 : 1 }]} onPress={() => onAddFromCatalog(entry)}>
                     <View style={s.catalogEntryBody}>
-                      <View style={s.catalogEntryTitleRow}><Text style={s.catalogEntryNr}>{entry.nr}</Text><Text style={s.catalogEntryTitle} numberOfLines={1}>{entry.title}</Text></View>
+                      <View style={s.catalogEntryTitleRow}><Text style={s.catalogEntryNr}>{entry.nr}</Text><Text style={s.catalogEntryTitle}>{entry.title}</Text></View>
                       <Text style={s.catalogEntryDesc} numberOfLines={1}>{entry.desc}</Text>
                       <View style={s.catalogEntryMeta}><Text style={s.catalogEntryPrice}>{formatEuro(entry.price)}/{entry.unit}</Text><View style={s.posTradeBadge}><Text style={s.posTradeText}>{entry.trade}</Text></View></View>
                     </View>
