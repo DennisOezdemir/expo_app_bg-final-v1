@@ -224,7 +224,7 @@ async function fetchRoomsForProject(projectId: string, offerId?: string): Promis
   const sectionIds = sections.map((s) => s.id);
   const { data: positions, error: posError } = await supabase
     .from("offer_positions")
-    .select("id, section_id, position_number, title, description, quantity, unit, unit_price, trade, sort_order")
+    .select("id, section_id, position_number, title, description, long_text, quantity, unit, unit_price, trade, sort_order")
     .in("section_id", sectionIds)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
@@ -245,7 +245,7 @@ async function fetchRoomsForProject(projectId: string, offerId?: string): Promis
       id: pos.id,
       nr: String(pos.position_number ?? ""),
       title: pos.title || "",
-      desc: pos.description || "",
+      desc: pos.long_text || pos.description || "",
       qty: Number(pos.quantity) || 0,
       unit: pos.unit || "Stk",
       price: Number(pos.unit_price) || 0,
@@ -1208,7 +1208,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                         </View>
                         <View style={s.posBody}>
                           <View style={s.posTitleRow}><Text style={s.posNr}>{pos.nr}</Text><Text style={[s.posTitle, isRejected && s.posTitleRejected]} >{pos.title}</Text></View>
-                          <Text style={s.posDesc} numberOfLines={2}>{pos.desc}</Text>
+                          <Text style={s.posDesc} >{pos.desc}</Text>
                           <View style={s.posMetaRow}>
                             <Text style={s.posMeta}>{pos.qty} {pos.unit}</Text><View style={s.posDot} /><Text style={s.posMeta}>{formatEuro(pos.price)}/{pos.unit}</Text><View style={s.posDot} />
                             <View style={s.posTradeBadge}><Text style={s.posTradeText}>{pos.trade}</Text></View>
@@ -1939,7 +1939,7 @@ function ZwischenbegehungView({ projectId, protocolId, offerId }: { projectId: s
                         <View style={s.zbPosTop}>
                           <View style={s.posBody}>
                             <View style={s.posTitleRow}><Text style={s.posNr}>{pos.nr}</Text><Text style={s.posTitle} >{pos.title}</Text></View>
-                            <Text style={s.posDesc} numberOfLines={2}>{pos.desc}</Text>
+                            <Text style={s.posDesc} >{pos.desc}</Text>
                             <View style={s.posMetaRow}>
                               <Text style={s.posMeta}>{pos.qty} {pos.unit}</Text><View style={s.posDot} /><Text style={s.posMeta}>{formatEuro(pos.price)}/{pos.unit}</Text><View style={s.posDot} />
                               <View style={s.posTradeBadge}><Text style={s.posTradeText}>{pos.trade}</Text></View>
