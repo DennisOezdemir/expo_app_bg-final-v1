@@ -224,7 +224,7 @@ async function fetchRoomsForProject(projectId: string, offerId?: string): Promis
   const sectionIds = sections.map((s) => s.id);
   const { data: positions, error: posError } = await supabase
     .from("offer_positions")
-    .select("id, section_id, position_number, title, description, long_text, quantity, unit, unit_price, trade, sort_order")
+    .select("id, section_id, position_number, title, description, long_text, quantity, unit, unit_price, trade, sort_order, catalog_code")
     .in("section_id", sectionIds)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
@@ -243,7 +243,7 @@ async function fetchRoomsForProject(projectId: string, offerId?: string): Promis
     name: sec.title,
     positions: (posBySection[sec.id] || []).map((pos) => ({
       id: pos.id,
-      nr: String(pos.position_number ?? ""),
+      nr: pos.catalog_code || String(pos.position_number ?? ""),
       title: pos.title || "",
       desc: pos.long_text || pos.description || "",
       qty: Number(pos.quantity) || 0,
