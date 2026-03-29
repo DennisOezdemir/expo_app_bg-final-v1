@@ -11,9 +11,10 @@ const colors = {
   zinc100: '#f4f4f5',
   white: '#fafafa',
 
-  amber500: '#f59e0b',
-  amber400: '#fbbf24',
-  amber600: '#d97706',
+  // Electric Blue — Primary Accent
+  amber500: '#4D4DFF',
+  amber400: '#6B6BFF',
+  amber600: '#3A3AD4',
 
   blue500: '#3b82f6',
 

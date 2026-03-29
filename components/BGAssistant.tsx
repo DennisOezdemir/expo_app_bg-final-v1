@@ -94,14 +94,14 @@ const fabStyles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 20,
     shadowColor: Colors.raw.amber500,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 20,
     elevation: 8,
   },
   label: {
     fontFamily: "Inter_700Bold",
     fontSize: 14,
-    color: "#000",
+    color: "#fff",
   },
 });

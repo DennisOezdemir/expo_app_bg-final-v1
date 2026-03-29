@@ -81,7 +81,7 @@ function FeedbackModal({ visible, onClose }: { visible: boolean; onClose: () => 
             disabled={sending || !text.trim()}
             style={({ pressed }) => [fbStyles.sendBtn, { opacity: pressed || sending || !text.trim() ? 0.6 : 1 }]}
           >
-            <Ionicons name="send" size={18} color="#000" />
+            <Ionicons name="send" size={18} color="#fff" />
             <Text style={fbStyles.sendText}>{sending ? "Wird gesendet..." : "Absenden"}</Text>
           </Pressable>
         </Pressable>
@@ -110,7 +110,7 @@ const fbStyles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
     backgroundColor: Colors.raw.amber500, paddingVertical: 16, borderRadius: 14,
   },
-  sendText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#000" },
+  sendText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#fff" },
 });
 
 export function TopBar({ hasNotification = true }: TopBarProps) {
