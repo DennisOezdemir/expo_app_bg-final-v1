@@ -803,27 +803,25 @@ function HeuteScreen() {
 
       {/* Quick-Links */}
       <Text style={[heuteStyles.sectionTitle, { marginTop: 28 }]}>Schnellzugriff</Text>
-      <View style={styles.tilesGrid}>
-        <View style={styles.tilesRow}>
-          <Tile
-            icon={<Ionicons name="clipboard" size={22} color={Colors.raw.amber500} />}
-            label="Projekte"
-            rightContent={<TileSubtext text={`${metrics?.activeProjects ?? 0} aktiv`} color={Colors.raw.zinc400} />}
-            onPress={() => router.navigate("/(tabs)/projekte")}
-          />
-          <Tile
-            icon={<Ionicons name="calendar" size={22} color="#3b82f6" />}
-            label="Planung"
-            rightContent={<View />}
-            onPress={() => router.push("/planung")}
-          />
-          <Tile
-            icon={<Ionicons name="camera" size={22} color={Colors.raw.amber500} />}
-            label="Foto"
-            rightContent={<View />}
-            onPress={() => router.navigate("/(tabs)/foto")}
-          />
-        </View>
+      <View style={{ gap: 8 }}>
+        <Tile
+          icon={<Ionicons name="clipboard" size={22} color={Colors.raw.amber500} />}
+          label="Projekte"
+          rightContent={<TileSubtext text={`${metrics?.activeProjects ?? 0} aktiv`} color={Colors.raw.zinc400} />}
+          onPress={() => router.navigate("/(tabs)/projekte")}
+        />
+        <Tile
+          icon={<Ionicons name="calendar" size={22} color="#3b82f6" />}
+          label="Planung"
+          rightContent={<View />}
+          onPress={() => router.push("/planung")}
+        />
+        <Tile
+          icon={<Ionicons name="camera" size={22} color={Colors.raw.amber500} />}
+          label="Foto"
+          rightContent={<View />}
+          onPress={() => router.navigate("/(tabs)/foto")}
+        />
       </View>
     </>
   );
