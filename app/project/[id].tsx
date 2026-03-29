@@ -2330,143 +2330,6 @@ export default function ProjectDetailScreen() {
           })()}
         </SectionCard>
 
-        {/* Fotos */}
-        <SectionCard>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <SectionHeader
-              title="Fotos"
-              badge={photoCount > 0 ? String(photoCount) : undefined}
-            />
-            {photoCount > 0 && (
-              <Pressable
-                onPress={handleCapturePhoto}
-                style={({ pressed }) => [styles.begehungAddBtn, { opacity: pressed ? 0.7 : 1 }]}
-              >
-                {photoUploading ? (
-                  <ActivityIndicator size={14} color={Colors.raw.zinc950} />
-                ) : (
-                  <Ionicons name="add" size={18} color={Colors.raw.zinc950} />
-                )}
-              </Pressable>
-            )}
-          </View>
-          {photoCount > 0 ? (
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowPhotoGallery(true);
-              }}
-              style={({ pressed }) => [styles.photoRow, { opacity: pressed ? 0.8 : 1 }]}
-            >
-              <View style={styles.photoPreviewRow}>
-                <Ionicons name="images" size={32} color={Colors.raw.amber500} />
-                <View style={styles.photoTextCol}>
-                  <Text style={styles.photoTitle}>{photoCount} {photoCount === 1 ? "Foto" : "Fotos"} vorhanden</Text>
-                  <Text style={styles.photoSubtitle}>Tippen zum Anzeigen</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc600} />
-              </View>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={handleCapturePhoto}
-              style={({ pressed }) => [styles.photoRow, { opacity: pressed ? 0.8 : 1 }]}
-            >
-              <View style={styles.photoPreviewRow}>
-                <Ionicons name="camera-outline" size={32} color={photoUploading ? Colors.raw.amber500 : Colors.raw.zinc600} />
-                <View style={styles.photoTextCol}>
-                  <Text style={styles.photoSubtitle}>{photoUploading ? "Wird hochgeladen..." : "Noch keine Fotos"}</Text>
-                  <Text style={styles.photoSubtitle}>{photoUploading ? "Bitte warten" : "Tippen um Foto aufzunehmen"}</Text>
-                </View>
-                <Pressable
-                  onPress={handleCapturePhoto}
-                  disabled={photoUploading}
-                  style={({ pressed }) => [styles.begehungAddBtn, { opacity: pressed || photoUploading ? 0.6 : 1 }]}
-                >
-                  {photoUploading ? (
-                    <ActivityIndicator size={14} color={Colors.raw.zinc950} />
-                  ) : (
-                    <Ionicons name="add" size={18} color={Colors.raw.zinc950} />
-                  )}
-                </Pressable>
-              </View>
-            </Pressable>
-          )}
-        </SectionCard>
-
-        {/* Nachträge */}
-        <SectionCard>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <SectionHeader
-              title="Nachträge"
-              badge={changeOrders.length > 0 ? String(changeOrders.length) : undefined}
-            />
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({ pathname: "/nachtrag/neu", params: { projectId: id || "" } });
-              }}
-              style={({ pressed }) => [styles.begehungAddBtn, { opacity: pressed ? 0.7 : 1 }]}
-            >
-              <Ionicons name="add" size={18} color={Colors.raw.zinc950} />
-            </Pressable>
-          </View>
-          {changeOrders.length > 0 ? (
-            changeOrders.map((co, i) => {
-              const statusCfg: Record<string, { color: string; label: string }> = {
-                DRAFT: { color: Colors.raw.zinc500, label: "Entwurf" },
-                SUBMITTED: { color: Colors.raw.amber500, label: "Eingereicht" },
-                PENDING_APPROVAL: { color: Colors.raw.amber500, label: "Prüfung" },
-                PENDING_CUSTOMER: { color: Colors.raw.amber500, label: "Beim Kunden" },
-                APPROVED: { color: Colors.raw.emerald500, label: "Genehmigt" },
-                APPROVED_BY_CUSTOMER: { color: Colors.raw.emerald500, label: "Freigegeben" },
-                REJECTED: { color: Colors.raw.rose500, label: "Abgelehnt" },
-                REJECTED_BY_CUSTOMER: { color: Colors.raw.rose500, label: "Abgelehnt" },
-                INVOICED: { color: Colors.raw.emerald500, label: "Abgerechnet" },
-              };
-              const cfg = statusCfg[co.status] || { color: Colors.raw.zinc500, label: co.status };
-              return (
-                <Pressable
-                  key={co.id}
-                  onPress={() => {
-                    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push({ pathname: "/nachtrag/[id]", params: { id: co.id } });
-                  }}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    paddingVertical: 14,
-                    borderBottomWidth: i < changeOrders.length - 1 ? 1 : 0,
-                    borderBottomColor: Colors.raw.zinc800,
-                    opacity: pressed ? 0.8 : 1,
-                  })}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cfg.color }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.white, marginBottom: 2 }} numberOfLines={1}>
-                        {co.title}
-                      </Text>
-                      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500 }}>
-                        {co.changeOrderNumber} {"\u2022"} {cfg.label} {"\u2022"} {co.itemCount} Pos.
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={{ fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.raw.white }}>
-                      {"\u20AC"}{Math.round(co.amountNet).toLocaleString("de-DE")}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={16} color={Colors.raw.zinc600} />
-                  </View>
-                </Pressable>
-              );
-            })
-          ) : (
-            <Text style={styles.emptySection}>Keine Nachträge</Text>
-          )}
-        </SectionCard>
-
         {/* Nachrichten */}
         <SectionCard>
           <SectionHeader
@@ -2503,19 +2366,93 @@ export default function ProjectDetailScreen() {
           )}
           <Pressable
             onPress={() => {
-              if (Platform.OS !== "web") {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }
-              router.push({ pathname: "/chat/[id]", params: { id: id || "1" } });
+              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({ pathname: "/chat/[id]", params: { id: id || "" } });
             }}
-            style={({ pressed }) => [
-              styles.allMessagesBtn,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
+            style={({ pressed }) => [styles.allMessagesBtn, { opacity: pressed ? 0.7 : 1 }]}
           >
             <Text style={styles.allMessagesText}>Alle Nachrichten</Text>
             <Ionicons name="arrow-forward" size={16} color={Colors.raw.amber500} />
           </Pressable>
+        </SectionCard>
+
+        {/* Fotos (Logbuch — read-only) */}
+        <SectionCard>
+          <SectionHeader
+            title="Fotos"
+            badge={photoCount > 0 ? String(photoCount) : undefined}
+          />
+          {photoCount > 0 ? (
+            <Pressable
+              onPress={() => {
+                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowPhotoGallery(true);
+              }}
+              style={({ pressed }) => [styles.photoRow, { opacity: pressed ? 0.8 : 1 }]}
+            >
+              <View style={styles.photoPreviewRow}>
+                <Ionicons name="images" size={32} color={Colors.raw.amber500} />
+                <View style={styles.photoTextCol}>
+                  <Text style={styles.photoTitle}>{photoCount} {photoCount === 1 ? "Foto" : "Fotos"} vorhanden</Text>
+                  <Text style={styles.photoSubtitle}>Tippen zum Anzeigen</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={Colors.raw.zinc600} />
+              </View>
+            </Pressable>
+          ) : (
+            <Text style={styles.emptySection}>Noch keine Fotos</Text>
+          )}
+        </SectionCard>
+
+        {/* Nachträge (Logbuch — read-only, Input über Agent) */}
+        <SectionCard>
+          <SectionHeader
+            title="Nachträge"
+            badge={changeOrders.length > 0 ? String(changeOrders.length) : undefined}
+          />
+          {changeOrders.length > 0 ? (
+            changeOrders.map((co, i) => {
+              const statusCfg: Record<string, { color: string; label: string }> = {
+                DRAFT: { color: Colors.raw.zinc500, label: "Entwurf" },
+                SUBMITTED: { color: Colors.raw.amber500, label: "Eingereicht" },
+                PENDING_APPROVAL: { color: Colors.raw.amber500, label: "Prüfung" },
+                PENDING_CUSTOMER: { color: Colors.raw.amber500, label: "Beim Kunden" },
+                APPROVED: { color: Colors.raw.emerald500, label: "Genehmigt" },
+                APPROVED_BY_CUSTOMER: { color: Colors.raw.emerald500, label: "Freigegeben" },
+                REJECTED: { color: Colors.raw.rose500, label: "Abgelehnt" },
+                REJECTED_BY_CUSTOMER: { color: Colors.raw.rose500, label: "Abgelehnt" },
+                INVOICED: { color: Colors.raw.emerald500, label: "Abgerechnet" },
+              };
+              const cfg = statusCfg[co.status] || { color: Colors.raw.zinc500, label: co.status };
+              return (
+                <View
+                  key={co.id}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingVertical: 14,
+                    borderBottomWidth: i < changeOrders.length - 1 ? 1 : 0,
+                    borderBottomColor: Colors.raw.zinc800,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: cfg.color }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.white, marginBottom: 2 }} numberOfLines={1}>
+                        {co.title}
+                      </Text>
+                      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.raw.zinc500 }}>
+                        {co.changeOrderNumber} • {cfg.label} • {co.itemCount} Pos.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })
+          ) : (
+            <Text style={styles.emptySection}>Keine Nachträge</Text>
+          )}
         </SectionCard>
 
         {/* Aktivitaeten → ausgelagert in AgentView */}
