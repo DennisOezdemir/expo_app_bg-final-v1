@@ -451,23 +451,11 @@ export default function ProjekteScreen() {
               {projects.length} gesamt
             </Text>
           </View>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <Pressable
-              style={({ pressed }) => [styles.searchButton, { opacity: pressed ? 0.7 : 1 }]}
-            >
-              <Feather name="search" size={22} color={Colors.raw.zinc400} />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                setShowCreate(true);
-              }}
-              style={({ pressed }) => [styles.addButton, { opacity: pressed ? 0.7 : 1 }]}
-            >
-              <Ionicons name="add" size={18} color="#000" />
-              <Text style={styles.addButtonText}>Projekt anlegen</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            style={({ pressed }) => [styles.searchButton, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Feather name="search" size={22} color={Colors.raw.amber500} />
+          </Pressable>
         </View>
 
         <ScrollView
