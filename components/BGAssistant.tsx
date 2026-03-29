@@ -1,4 +1,4 @@
-import { StyleSheet, View, Pressable, Platform } from "react-native";
+import { StyleSheet, View, Pressable, Platform, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect } from "react";
 import Animated, {
@@ -29,8 +29,8 @@ export function FAB({ projectId }: FABProps) {
   useEffect(() => {
     pulse.value = withRepeat(
       withSequence(
-        withTiming(1.15, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) })
+        withTiming(1.08, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       true
@@ -40,7 +40,7 @@ export function FAB({ projectId }: FABProps) {
 
   const pulseStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulse.value }],
-    opacity: interpolate(pulse.value, [1, 1.15], [0.3, 0]),
+    opacity: interpolate(pulse.value, [1, 1.08], [0.2, 0]),
   }));
 
   const fabAnimStyle = useAnimatedStyle(() => ({
@@ -51,7 +51,7 @@ export function FAB({ projectId }: FABProps) {
     <AnimatedPressable
       style={[fabStyles.container, fabAnimStyle]}
       onPressIn={() => {
-        fabScale.value = withSpring(0.9, { damping: 15, stiffness: 300 });
+        fabScale.value = withSpring(0.95, { damping: 15, stiffness: 300 });
       }}
       onPressOut={() => {
         fabScale.value = withSpring(1, { damping: 15, stiffness: 300 });
@@ -65,7 +65,8 @@ export function FAB({ projectId }: FABProps) {
     >
       <Animated.View style={[fabStyles.pulse, pulseStyle]} />
       <View style={fabStyles.inner}>
-        <Ionicons name="mic" size={26} color="#000" />
+        <Ionicons name="sparkles" size={22} color="#000" />
+        <Text style={fabStyles.label}>BG Agent</Text>
       </View>
     </AnimatedPressable>
   );
@@ -73,35 +74,34 @@ export function FAB({ projectId }: FABProps) {
 
 const fabStyles = StyleSheet.create({
   container: {
-    width: 56,
-    height: 56,
+    height: 48,
+    borderRadius: 24,
   },
   pulse: {
     position: "absolute",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: "100%",
+    height: 48,
+    borderRadius: 24,
     backgroundColor: Colors.raw.amber500,
   },
   inner: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: Colors.raw.amber500,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 20,
     shadowColor: Colors.raw.amber500,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 8,
   },
+  label: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#000",
+  },
 });
-
-/** @deprecated Mock overlay removed — FAB now navigates to /chat/[id] directly */
-export function AssistantOverlay(_props: {
-  visible: boolean;
-  onClose: () => void;
-}) {
-  return null;
-}

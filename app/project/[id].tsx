@@ -2093,14 +2093,19 @@ export default function ProjectDetailScreen() {
           style={styles.qaScroll}
         >
           <QuickAction
-            icon={<Ionicons name="camera" size={24} color={photoUploading ? Colors.raw.zinc600 : Colors.raw.amber500} />}
-            label={photoUploading ? "Lädt..." : "Foto"}
-            onPress={handleCapturePhoto}
+            icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
+            label="Material"
+            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "" } })}
+          />
+          <QuickAction
+            icon={<Ionicons name="construct" size={24} color={Colors.raw.amber500} />}
+            label="Nachtrag"
+            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "" } })}
           />
           <QuickAction
             icon={<Ionicons name="chatbubbles" size={24} color={Colors.raw.amber500} />}
             label="Chat"
-            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "1" } })}
+            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "" } })}
           />
         </ScrollView>
 
@@ -2570,47 +2575,7 @@ export default function ProjectDetailScreen() {
           </Pressable>
         </SectionCard>
 
-        {/* Projekt löschen */}
-        <Pressable
-          onPress={() => {
-            const doDelete = async () => {
-              try {
-                const { error } = await supabase
-                  .from("projects")
-                  .delete()
-                  .eq("id", id);
-                if (error) throw error;
-                if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                router.replace("/(tabs)/projekte");
-              } catch (err: any) {
-                showAlert("Fehler", err.message || "Projekt konnte nicht gelöscht werden");
-              }
-            };
-            if (Platform.OS === "web") {
-              if (window.confirm("Projekt wirklich löschen? Das kann nicht rückgängig gemacht werden.")) doDelete();
-            } else {
-              Alert.alert(
-                "Projekt löschen",
-                "Projekt wirklich löschen? Das kann nicht rückgängig gemacht werden.",
-                [
-                  { text: "Abbrechen", style: "cancel" },
-                  { text: "Löschen", style: "destructive", onPress: doDelete },
-                ]
-              );
-            }
-          }}
-          style={({ pressed }) => ({
-            marginTop: 32,
-            marginBottom: 40,
-            paddingVertical: 16,
-            alignItems: "center",
-            opacity: pressed ? 0.7 : 1,
-          })}
-        >
-          <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.raw.rose500 }}>
-            Projekt löschen
-          </Text>
-        </Pressable>
+        {/* Projekt löschen → AgentView */}
       </ScrollView>
 
       <Modal
