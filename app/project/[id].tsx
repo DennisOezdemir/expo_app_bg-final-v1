@@ -2093,11 +2093,6 @@ export default function ProjectDetailScreen() {
           style={styles.qaScroll}
         >
           <QuickAction
-            icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
-            label="Material"
-            onPress={() => router.push({ pathname: "/begehung/[type]", params: { type: "erstbegehung", tab: "material", projectId: id || "" } })}
-          />
-          <QuickAction
             icon={<Ionicons name="camera" size={24} color={photoUploading ? Colors.raw.zinc600 : Colors.raw.amber500} />}
             label={photoUploading ? "Lädt..." : "Foto"}
             onPress={handleCapturePhoto}

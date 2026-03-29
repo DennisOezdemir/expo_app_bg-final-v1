@@ -132,15 +132,7 @@ function ClassicTabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="material"
-        options={{
-          title: "Material",
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="package-variant" size={size} color={color} />
-          ),
-        }}
-      />
+      <Tabs.Screen name="material" options={{ href: null }} />
       <Tabs.Screen
         name="planung"
         options={{

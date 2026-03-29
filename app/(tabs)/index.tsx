@@ -812,16 +812,16 @@ function HeuteScreen() {
             onPress={() => router.navigate("/(tabs)/projekte")}
           />
           <Tile
-            icon={<MaterialCommunityIcons name="package-variant" size={22} color={Colors.raw.amber400} />}
-            label="Material"
-            rightContent={<View />}
-            onPress={() => router.navigate("/(tabs)/material")}
-          />
-          <Tile
             icon={<Ionicons name="calendar" size={22} color="#3b82f6" />}
             label="Planung"
             rightContent={<View />}
             onPress={() => router.push("/planung")}
+          />
+          <Tile
+            icon={<Ionicons name="camera" size={22} color={Colors.raw.amber500} />}
+            label="Foto"
+            rightContent={<View />}
+            onPress={() => router.navigate("/(tabs)/foto")}
           />
         </View>
       </View>
