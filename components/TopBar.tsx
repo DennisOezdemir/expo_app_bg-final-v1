@@ -95,7 +95,7 @@ const fbStyles = StyleSheet.create({
   sheet: { backgroundColor: Colors.raw.zinc900, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.raw.zinc700, alignSelf: "center", marginBottom: 16 },
   title: { fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.raw.white, marginBottom: 16 },
-  catRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+  catRow: { gap: 8, marginBottom: 16 },
   catBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     paddingVertical: 12, borderRadius: 12, backgroundColor: Colors.raw.zinc800, borderWidth: 1, borderColor: Colors.raw.zinc700,
