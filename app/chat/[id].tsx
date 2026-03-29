@@ -1021,7 +1021,24 @@ export default function ChatScreen() {
     return null;
   }, []);
 
-  const roleLabel = role === "gf" ? "GF" : role === "bauleiter" ? "BL" : "Monteur";
+  const roleLabel = role === "bauleiter" ? "Bauleiter" : "Monteur";
+
+  // Projektname laden
+  const [projectName, setProjectName] = useState("");
+  useEffect(() => {
+    if (!projectId) return;
+    (async () => {
+      try {
+        const { supabase } = require("@/lib/supabase");
+        const { data } = await supabase
+          .from("projects")
+          .select("name, display_name")
+          .eq("id", projectId)
+          .single();
+        if (data) setProjectName(data.display_name || data.name || "");
+      } catch {}
+    })();
+  }, [projectId]);
   const msgCount = filteredDbMessages.length;
 
   return (
@@ -1038,9 +1055,9 @@ export default function ChatScreen() {
           <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>BauGenius Agent</Text>
+          <Text style={styles.headerTitle}>{projectName || "BauGenius Agent"}</Text>
           <Text style={styles.headerSub} numberOfLines={1}>
-            Projekt-Chat {"\u2022"} {roleLabel}
+            {roleLabel}
           </Text>
         </View>
         <View style={styles.headerRight}>
