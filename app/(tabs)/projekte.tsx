@@ -273,14 +273,12 @@ function formatDeadline(dateStr: string | null): string {
   return d.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-type FilterKey = "alle" | "kritisch" | "achtung" | "laeuft" | "fertig";
+type FilterKey = "alle" | "laeuft" | "achtung" | "fertig";
 
 const FILTERS: { key: FilterKey; label: string; dotColor?: string }[] = [
-  { key: "alle", label: "Alle" },
-  { key: "kritisch", label: "Kritisch", dotColor: Colors.raw.rose500 },
+  { key: "laeuft", label: "Laufend", dotColor: Colors.raw.emerald500 },
   { key: "achtung", label: "Achtung", dotColor: Colors.raw.amber500 },
-  { key: "laeuft", label: "Läuft", dotColor: Colors.raw.emerald500 },
-  { key: "fertig", label: "Fertig", dotColor: Colors.raw.zinc500 },
+  { key: "fertig", label: "Abgeschlossen", dotColor: Colors.raw.zinc500 },
 ];
 
 function FilterChip({
@@ -398,7 +396,7 @@ export default function ProjekteScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const bottomInset = Platform.OS === "web" ? 84 : 90;
-  const [activeFilter, setActiveFilter] = useState<FilterKey>("alle");
+  const [activeFilter, setActiveFilter] = useState<FilterKey>("laeuft");
   const [showCreate, setShowCreate] = useState(false);
   const {
     data: projectRows,
@@ -429,11 +427,15 @@ export default function ProjekteScreen() {
     setActiveFilter(key);
   }, []);
 
-  const filtered = activeFilter === "alle"
-    ? projects.filter((p) => p.status !== "fertig")
-    : projects.filter((p) => p.status === activeFilter);
+  const filtered = activeFilter === "laeuft"
+    ? projects.filter((p) => p.status === "laeuft" || p.status === "kritisch")
+    : activeFilter === "achtung"
+    ? projects.filter((p) => p.status === "achtung" || p.status === "kritisch")
+    : activeFilter === "fertig"
+    ? projects.filter((p) => p.status === "fertig")
+    : projects;
 
-  const kritischCount = projects.filter((p) => p.status === "kritisch").length;
+  const laufendCount = projects.filter((p) => p.status === "laeuft" || p.status === "kritisch").length;
   const aktivCount = projects.filter((p) => p.status !== "fertig").length;
 
   return (
@@ -444,9 +446,9 @@ export default function ProjekteScreen() {
           <View>
             <Text style={styles.headerTitle}>Projekte</Text>
             <Text style={styles.headerSubtitle}>
-              {aktivCount} aktiv{" "}
+              {laufendCount} laufend{" "}
               <Text style={{ color: Colors.raw.zinc600 }}>{"\u2022"}</Text>{" "}
-              <Text style={{ color: Colors.raw.rose400 }}>{kritischCount} überfällig</Text>
+              {projects.length} gesamt
             </Text>
           </View>
           <View style={{ flexDirection: "row", gap: 8 }}>
