@@ -2095,17 +2095,17 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
             label="Material"
-            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "" } })}
+            onPress={() => { if (id) router.push(`/chat/${id}`); }}
           />
           <QuickAction
             icon={<Ionicons name="construct" size={24} color={Colors.raw.amber500} />}
             label="Nachtrag"
-            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "" } })}
+            onPress={() => { if (id) router.push(`/chat/${id}`); }}
           />
           <QuickAction
             icon={<Ionicons name="chatbubbles" size={24} color={Colors.raw.amber500} />}
             label="Chat"
-            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: id || "" } })}
+            onPress={() => { if (id) router.push(`/chat/${id}`); }}
           />
         </ScrollView>
 
