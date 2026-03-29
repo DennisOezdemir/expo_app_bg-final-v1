@@ -2394,11 +2394,11 @@ export default function ProjectDetailScreen() {
           )}
         </SectionCard>
 
-        {/* Nachtr\u00E4ge */}
+        {/* Nachträge */}
         <SectionCard>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <SectionHeader
-              title="Nachtr\u00E4ge"
+              title="Nachträge"
               badge={changeOrders.length > 0 ? String(changeOrders.length) : undefined}
             />
             <Pressable
@@ -2416,7 +2416,7 @@ export default function ProjectDetailScreen() {
               const statusCfg: Record<string, { color: string; label: string }> = {
                 DRAFT: { color: Colors.raw.zinc500, label: "Entwurf" },
                 SUBMITTED: { color: Colors.raw.amber500, label: "Eingereicht" },
-                PENDING_APPROVAL: { color: Colors.raw.amber500, label: "Pr\u00FCfung" },
+                PENDING_APPROVAL: { color: Colors.raw.amber500, label: "Prüfung" },
                 PENDING_CUSTOMER: { color: Colors.raw.amber500, label: "Beim Kunden" },
                 APPROVED: { color: Colors.raw.emerald500, label: "Genehmigt" },
                 APPROVED_BY_CUSTOMER: { color: Colors.raw.emerald500, label: "Freigegeben" },
@@ -2463,7 +2463,7 @@ export default function ProjectDetailScreen() {
               );
             })
           ) : (
-            <Text style={styles.emptySection}>Keine Nachtr\u00E4ge</Text>
+            <Text style={styles.emptySection}>Keine Nachträge</Text>
           )}
         </SectionCard>
 
@@ -2627,11 +2627,11 @@ export default function ProjectDetailScreen() {
         <Pressable style={styles.modalOverlay} onPress={() => setShowBegehungPicker(false)}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Begehung erstellen</Text>
-            <Text style={styles.modalSubtitle}>Art der Begehung w{"\u00E4"}hlen</Text>
+            <Text style={styles.modalSubtitle}>Art der Begehung wählen</Text>
             {[
               { key: "baustellenaufnahme", label: "Baustellenaufnahme", icon: "scan", desc: "Neue Baustelle erfassen (ohne Angebot)" },
               { key: "erstbegehung", label: "Erstbegehung", icon: "eye", desc: "Erstmalige Begutachtung vor Ort" },
-              { key: "zwischenbegehung", label: "Zwischenbegehung", icon: "sync", desc: "Kontrolle w\u00E4hrend der Bauphase" },
+              { key: "zwischenbegehung", label: "Zwischenbegehung", icon: "sync", desc: "Kontrolle während der Bauphase" },
               { key: "abnahme", label: "Abnahme", icon: "checkmark-circle", desc: "Finale Abnahme nach Fertigstellung" },
             ].map((item) => (
               <Pressable
@@ -2680,8 +2680,8 @@ export default function ProjectDetailScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowOfferPicker(false)}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Angebot w{"\u00E4"}hlen</Text>
-            <Text style={styles.modalSubtitle}>F{"\u00FC"}r welches Angebot soll die Begehung durchgef{"\u00FC"}hrt werden?</Text>
+            <Text style={styles.modalTitle}>Angebot wählen</Text>
+            <Text style={styles.modalSubtitle}>Für welches Angebot soll die Begehung durchgeführt werden?</Text>
             {offers.map((offer) => (
               <Pressable
                 key={offer.id}
@@ -2724,8 +2724,8 @@ export default function ProjectDetailScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowAngebotPicker(false)}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Angebot w{"\u00E4"}hlen</Text>
-            <Text style={styles.modalSubtitle}>Bestehendes Angebot {"\u00F6"}ffnen oder neues erstellen</Text>
+            <Text style={styles.modalTitle}>Angebot wählen</Text>
+            <Text style={styles.modalSubtitle}>Bestehendes Angebot öffnen oder neues erstellen</Text>
             {offers.map((offer) => (
               <Pressable
                 key={offer.id}

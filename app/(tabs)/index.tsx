@@ -128,7 +128,7 @@ function ChatWidget() {
         {messages.length === 0 ? (
           <View style={chatStyles.emptyState}>
             <Ionicons name="chatbubbles-outline" size={28} color={Colors.raw.zinc700} />
-            <Text style={chatStyles.emptyText}>Positionen checken, Nachtr{"\u00E4"}ge anlegen, Status abfragen...</Text>
+            <Text style={chatStyles.emptyText}>Positionen checken, Nachträge anlegen, Status abfragen...</Text>
           </View>
         ) : (
           messages.slice(-4).map((msg, i) => (
