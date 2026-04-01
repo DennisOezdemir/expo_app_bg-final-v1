@@ -708,7 +708,7 @@ export default function FreigabenScreen() {
 
   return (
     <View style={styles.container}>
-      <TopBar hasNotification />
+      <TopBar />
 
       <View style={[styles.headerSection, { paddingTop: topInset + 64 }]}>
         <View style={styles.headerRow}>

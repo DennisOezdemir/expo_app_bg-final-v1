@@ -904,7 +904,7 @@ export default function StartScreen() {
 
   return (
     <View style={styles.container}>
-      <TopBar hasNotification />
+      <TopBar />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[

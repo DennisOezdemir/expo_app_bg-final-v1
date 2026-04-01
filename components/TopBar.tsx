@@ -8,9 +8,7 @@ import { useRole } from "@/contexts/RoleContext";
 import { DebugToggle } from "@/components/DebugConsole";
 import { supabase } from "@/lib/supabase";
 
-interface TopBarProps {
-  hasNotification?: boolean;
-}
+interface TopBarProps {}
 
 function FeedbackModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [text, setText] = useState("");
@@ -113,7 +111,7 @@ const fbStyles = StyleSheet.create({
   sendText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#fff" },
 });
 
-export function TopBar({ hasNotification = true }: TopBarProps) {
+export function TopBar({}: TopBarProps) {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
   const { role } = useRole();
@@ -125,13 +123,6 @@ export function TopBar({ hasNotification = true }: TopBarProps) {
       <Text style={styles.logo}>BAUGENIUS</Text>
       <View style={styles.rightRow}>
         {showDebug && <DebugToggle />}
-        <Pressable
-          style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.7 : 1 }]}
-          testID="notification-bell"
-        >
-          <Ionicons name="notifications-outline" size={24} color={Colors.raw.zinc400} />
-          {hasNotification && <View style={styles.notificationDot} />}
-        </Pressable>
         <Pressable
           onPress={() => setShowFeedback(true)}
           style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.7 : 1 }]}
@@ -174,16 +165,5 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: "center",
     justifyContent: "center",
-  },
-  notificationDot: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: Colors.raw.rose500,
-    borderWidth: 2,
-    borderColor: Colors.raw.zinc950,
   },
 });

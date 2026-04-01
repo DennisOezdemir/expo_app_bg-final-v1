@@ -467,7 +467,7 @@ export default function MaterialScreen() {
 
   return (
     <View style={styles.container}>
-      <TopBar hasNotification />
+      <TopBar />
 
       <ScrollView
         style={styles.scrollView}
