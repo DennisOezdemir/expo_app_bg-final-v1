@@ -959,7 +959,6 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
 
-  const [activeFilter, setActiveFilter] = useState("alle");
   const [inputText, setInputText] = useState("");
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
 
@@ -970,18 +969,10 @@ export default function ChatScreen() {
   const { data: dbMessages = [], isLoading } = useChatHistory(projectId || "");
   const sendMutation = useSendMessage(projectId || "");
 
-  // Filter DB messages
-  const filteredDbMessages = dbMessages.filter((m) => {
-    if (activeFilter === "alle") return true;
-    if (activeFilter === "chat") return m.role === "user";
-    if (activeFilter === "system") return m.role === "assistant";
-    return true;
-  });
-
   // Group DB messages by date
   const listData: { type: "separator" | "message"; key: string; date?: string; dbMsg?: ChatMessageRow }[] = [];
   let lastDateLabel = "";
-  filteredDbMessages.forEach((m) => {
+  dbMessages.forEach((m) => {
     const dateLabel = formatDateLabel(m.created_at);
     if (dateLabel !== lastDateLabel) {
       lastDateLabel = dateLabel;
@@ -1073,47 +1064,6 @@ export default function ChatScreen() {
         keyboardVerticalOffset={0}
       >
         <View style={{ flex: 1, paddingTop: topInset + 80 }}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterScroll}
-            contentContainerStyle={styles.filterScrollContent}
-          >
-            {FILTERS.map((f) => (
-              <Pressable
-                key={f.key}
-                onPress={() => {
-                  if (Platform.OS !== "web") {
-                    Haptics.selectionAsync();
-                  }
-                  setActiveFilter(f.key);
-                }}
-                style={[
-                  styles.filterChip,
-                  activeFilter === f.key && styles.filterChipActive,
-                ]}
-              >
-                {f.icon && (
-                  <Ionicons
-                    name={f.icon as any}
-                    size={14}
-                    color={
-                      activeFilter === f.key ? "#FFFFFF" : Colors.raw.zinc400
-                    }
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    activeFilter === f.key && styles.filterChipTextActive,
-                  ]}
-                >
-                  {f.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
           {isLoading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={Colors.raw.amber500} />
