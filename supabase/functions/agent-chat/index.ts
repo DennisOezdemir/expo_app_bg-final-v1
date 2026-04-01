@@ -280,7 +280,7 @@ async function executeTool(
         const term = toolInput.search_term as string;
         const { data, error } = await sb
           .from("catalog_positions_v2")
-          .select("code, title, title_secondary, unit, trade_type")
+          .select("code, title, title_secondary, unit, trade")
           .eq("catalog_id", catalogId)
           .or(`title.ilike.%${term}%,title_secondary.ilike.%${term}%,code.ilike.%${term}%`)
           .limit(15);
@@ -317,8 +317,8 @@ async function executeTool(
 
       case "get_project_status": {
         const statusCols = userRole === "gf"
-          ? "id, name, status, address, unit_count, client_name, trade_type"
-          : "id, name, status, address, unit_count, trade_type";
+          ? "id, name, status, object_street, object_city, project_number, progress_percent, planned_start, planned_end"
+          : "id, name, status, object_street, object_city, project_number, progress_percent, planned_start, planned_end";
         const { data: statusProject, error } = await sb.from("projects").select(statusCols).eq("id", toolInput.project_id as string).single();
         if (error) return JSON.stringify({ error: error.message });
         const { count: pending } = await sb.from("approvals").select("id", { count: "exact", head: true }).eq("project_id", toolInput.project_id as string).eq("status", "PENDING");
@@ -326,7 +326,7 @@ async function executeTool(
       }
 
       case "get_schedule": {
-        const { data, error } = await sb.from("schedule_phases").select("id, trade_type, start_date, end_date, status, assigned_member_name").eq("project_id", toolInput.project_id as string).order("start_date", { ascending: true });
+        const { data, error } = await sb.from("schedule_phases").select("id, trade, start_date, end_date, status, assigned_team_member_id, team_members:assigned_team_member_id (name)").eq("project_id", toolInput.project_id as string).order("start_date", { ascending: true });
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify({ phases: data || [], count: (data || []).length });
       }
@@ -358,13 +358,11 @@ async function executeTool(
 
       case "search_projects": {
         const q = toolInput.query as string;
-        const cols = userRole === "gf"
-          ? "id, project_number, name, address, status, client_name, trade_type"
-          : "id, project_number, name, address, status, trade_type";
+        const cols = "id, project_number, name, object_street, object_city, status, progress_percent";
         const { data, error } = await sb
           .from("projects")
           .select(cols)
-          .or(`name.ilike.%${q}%,address.ilike.%${q}%,project_number.ilike.%${q}%,client_name.ilike.%${q}%`)
+          .or(`name.ilike.%${q}%,object_street.ilike.%${q}%,project_number.ilike.%${q}%,object_city.ilike.%${q}%`)
           .limit(10);
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify({ projects: data || [], count: (data || []).length });
@@ -621,12 +619,13 @@ Deno.serve(async (req: Request) => {
     if (project_id) {
       const { data: project } = await sb
         .from("projects")
-        .select("name, address, status, trade_type, client_name")
+        .select("name, object_street, object_city, status, project_type, client_id")
         .eq("id", project_id)
         .single();
 
       if (project) {
-        projectContext = `Projekt: ${project.name}\nAdresse: ${project.address}\nStatus: ${project.status}\nGewerk: ${project.trade_type}\nAuftraggeber: ${user_role === "monteur" ? "[verborgen]" : project.client_name}`;
+        const addr = [project.object_street, project.object_city].filter(Boolean).join(", ");
+        projectContext = `Projekt: ${project.name}\nAdresse: ${addr}\nStatus: ${project.status}\nTyp: ${project.project_type || "—"}`;
       }
     }
 
