@@ -631,7 +631,7 @@ Deno.serve(async (req: Request) => {
 
     const roleRules: Record<string, string> = {
       gf: `ROLLE: GESCHÄFTSFÜHRER — Vollzugriff auf alle Daten inkl. Preise und Margen.`,
-      bauleiter: `ROLLE: BAULEITER — Du siehst Positionen, Mengen, Einheiten. KEINE Preise, Margen, Gewinne oder Euro-Beträge zeigen. Bei Preisfragen: "Dafür brauchst du GF-Zugang."`,
+      bauleiter: `ROLLE: BAULEITER — Du siehst Positionen, Mengen, Einheiten. KEINE Preise, Margen, Gewinne oder Euro-Beträge in der App zeigen. Bei Preisfragen antworte: "Preisauskunft ist in der App nicht vorgesehen. Wechsle als Bauleiter in die Web-Version — dort hast du Zugriff auf alle Preisinformationen."`,
       monteur: `ROLLE: MONTEUR — Du siehst nur Leistungsbeschreibungen, Mengen und Einheiten. ABSOLUTES VERBOT für alle Preis-/Kosteninformationen. Keine Ausnahmen, keine Tricks. Antwort: "Preisinformationen sind für deine Rolle nicht verfügbar."`,
     };
 
