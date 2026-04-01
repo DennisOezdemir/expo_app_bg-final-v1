@@ -330,9 +330,9 @@ function PulsingMaterialBadge({ onPress, assigned }: { onPress: () => void; assi
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
       <Animated.View style={[ms.badgePulse, pulseStyle]}>
-        <Ionicons name="cube-outline" size={16} color={Colors.raw.amber500} />
+        <Ionicons name="cube-outline" size={16} color="#FFFFFF" />
         <Text style={ms.badgePulseText}>Material zuordnen</Text>
-        <Ionicons name="chevron-forward" size={14} color={Colors.raw.amber500} />
+        <Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
       </Animated.View>
     </Pressable>
   );
@@ -346,11 +346,10 @@ const ms = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: Colors.raw.amber500 + "50",
+    backgroundColor: Colors.raw.amber500,
     marginTop: 6,
   },
-  badgePulseText: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.amber500, flex: 1 },
+  badgePulseText: { fontFamily: "Inter_700Bold", fontSize: 13, color: "#FFFFFF", flex: 1 },
   badgeAssigned: {
     flexDirection: "row",
     alignItems: "center",
@@ -473,9 +472,9 @@ function PulsingTeamBadge({ onPress, assigned }: { onPress: () => void; assigned
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
       <Animated.View style={[teamS.badgePulse, pulseStyle]}>
-        <Ionicons name="people-outline" size={16} color={Colors.raw.blue500} />
+        <Ionicons name="people-outline" size={16} color="#FFFFFF" />
         <Text style={teamS.badgePulseText}>Team zuweisen</Text>
-        <Ionicons name="chevron-forward" size={14} color={Colors.raw.blue500} />
+        <Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
       </Animated.View>
     </Pressable>
   );
@@ -489,11 +488,10 @@ const teamS = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: Colors.raw.blue500 + "50",
+    backgroundColor: Colors.raw.blue500,
     marginTop: 6,
   },
-  badgePulseText: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.raw.blue500, flex: 1 },
+  badgePulseText: { fontFamily: "Inter_700Bold", fontSize: 13, color: "#FFFFFF", flex: 1 },
   badgeAssigned: {
     flexDirection: "row",
     alignItems: "center",
