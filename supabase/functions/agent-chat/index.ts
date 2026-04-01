@@ -583,6 +583,10 @@ Deno.serve(async (req: Request) => {
     const isGeneralChat = !rawProjectId || rawProjectId === "general";
     const project_id = isGeneralChat ? null : rawProjectId;
 
+    // user_id validieren: "anonymous" oder leere Strings → null (kein FK-Bruch)
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validUserId = user_id && UUID_RE.test(user_id) ? user_id : null;
+
     // 1a. Memory laden (global + tenant + user scope, confidence >= 0.6)
     let memoryBlock = "";
     try {
@@ -672,33 +676,40 @@ ${project_id ? `Projekt-ID: ${project_id} (nutze diese ID für alle Tool-Aufrufe
 ${memoryBlock}`;
 
     // 2. Nachricht speichern
-    console.log("[agent-chat] Saving user message:", { project_id, user_id, messageLen: message.length });
-    const { error: insertErr } = await sb.from("chat_messages").insert({
-      project_id,
-      user_id,
-      role: "user",
-      content: message,
-      attachments: attachments.length > 0 ? attachments : null,
-    });
-    if (insertErr) {
-      console.error("[agent-chat] Insert failed:", insertErr.message, insertErr.details);
-      // Weiter machen auch wenn Insert fehlschlägt (z.B. FK Constraint)
+    console.log("[agent-chat] Saving user message:", { project_id, validUserId, messageLen: message.length });
+    if (validUserId) {
+      const { error: insertErr } = await sb.from("chat_messages").insert({
+        project_id,
+        user_id: validUserId,
+        role: "user",
+        content: message,
+        attachments: attachments.length > 0 ? attachments : null,
+        metadata: { user_role },
+      });
+      if (insertErr) {
+        console.error("[agent-chat] User message insert failed:", insertErr.message, insertErr.details, insertErr.hint);
+      }
+    } else {
+      console.warn("[agent-chat] Skipping user message insert: invalid user_id:", user_id);
     }
 
     // 3. History laden (letzte 20 Nachrichten)
-    let historyQuery = sb
-      .from("chat_messages")
-      .select("role, content")
-      .eq("user_id", user_id)
-      .order("created_at", { ascending: true })
-      .limit(20);
-    if (project_id) {
-      historyQuery = historyQuery.eq("project_id", project_id);
-    } else {
-      historyQuery = historyQuery.is("project_id", null);
+    let chatMessages: { role: string; content: string }[] = [];
+    if (validUserId) {
+      let historyQuery = sb
+        .from("chat_messages")
+        .select("role, content")
+        .eq("user_id", validUserId)
+        .order("created_at", { ascending: true })
+        .limit(20);
+      if (project_id) {
+        historyQuery = historyQuery.eq("project_id", project_id);
+      } else {
+        historyQuery = historyQuery.is("project_id", null);
+      }
+      const { data: history } = await historyQuery;
+      chatMessages = (history || []).map((r: any) => ({ role: r.role, content: r.content }));
     }
-    const { data: history } = await historyQuery;
-    let chatMessages = (history || []).map((r: any) => ({ role: r.role, content: r.content }));
 
     // Sicherstellen dass die aktuelle Nachricht am Ende steht
     // (DB-Insert kann fehlschlagen, oder History-Query findet sie nicht)
@@ -746,15 +757,20 @@ ${memoryBlock}`;
     }
 
     // 5. Antwort speichern
-    await sb.from("chat_messages").insert({
-      project_id,
-      user_id,
-      role: "assistant",
-      content: response.text,
-      tool_calls: response.tool_calls.length > 0 ? response.tool_calls : null,
-      tool_results: response.tool_results.length > 0 ? response.tool_results : null,
-      metadata: { model: usedModel, user_role },
-    });
+    if (validUserId) {
+      const { error: assistantErr } = await sb.from("chat_messages").insert({
+        project_id,
+        user_id: validUserId,
+        role: "assistant",
+        content: response.text,
+        tool_calls: response.tool_calls.length > 0 ? response.tool_calls : null,
+        tool_results: response.tool_results.length > 0 ? response.tool_results : null,
+        metadata: { model: usedModel, user_role },
+      });
+      if (assistantErr) {
+        console.error("[agent-chat] Assistant message insert failed:", assistantErr.message, assistantErr.details);
+      }
+    }
 
     return new Response(
       JSON.stringify({

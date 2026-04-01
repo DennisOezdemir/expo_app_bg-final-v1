@@ -2,7 +2,7 @@ import { supabase } from "@/lib/supabase";
 
 export interface ChatMessageRow {
   id: string;
-  project_id: string;
+  project_id: string | null;
   user_id: string;
   role: "user" | "assistant" | "system";
   content: string;

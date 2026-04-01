@@ -71,14 +71,18 @@ export function useSendMessage(projectId: string) {
   const { user: authUser } = useAuth();
 
   return useMutation({
-    mutationFn: (message: string) =>
-      sendChatMessage({
+    mutationFn: (message: string) => {
+      if (!authUser?.id) {
+        return Promise.reject(new Error("Nicht angemeldet — bitte neu einloggen."));
+      }
+      return sendChatMessage({
         project_id: projectId,
         message,
         user_role: role,
         user_name: user.name,
-        user_id: authUser?.id || "anonymous",
-      }),
+        user_id: authUser.id,
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.chat.history(projectId),
