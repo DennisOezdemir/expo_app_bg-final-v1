@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 export type UserRole = "gf" | "bauleiter" | "monteur";
 
 interface RoleUser {
+  id: string | null;
   name: string;
   email: string;
   role: UserRole;
@@ -88,9 +89,9 @@ const SCREEN_ACCESS: Record<ScreenName, Set<UserRole>> = {
 };
 
 const FALLBACK_USERS: Record<UserRole, RoleUser> = {
-  gf: { name: "Dennis", email: "dennis@bauloewen.de", role: "gf", roleLabel: "Geschäftsführer" },
-  bauleiter: { name: "Ayse", email: "ayse@bauloewen.de", role: "bauleiter", roleLabel: "Bauleiterin" },
-  monteur: { name: "Mehmet", email: "mehmet@bauloewen.de", role: "monteur", roleLabel: "Monteur" },
+  gf: { id: null, name: "Dennis", email: "dennis@bauloewen.de", role: "gf", roleLabel: "Geschäftsführer" },
+  bauleiter: { id: null, name: "Ayse", email: "ayse@bauloewen.de", role: "bauleiter", roleLabel: "Bauleiterin" },
+  monteur: { id: null, name: "Mehmet", email: "mehmet@bauloewen.de", role: "monteur", roleLabel: "Monteur" },
 };
 
 const ROLE_PERMISSIONS: Record<UserRole, Set<RoleAction>> = {
@@ -196,6 +197,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
 
     return {
+      id: authUser.id || null,
       name: authUser.name || fallbackUser.name,
       email: authUser.email || fallbackUser.email,
       role,

@@ -87,14 +87,14 @@ export default function NachtragDetailScreen() {
   const [rejectReason, setRejectReason] = useState("");
 
   if (isLoading) {
-    return <ScreenState type="loading" message="Nachtrag wird geladen..." />;
+    return <ScreenState kind="loading" />;
   }
 
   if (error || !co) {
     return (
       <ScreenState
-        type="error"
-        message={error?.message || "Nachtrag nicht gefunden"}
+        kind="error"
+        detail={error?.message || "Nachtrag nicht gefunden"}
         onRetry={refetch}
       />
     );

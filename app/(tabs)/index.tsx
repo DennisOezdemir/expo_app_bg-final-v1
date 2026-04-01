@@ -91,7 +91,7 @@ function ChatWidget() {
         message: text,
         user_role: role,
         user_name: user.name,
-        user_id: user.id,
+        user_id: user.id ?? "",
       });
       setMessages((prev) => [...prev, { role: "assistant", text: res.message }]);
     } catch (err: any) {
