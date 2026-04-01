@@ -1436,7 +1436,7 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                         <View style={ms.modalProductInfo}>
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                             {product.favorite && <Ionicons name="star" size={14} color={Colors.raw.amber500} />}
-                            <Text style={ms.modalProductName} numberOfLines={1}>{product.name}</Text>
+                            <Text style={ms.modalProductName} numberOfLines={1}>{product.supplier && product.name.startsWith(product.supplier) ? product.name.slice(product.supplier.length).trim() || product.name : product.name}</Text>
                           </View>
                           <Text style={ms.modalProductMeta}>
                             {product.supplier} {"\u00B7"} {product.useCount}x verwendet
