@@ -699,48 +699,40 @@ ${projectContext}
 ${project_id ? `Projekt-ID: ${project_id} (nutze diese ID für alle Tool-Aufrufe!)` : "Kein Projekt ausgewählt."}
 ${memoryBlock}`;
 
-    // 2. Nachricht speichern
-    console.log("[agent-chat] Saving user message:", { project_id, validUserId, messageLen: message.length });
-    if (validUserId) {
-      const { error: insertErr } = await sb.from("chat_messages").insert({
-        project_id,
-        user_id: validUserId,
-        role: "user",
-        content: message,
-        attachments: attachments.length > 0 ? attachments : null,
-        metadata: { user_role },
-      });
-      if (insertErr) {
-        console.error("[agent-chat] User message insert failed:", insertErr.message, insertErr.details, insertErr.hint);
-      }
-    } else {
-      console.warn("[agent-chat] Skipping user message insert: invalid user_id:", user_id);
+    // 2. Nachricht speichern (immer, auch ohne validUserId)
+    console.log("[agent-chat] Saving user message:", { project_id, validUserId, user_id, messageLen: message.length });
+    const { error: insertErr } = await sb.from("chat_messages").insert({
+      project_id,
+      user_id: validUserId,
+      role: "user",
+      content: message,
+      metadata: { user_role, original_user_id: user_id },
+    });
+    if (insertErr) {
+      console.error("[agent-chat] User message insert failed:", insertErr.message, insertErr.details, insertErr.hint);
     }
 
     // 3. History laden (letzte 50 Nachrichten inkl. Tool-Kontext)
-    let chatMessages: { role: string; content: string }[] = [];
-    if (validUserId) {
-      let historyQuery = sb
-        .from("chat_messages")
-        .select("role, content, tool_calls, tool_results")
-        .eq("user_id", validUserId)
-        .order("created_at", { ascending: true })
-        .limit(50);
-      if (project_id) {
-        historyQuery = historyQuery.eq("project_id", project_id);
-      } else {
-        historyQuery = historyQuery.is("project_id", null);
-      }
-      const { data: history } = await historyQuery;
-      chatMessages = (history || []).map((r: any) => {
-        // Assistant-Nachrichten mit Tool-Kontext anreichern
-        if (r.role === "assistant" && r.tool_calls && r.tool_calls.length > 0) {
-          const toolSummary = r.tool_calls.map((tc: any) => `[Tool: ${tc.name}]`).join(" ");
-          return { role: r.role, content: `${toolSummary}\n${r.content}` };
-        }
-        return { role: r.role, content: r.content };
-      });
+    // Query nach project_id (primär) + optional user_id
+    let historyQuery = sb
+      .from("chat_messages")
+      .select("role, content, tool_calls, tool_results")
+      .order("created_at", { ascending: true })
+      .limit(50);
+    if (project_id) {
+      historyQuery = historyQuery.eq("project_id", project_id);
     }
+    if (validUserId) {
+      historyQuery = historyQuery.eq("user_id", validUserId);
+    }
+    const { data: history } = await historyQuery;
+    let chatMessages = (history || []).map((r: any) => {
+      if (r.role === "assistant" && r.tool_calls && r.tool_calls.length > 0) {
+        const toolSummary = r.tool_calls.map((tc: any) => `[Tool: ${tc.name}]`).join(" ");
+        return { role: r.role, content: `${toolSummary}\n${r.content}` };
+      }
+      return { role: r.role, content: r.content };
+    });
 
     // Sicherstellen dass die aktuelle Nachricht am Ende steht
     // (DB-Insert kann fehlschlagen, oder History-Query findet sie nicht)
@@ -787,20 +779,18 @@ ${memoryBlock}`;
       }
     }
 
-    // 5. Antwort speichern
-    if (validUserId) {
-      const { error: assistantErr } = await sb.from("chat_messages").insert({
-        project_id,
-        user_id: validUserId,
-        role: "assistant",
-        content: response.text,
-        tool_calls: response.tool_calls.length > 0 ? response.tool_calls : null,
-        tool_results: response.tool_results.length > 0 ? response.tool_results : null,
-        metadata: { model: usedModel, user_role },
-      });
-      if (assistantErr) {
-        console.error("[agent-chat] Assistant message insert failed:", assistantErr.message, assistantErr.details);
-      }
+    // 5. Antwort speichern (immer)
+    const { error: assistantErr } = await sb.from("chat_messages").insert({
+      project_id,
+      user_id: validUserId,
+      role: "assistant",
+      content: response.text,
+      tool_calls: response.tool_calls.length > 0 ? response.tool_calls : null,
+      tool_results: response.tool_results.length > 0 ? response.tool_results : null,
+      metadata: { model: usedModel, user_role },
+    });
+    if (assistantErr) {
+      console.error("[agent-chat] Assistant message insert failed:", assistantErr.message, assistantErr.details);
     }
 
     return new Response(
