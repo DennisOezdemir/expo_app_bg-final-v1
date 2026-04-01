@@ -207,9 +207,6 @@ export default function PlanungScreen() {
     return (
       <View style={[s.container, { paddingTop: topInset + 20 }]}>
         <View style={s.headerRow}>
-          <Pressable onPress={() => router.back()} style={{ padding: 8 }}>
-            <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
-          </Pressable>
           <Text style={s.headerTitle}>Planung</Text>
         </View>
         <View style={s.loadingWrap}>
@@ -223,9 +220,6 @@ export default function PlanungScreen() {
   return (
     <View style={[s.container, { paddingTop: topInset + 12 }]}>
       <View style={s.headerRow}>
-        <Pressable onPress={() => router.back()} style={{ padding: 8 }}>
-          <Ionicons name="arrow-back" size={24} color={Colors.raw.white} />
-        </Pressable>
         <Text style={s.headerTitle}>Planung</Text>
         <Text style={s.headerKW}>KW {currentKW}</Text>
       </View>
