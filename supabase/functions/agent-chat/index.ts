@@ -717,22 +717,29 @@ ${memoryBlock}`;
       console.warn("[agent-chat] Skipping user message insert: invalid user_id:", user_id);
     }
 
-    // 3. History laden (letzte 20 Nachrichten)
+    // 3. History laden (letzte 50 Nachrichten inkl. Tool-Kontext)
     let chatMessages: { role: string; content: string }[] = [];
     if (validUserId) {
       let historyQuery = sb
         .from("chat_messages")
-        .select("role, content")
+        .select("role, content, tool_calls, tool_results")
         .eq("user_id", validUserId)
         .order("created_at", { ascending: true })
-        .limit(20);
+        .limit(50);
       if (project_id) {
         historyQuery = historyQuery.eq("project_id", project_id);
       } else {
         historyQuery = historyQuery.is("project_id", null);
       }
       const { data: history } = await historyQuery;
-      chatMessages = (history || []).map((r: any) => ({ role: r.role, content: r.content }));
+      chatMessages = (history || []).map((r: any) => {
+        // Assistant-Nachrichten mit Tool-Kontext anreichern
+        if (r.role === "assistant" && r.tool_calls && r.tool_calls.length > 0) {
+          const toolSummary = r.tool_calls.map((tc: any) => `[Tool: ${tc.name}]`).join(" ");
+          return { role: r.role, content: `${toolSummary}\n${r.content}` };
+        }
+        return { role: r.role, content: r.content };
+      });
     }
 
     // Sicherstellen dass die aktuelle Nachricht am Ende steht
