@@ -1030,7 +1030,7 @@ export default function ChatScreen() {
       } catch {}
     })();
   }, [projectId]);
-  const msgCount = filteredDbMessages.length;
+  const msgCount = dbMessages.length;
 
   return (
     <View style={styles.container}>
