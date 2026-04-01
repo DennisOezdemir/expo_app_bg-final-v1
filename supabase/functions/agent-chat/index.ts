@@ -378,7 +378,21 @@ async function executeTool(
           request_data: { description: toolInput.description, urgency: toolInput.urgency || "normal", source: "chat_agent", requested_by_role: userRole },
         }).select("id").single();
         if (error) return JSON.stringify({ error: error.message });
-        return JSON.stringify({ success: true, approval_id: data.id, message: `Materialanfrage erstellt. Der GF wird benachrichtigt.` });
+
+        // Telegram-Freigabe via n8n Webhook
+        try {
+          const N8N_WEBHOOK = Deno.env.get("N8N_APPROVAL_WEBHOOK") || "https://n8n.srv1045913.hstgr.cloud/webhook/bg-approval";
+          const TELEGRAM_CHAT_ID = Deno.env.get("TELEGRAM_GF_CHAT_ID") || "";
+          await fetch(N8N_WEBHOOK, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ approval_id: data.id, telegram_chat_id: TELEGRAM_CHAT_ID }),
+          });
+        } catch (webhookErr) {
+          console.error("[agent-chat] n8n webhook failed:", webhookErr);
+        }
+
+        return JSON.stringify({ success: true, approval_id: data.id, message: `Materialanfrage erstellt. Der GF wird per Telegram benachrichtigt.` });
       }
 
       case "request_tool": {
@@ -402,11 +416,21 @@ async function executeTool(
               request_data: { description: toolInput.description, source: "chat_agent", requested_by_role: userRole, type: "tool_request" },
             }).select("id").single();
             if (e2) return JSON.stringify({ error: e2.message });
-            return JSON.stringify({ success: true, approval_id: d2.id, message: `Werkzeuganfrage erstellt. Der GF wird benachrichtigt.` });
+            try {
+              const N8N_WEBHOOK = Deno.env.get("N8N_APPROVAL_WEBHOOK") || "https://n8n.srv1045913.hstgr.cloud/webhook/bg-approval";
+              const TELEGRAM_CHAT_ID = Deno.env.get("TELEGRAM_GF_CHAT_ID") || "";
+              await fetch(N8N_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_id: d2.id, telegram_chat_id: TELEGRAM_CHAT_ID }) });
+            } catch {}
+            return JSON.stringify({ success: true, approval_id: d2.id, message: `Werkzeuganfrage erstellt. Der GF wird per Telegram benachrichtigt.` });
           }
           return JSON.stringify({ error: error.message });
         }
-        return JSON.stringify({ success: true, approval_id: data.id, message: `Werkzeuganfrage erstellt. Der GF wird benachrichtigt.` });
+        try {
+          const N8N_WEBHOOK = Deno.env.get("N8N_APPROVAL_WEBHOOK") || "https://n8n.srv1045913.hstgr.cloud/webhook/bg-approval";
+          const TELEGRAM_CHAT_ID = Deno.env.get("TELEGRAM_GF_CHAT_ID") || "";
+          await fetch(N8N_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_id: data.id, telegram_chat_id: TELEGRAM_CHAT_ID }) });
+        } catch {}
+        return JSON.stringify({ success: true, approval_id: data.id, message: `Werkzeuganfrage erstellt. Der GF wird per Telegram benachrichtigt.` });
       }
 
       case "update_project_status": {
