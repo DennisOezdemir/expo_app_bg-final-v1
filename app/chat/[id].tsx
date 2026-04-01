@@ -1098,7 +1098,7 @@ export default function ChatScreen() {
                     name={f.icon as any}
                     size={14}
                     color={
-                      activeFilter === f.key ? "#000" : Colors.raw.zinc400
+                      activeFilter === f.key ? "#FFFFFF" : Colors.raw.zinc400
                     }
                   />
                 )}
@@ -1279,7 +1279,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   filterScrollContent: {
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 32,
     gap: 8,
     alignItems: "center",
   },
@@ -1290,9 +1291,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: Colors.raw.zinc900,
+    backgroundColor: Colors.raw.zinc800,
     borderWidth: 1,
-    borderColor: Colors.raw.zinc800,
+    borderColor: Colors.raw.zinc700,
   },
   filterChipActive: {
     backgroundColor: Colors.raw.amber500,
@@ -1301,10 +1302,10 @@ const styles = StyleSheet.create({
   filterChipText: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
-    color: Colors.raw.zinc400,
+    color: Colors.raw.zinc300,
   },
   filterChipTextActive: {
-    color: "#000",
+    color: "#FFFFFF",
   },
   inputBar: {
     flexDirection: "row",

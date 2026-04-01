@@ -424,11 +424,13 @@ const shStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    flex: 1,
   },
   title: {
     fontFamily: "Inter_700Bold",
     fontSize: 17,
     color: Colors.raw.white,
+    flexShrink: 1,
   },
   badge: {
     backgroundColor: Colors.raw.amber500,
@@ -442,7 +444,7 @@ const shStyles = StyleSheet.create({
   badgeText: {
     fontFamily: "Inter_700Bold",
     fontSize: 11,
-    color: "#000",
+    color: Colors.raw.white,
   },
 });
 
@@ -2022,7 +2024,7 @@ export default function ProjectDetailScreen() {
             <View style={{ flexDirection: "row", gap: 6, marginTop: 6 }}>
               {project.price_catalog.includes("WABS") && (
                 <View style={{ backgroundColor: Colors.raw.amber500, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
-                  <Text style={{ color: "#000", fontSize: 11, fontWeight: "700" }}>WABS</Text>
+                  <Text style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "700" }}>WABS</Text>
                 </View>
               )}
               {project.price_catalog.includes("AV") && (
