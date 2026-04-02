@@ -54,6 +54,18 @@ Deno.serve(async (req: Request) => {
 
     // ── Change Order Route ──
     if (body.change_order_id) {
+      const { data: co, error: coError } = await sb
+        .from("change_orders")
+        .select("id, project_id")
+        .eq("id", body.change_order_id)
+        .maybeSingle();
+
+      if (coError || !co) {
+        return errorResponse("Nachtrag nicht gefunden", 404, req);
+      }
+
+      await requireProjectAccess(user.authHeader, co.project_id);
+
       if (body.action === "approve") {
         const { data, error } = await sb.rpc("approve_change_order", {
           p_change_order_id: body.change_order_id,
