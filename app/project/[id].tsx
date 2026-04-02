@@ -726,14 +726,23 @@ function DocumentRow({
       onPress();
       return;
     }
-    if (externalUrl) {
-      Linking.openURL(externalUrl);
-      return;
+    // Resolve storage path: either explicit, or extracted from a Supabase public URL
+    let resolvedPath = storagePath;
+    let resolvedBucket = "project-files";
+    if (!resolvedPath && externalUrl) {
+      const publicMatch = externalUrl.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/);
+      if (publicMatch) {
+        resolvedBucket = publicMatch[1];
+        resolvedPath = publicMatch[2];
+      } else {
+        Linking.openURL(externalUrl);
+        return;
+      }
     }
-    if (!storagePath) return;
+    if (!resolvedPath) return;
     const { data } = await supabase.storage
-      .from("project-files")
-      .createSignedUrl(storagePath, 300);
+      .from(resolvedBucket)
+      .createSignedUrl(resolvedPath, 300);
     if (data?.signedUrl) {
       Linking.openURL(data.signedUrl);
     }
