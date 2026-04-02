@@ -1,0 +1,11 @@
+-- =============================================================
+-- BASELINE RESET — 2026-04-02
+-- =============================================================
+-- Dieser Marker repräsentiert den gesamten bisherigen DB-Stand.
+-- Alle vorherigen Migrationen (Jan-Mär 2026) wurden direkt
+-- im Supabase Dashboard oder via CLI ausgeführt und sind bereits
+-- auf der Remote-DB angewendet.
+--
+-- Archivierte Migrationen: supabase/migrations/_archive/
+-- =============================================================
+-- Intentionally empty — schema already exists on remote.
