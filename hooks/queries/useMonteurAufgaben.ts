@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchMonteurAufgaben, fetchTeamMemberByEmail } from "@/lib/api/monteur";
+import { fetchCurrentTeamMember, fetchMonteurAufgaben } from "@/lib/api/monteur";
 import { queryKeys } from "@/lib/query-keys";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -8,12 +8,12 @@ import { useAuth } from "@/contexts/AuthContext";
  */
 export function useTeamMember() {
   const { user } = useAuth();
-  const email = user?.email ?? "";
+  const authUserId = user?.id ?? "";
 
   return useQuery({
-    queryKey: queryKeys.monteur.teamMember(email),
-    queryFn: () => fetchTeamMemberByEmail(email),
-    enabled: !!email,
+    queryKey: queryKeys.monteur.teamMember(authUserId),
+    queryFn: () => fetchCurrentTeamMember(authUserId),
+    enabled: !!authUserId,
     staleTime: 5 * 60 * 1000,
   });
 }

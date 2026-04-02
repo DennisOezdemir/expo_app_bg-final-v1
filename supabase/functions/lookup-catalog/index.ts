@@ -1,7 +1,7 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 import { handleCors } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import { requireUserContext } from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { logEvent } from "../_shared/events.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
@@ -23,9 +23,11 @@ Deno.serve(async (req: Request) => {
   if (cors) return cors;
 
   try {
-    await authenticate(req);
+    await requireUserContext(req);
   } catch (e) {
-    return errorResponse((e as Error).message, 401);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 401;
+    return errorResponse(message, status, req);
   }
 
   try {
@@ -35,7 +37,9 @@ Deno.serve(async (req: Request) => {
 
     if (!query && !trade && !catalog_id && !position_code) {
       return errorResponse(
-        "Mindestens ein Suchkriterium nötig: query, trade, catalog_id oder position_code"
+        "Mindestens ein Suchkriterium nötig: query, trade, catalog_id oder position_code",
+        400,
+        req,
       );
     }
 
@@ -76,7 +80,7 @@ Deno.serve(async (req: Request) => {
 
     if (error) {
       console.error("Catalog query error:", error);
-      return errorResponse("Datenbankfehler: " + error.message, 500);
+      return errorResponse("Datenbankfehler: " + error.message, 500, req);
     }
 
     // Flatten nested joins
@@ -107,9 +111,11 @@ Deno.serve(async (req: Request) => {
       success: true,
       count: results.length,
       positions: results,
-    });
+    }, 200, req);
   } catch (e) {
     console.error("lookup-catalog error:", e);
-    return errorResponse("Interner Fehler: " + (e as Error).message, 500);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 500;
+    return errorResponse("Interner Fehler: " + message, status, req);
   }
 });

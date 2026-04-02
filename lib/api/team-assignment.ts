@@ -18,9 +18,9 @@ export interface SubcontractorRow {
  */
 export async function fetchTeamForTrade(trade: string): Promise<TeamMemberRow[]> {
   const { data, error } = await supabase
-    .from("team_members")
+    .from("team_members_public")
     .select(
-      "id, name, initials, role, gewerk, active, is_active, sort_order, email, phone, hourly_rate, skill_level, skills, max_hours_per_week"
+      "id, name, initials, role, gewerk, active, is_active, sort_order, skill_level, skills, max_hours_per_week"
     )
     .eq("active", true)
     .order("sort_order")
@@ -30,7 +30,24 @@ export async function fetchTeamForTrade(trade: string): Promise<TeamMemberRow[]>
   if (!data) return [];
 
   const tradeLower = trade.toLowerCase();
-  return data.filter((m) => !m.gewerk || m.gewerk.toLowerCase() === tradeLower);
+  return data
+    .map((member: any) => ({
+      id: member.id,
+      name: member.name,
+      initials: member.initials ?? null,
+      role: member.role ?? null,
+      gewerk: member.gewerk ?? null,
+      active: !!member.active,
+      is_active: !!member.is_active,
+      sort_order: Number(member.sort_order ?? 0),
+      email: member.email ?? null,
+      phone: member.phone ?? null,
+      hourly_rate: member.hourly_rate ?? null,
+      skill_level: member.skill_level ?? null,
+      skills: member.skills ?? null,
+      max_hours_per_week: member.max_hours_per_week ?? null,
+    }))
+    .filter((m) => !m.gewerk || m.gewerk.toLowerCase() === tradeLower);
 }
 
 /**

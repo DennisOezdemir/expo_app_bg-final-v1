@@ -25,14 +25,14 @@ export interface TeamMemberInfo {
 }
 
 /**
- * Resolve auth user email → team_members row
+ * Resolve auth user -> team_members row
  */
-export async function fetchTeamMemberByEmail(email: string): Promise<TeamMemberInfo | null> {
+export async function fetchCurrentTeamMember(authUserId: string): Promise<TeamMemberInfo | null> {
   const { data, error } = await supabase
     .from("team_members")
     .select("id, name, email, role, gewerk")
-    .eq("email", email)
-    .eq("is_active", true)
+    .eq("auth_id", authUserId)
+    .eq("active", true)
     .maybeSingle();
 
   if (error) throw error;

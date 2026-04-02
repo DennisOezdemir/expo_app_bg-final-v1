@@ -11,7 +11,6 @@ import {
   ChatMessageRow,
 } from "@/lib/api/chat";
 import { queryKeys } from "@/lib/query-keys";
-import { useRole } from "@/contexts/RoleContext";
 import { useAuth } from "@/contexts/AuthContext";
 
 /**
@@ -67,7 +66,6 @@ export function useChatHistory(projectId: string) {
  */
 export function useSendMessage(projectId: string) {
   const queryClient = useQueryClient();
-  const { role, user } = useRole();
   const { user: authUser } = useAuth();
 
   return useMutation({
@@ -78,9 +76,6 @@ export function useSendMessage(projectId: string) {
       return sendChatMessage({
         project_id: projectId,
         message,
-        user_role: role,
-        user_name: user.name,
-        user_id: authUser.id,
       });
     },
     onSuccess: () => {

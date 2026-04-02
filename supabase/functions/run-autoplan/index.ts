@@ -1,7 +1,12 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 import { handleCors } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import {
+  assertRole,
+  authenticate,
+  requireProjectAccess,
+  requireUserContext,
+} from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
 
@@ -16,17 +21,29 @@ Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
   if (cors) return cors;
 
+  let userAuthHeader: string | null = null;
   try {
-    await authenticate(req);
+    const auth = await authenticate(req, { allowServiceRole: true });
+    if (auth.source === "user") {
+      const user = await requireUserContext(req);
+      assertRole(user, ["gf", "bauleiter"]);
+      userAuthHeader = user.authHeader;
+    }
   } catch (e) {
-    return errorResponse((e as Error).message, 401);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 401;
+    return errorResponse(message, status, req);
   }
 
   try {
     const { project_id } = await req.json();
 
     if (!project_id) {
-      return errorResponse("project_id ist erforderlich");
+      return errorResponse("project_id ist erforderlich", 400, req);
+    }
+
+    if (userAuthHeader) {
+      await requireProjectAccess(userAuthHeader, project_id);
     }
 
     const sb = createServiceClient();
@@ -39,7 +56,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (projErr || !project) {
-      return errorResponse("Projekt nicht gefunden", 404);
+      return errorResponse("Projekt nicht gefunden", 404, req);
     }
 
     // auto_plan_full via RPC aufrufen
@@ -49,13 +66,15 @@ Deno.serve(async (req: Request) => {
 
     if (error) {
       console.error("auto_plan_full RPC error:", error);
-      return errorResponse("Autoplanung fehlgeschlagen: " + error.message, 500);
+      return errorResponse("Autoplanung fehlgeschlagen: " + error.message, 500, req);
     }
 
     // auto_plan_full returned bereits JSONB mit success, schedule, material, etc.
-    return jsonResponse(data);
+    return jsonResponse(data, 200, req);
   } catch (e) {
     console.error("run-autoplan error:", e);
-    return errorResponse("Interner Fehler: " + (e as Error).message, 500);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 500;
+    return errorResponse("Interner Fehler: " + message, status, req);
   }
 });

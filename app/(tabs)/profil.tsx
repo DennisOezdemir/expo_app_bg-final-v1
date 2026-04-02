@@ -84,7 +84,7 @@ const toggleStyles = StyleSheet.create({
 
 function RoleSwitcher() {
   const { role, setRole, actualRole, isImpersonating: _isImpersonating } = useRole();
-  if (actualRole !== "gf") return null;
+  if (!__DEV__ || actualRole !== "gf") return null;
 
   const roles: { key: UserRole; icon: string; label: string }[] = [
     { key: "gf", icon: "briefcase", label: "Geschäftsführer" },

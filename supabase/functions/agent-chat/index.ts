@@ -3,19 +3,23 @@
 // Fallback: Gemini Flash (Speed)
 // Später: Lokaler Agent als Primary, Cloud als Fallback
 
-import { handleCors, corsHeaders } from "../_shared/cors.ts";
+import { handleCors } from "../_shared/cors.ts";
+import {
+  assertRole,
+  getUserClient,
+  requireProjectAccess,
+  requireUserContext,
+  type UserContext,
+} from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
-import { errorResponse } from "../_shared/response.ts";
+import { errorResponse, jsonResponse } from "../_shared/response.ts";
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.52.0";
 
 // ── Types ──────────────────────────────────────────────────────────
 
 interface ChatRequest {
-  project_id: string;
+  project_id?: string | null;
   message: string;
-  user_role: "gf" | "bauleiter" | "monteur";
-  user_name: string;
-  user_id: string;
   attachments?: { type: "image" | "pdf"; url: string }[];
 }
 
@@ -23,6 +27,44 @@ interface LLMResponse {
   text: string;
   tool_calls: { name: string; input: Record<string, unknown> }[];
   tool_results: { name: string; result: Record<string, unknown> }[];
+}
+
+interface AgentChatContext {
+  user: UserContext;
+  serviceClient: any;
+  userClient: any;
+  currentProjectId: string | null;
+}
+
+function resolveToolProjectId(
+  toolInput: Record<string, unknown>,
+  context: AgentChatContext,
+): string {
+  const requestedProjectId = typeof toolInput.project_id === "string"
+    ? toolInput.project_id.trim()
+    : "";
+
+  if (context.currentProjectId) {
+    if (!requestedProjectId || requestedProjectId === context.currentProjectId) {
+      return context.currentProjectId;
+    }
+    throw new Error("Projektwechsel innerhalb dieses Chats ist nicht erlaubt");
+  }
+
+  if (!requestedProjectId) {
+    throw new Error("project_id erforderlich");
+  }
+
+  return requestedProjectId;
+}
+
+async function requireToolProjectAccess(
+  toolInput: Record<string, unknown>,
+  context: AgentChatContext,
+): Promise<string> {
+  const projectId = resolveToolProjectId(toolInput, context);
+  await requireProjectAccess(context.user.authHeader, projectId);
+  return projectId;
 }
 
 // ── Configuration ──────────────────────────────────────────────────
@@ -218,17 +260,20 @@ const GEMINI_TOOLS = [{
 async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>,
-  userRole: string,
-  sb: any
+  context: AgentChatContext,
 ): Promise<string> {
   try {
+    const userRole = context.user.role;
+    const serviceClient = context.serviceClient;
+    const userClient = context.userClient;
+
     switch (toolName) {
       case "query_positions": {
         // Positionen über offers → offer_positions laden (offer_positions hat kein project_id)
-        const projectId = toolInput.project_id as string;
+        const projectId = await requireToolProjectAccess(toolInput, context);
 
         // Erst alle Angebote des Projekts finden
-        const { data: offers } = await sb
+        const { data: offers } = await userClient
           .from("offers")
           .select("id")
           .eq("project_id", projectId)
@@ -245,7 +290,7 @@ async function executeTool(
           ? "id, title, description, quantity, unit, catalog_code, unit_price, sort_order, section_id, offer_sections(title, trade)"
           : "id, title, description, quantity, unit, catalog_code, sort_order, section_id, offer_sections(title, trade)";
 
-        let query = sb
+        let query = userClient
           .from("offer_positions")
           .select(cols)
           .in("offer_id", offerIds)
@@ -278,7 +323,7 @@ async function executeTool(
       case "check_catalog": {
         const catalogId = (toolInput.catalog_id as string) || "73cb8be2-a70e-43c8-bf08-34596a5c1e30";
         const term = toolInput.search_term as string;
-        const { data, error } = await sb
+        const { data, error } = await serviceClient
           .from("catalog_positions_v2")
           .select("code, title, title_secondary, unit, trade")
           .eq("catalog_id", catalogId)
@@ -289,51 +334,81 @@ async function executeTool(
       }
 
       case "create_change_order": {
-        // Monteure dürfen Nachträge MELDEN — GF genehmigt im AgentView
-        const { data, error } = await sb.from("approvals").insert({
-          project_id: toolInput.project_id as string,
+        assertRole(context.user, ["gf", "bauleiter"], "Monteure dürfen keine Nachträge anlegen.");
+        const projectId = await requireToolProjectAccess(toolInput, context);
+
+        const { data, error } = await serviceClient.from("approvals").insert({
+          project_id: projectId,
           approval_type: "CHANGE_ORDER",
           status: "PENDING",
-          requested_by: "chat_agent",
+          requested_by: `chat_agent:${context.user.userId}`,
           request_summary: toolInput.description as string,
-          request_data: { positions: toolInput.positions, source: "chat_agent" },
+          request_data: {
+            positions: toolInput.positions,
+            source: "chat_agent",
+            requested_by_role: context.user.role,
+            requested_by_user_id: context.user.userId,
+          },
         }).select("id").single();
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify({ success: true, approval_id: data.id, message: "Nachtrag im Freigabecenter erstellt." });
       }
 
       case "prepare_email": {
-        const { data, error } = await sb.from("approvals").insert({
-          project_id: toolInput.project_id as string,
+        assertRole(context.user, ["gf", "bauleiter"], "Monteure dürfen keine E-Mails vorbereiten.");
+        const projectId = await requireToolProjectAccess(toolInput, context);
+
+        const { data, error } = await serviceClient.from("approvals").insert({
+          project_id: projectId,
           approval_type: "EMAIL_SEND",
           status: "PENDING",
-          requested_by: "chat_agent",
+          requested_by: `chat_agent:${context.user.userId}`,
           request_summary: `Email an ${toolInput.to}: ${toolInput.subject}`,
-          request_data: { to: toolInput.to, subject: toolInput.subject, body: toolInput.body, source: "chat_agent" },
+          request_data: {
+            to: toolInput.to,
+            subject: toolInput.subject,
+            body: toolInput.body,
+            source: "chat_agent",
+            requested_by_role: context.user.role,
+            requested_by_user_id: context.user.userId,
+          },
         }).select("id").single();
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify({ success: true, approval_id: data.id, message: "Email zur Freigabe vorbereitet." });
       }
 
       case "get_project_status": {
-        const statusCols = userRole === "gf"
-          ? "id, name, status, object_street, object_city, project_number, progress_percent, planned_start, planned_end"
-          : "id, name, status, object_street, object_city, project_number, progress_percent, planned_start, planned_end";
-        const { data: statusProject, error } = await sb.from("projects").select(statusCols).eq("id", toolInput.project_id as string).single();
+        const projectId = await requireToolProjectAccess(toolInput, context);
+        const cols = "id, name, status, object_street, object_city, project_number, progress_percent, planned_start, planned_end";
+        const { data: statusProject, error } = await userClient
+          .from("projects")
+          .select(cols)
+          .eq("id", projectId)
+          .single();
         if (error) return JSON.stringify({ error: error.message });
-        const { count: pending } = await sb.from("approvals").select("id", { count: "exact", head: true }).eq("project_id", toolInput.project_id as string).eq("status", "PENDING");
+        const { count: pending } = await serviceClient
+          .from("approvals")
+          .select("id", { count: "exact", head: true })
+          .eq("project_id", projectId)
+          .eq("status", "PENDING");
         return JSON.stringify({ ...statusProject, pending_approvals: pending || 0 });
       }
 
       case "get_schedule": {
-        const { data, error } = await sb.from("schedule_phases").select("id, trade, start_date, end_date, status, assigned_team_member_id, team_members:assigned_team_member_id (name)").eq("project_id", toolInput.project_id as string).order("start_date", { ascending: true });
+        const projectId = await requireToolProjectAccess(toolInput, context);
+        const { data, error } = await userClient
+          .from("schedule_phases")
+          .select("id, trade, start_date, end_date, status, assigned_team_member_id, team_members:assigned_team_member_id (name)")
+          .eq("project_id", projectId)
+          .order("start_date", { ascending: true });
         if (error) return JSON.stringify({ error: error.message });
         return JSON.stringify({ phases: data || [], count: (data || []).length });
       }
 
       case "remember": {
+        assertRole(context.user, ["gf", "bauleiter"], "Monteure dürfen keine Team-Memories schreiben.");
         const memType = (toolInput.memory_type as string) || "style_rule";
-        const { data, error } = await sb.from("memory_entries").upsert({
+        const { data, error } = await serviceClient.from("memory_entries").upsert({
           scope: "tenant",
           scope_id: null,
           memory_type: memType,
@@ -346,7 +421,7 @@ async function executeTool(
         }, { onConflict: "scope,memory_type,key", ignoreDuplicates: false }).select("id").single();
         if (error) {
           // Fallback: insert without upsert
-          const { error: insertErr } = await sb.from("memory_entries").insert({
+          const { error: insertErr } = await serviceClient.from("memory_entries").insert({
             scope: "tenant", scope_id: null, memory_type: memType,
             key: toolInput.key as string, value: toolInput.value as string,
             confidence: 0.8, observation_count: 1, source: "manual",
@@ -359,7 +434,7 @@ async function executeTool(
       case "search_projects": {
         const q = toolInput.query as string;
         const cols = "id, project_number, name, object_street, object_city, status, progress_percent";
-        const { data, error } = await sb
+        const { data, error } = await userClient
           .from("projects")
           .select(cols)
           .or(`name.ilike.%${q}%,object_street.ilike.%${q}%,project_number.ilike.%${q}%,object_city.ilike.%${q}%`)
@@ -369,13 +444,20 @@ async function executeTool(
       }
 
       case "request_material": {
-        const { data, error } = await sb.from("approvals").insert({
-          project_id: toolInput.project_id as string,
+        const projectId = await requireToolProjectAccess(toolInput, context);
+        const { data, error } = await serviceClient.from("approvals").insert({
+          project_id: projectId,
           approval_type: "MATERIAL_ORDER",
           status: "PENDING",
-          requested_by: "chat_agent",
+          requested_by: `chat_agent:${context.user.userId}`,
           request_summary: `Materialanfrage${(toolInput.urgency as string) === "dringend" ? " (DRINGEND)" : ""}: ${toolInput.description}`,
-          request_data: { description: toolInput.description, urgency: toolInput.urgency || "normal", source: "chat_agent", requested_by_role: userRole },
+          request_data: {
+            description: toolInput.description,
+            urgency: toolInput.urgency || "normal",
+            source: "chat_agent",
+            requested_by_role: userRole,
+            requested_by_user_id: context.user.userId,
+          },
         }).select("id").single();
         if (error) return JSON.stringify({ error: error.message });
 
@@ -396,24 +478,36 @@ async function executeTool(
       }
 
       case "request_tool": {
-        const { data, error } = await sb.from("approvals").insert({
-          project_id: toolInput.project_id as string,
+        const projectId = await requireToolProjectAccess(toolInput, context);
+        const { data, error } = await serviceClient.from("approvals").insert({
+          project_id: projectId,
           approval_type: "TOOL_REQUEST",
           status: "PENDING",
-          requested_by: "chat_agent",
+          requested_by: `chat_agent:${context.user.userId}`,
           request_summary: `Werkzeuganfrage: ${toolInput.description}`,
-          request_data: { description: toolInput.description, source: "chat_agent", requested_by_role: userRole },
+          request_data: {
+            description: toolInput.description,
+            source: "chat_agent",
+            requested_by_role: userRole,
+            requested_by_user_id: context.user.userId,
+          },
         }).select("id").single();
         if (error) {
           // Falls TOOL_REQUEST als approval_type nicht existiert, Fallback auf MATERIAL_ORDER
           if (error.message.includes("check constraint") || error.message.includes("approval_type")) {
-            const { data: d2, error: e2 } = await sb.from("approvals").insert({
-              project_id: toolInput.project_id as string,
+            const { data: d2, error: e2 } = await serviceClient.from("approvals").insert({
+              project_id: projectId,
               approval_type: "MATERIAL_ORDER",
               status: "PENDING",
-              requested_by: "chat_agent",
+              requested_by: `chat_agent:${context.user.userId}`,
               request_summary: `Werkzeuganfrage: ${toolInput.description}`,
-              request_data: { description: toolInput.description, source: "chat_agent", requested_by_role: userRole, type: "tool_request" },
+              request_data: {
+                description: toolInput.description,
+                source: "chat_agent",
+                requested_by_role: userRole,
+                requested_by_user_id: context.user.userId,
+                type: "tool_request",
+              },
             }).select("id").single();
             if (e2) return JSON.stringify({ error: e2.message });
             try {
@@ -434,18 +528,19 @@ async function executeTool(
       }
 
       case "update_project_status": {
-        if (userRole === "monteur") return JSON.stringify({ error: "Monteure dürfen den Projektstatus nicht ändern." });
+        assertRole(context.user, ["gf", "bauleiter"], "Monteure dürfen den Projektstatus nicht ändern.");
+        const projectId = await requireToolProjectAccess(toolInput, context);
         const validStatuses = ["DRAFT", "INTAKE", "INSPECTION", "PLANNING", "ACTIVE", "IN_PROGRESS", "COMPLETED", "INVOICED", "ARCHIVED"];
         const newStatus = (toolInput.status as string || "").toUpperCase();
         if (!validStatuses.includes(newStatus)) {
           return JSON.stringify({ error: `Ungültiger Status. Erlaubt: ${validStatuses.join(", ")}` });
         }
-        const { error } = await sb
+        const { error } = await serviceClient
           .from("projects")
           .update({ status: newStatus, updated_at: new Date().toISOString() })
-          .eq("id", toolInput.project_id as string);
+          .eq("id", projectId);
         if (error) return JSON.stringify({ error: error.message });
-        return JSON.stringify({ success: true, project_id: toolInput.project_id, new_status: newStatus, message: `Projektstatus auf ${newStatus} gesetzt.` });
+        return JSON.stringify({ success: true, project_id: projectId, new_status: newStatus, message: `Projektstatus auf ${newStatus} gesetzt.` });
       }
 
       default:
@@ -461,8 +556,7 @@ async function executeTool(
 async function callClaude(
   systemPrompt: string,
   messages: any[],
-  sb: any,
-  userRole: string,
+  context: AgentChatContext,
   attachments: any[] = []
 ): Promise<LLMResponse> {
   const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
@@ -511,7 +605,7 @@ async function callClaude(
     const toolResults: any[] = [];
     for (const b of toolBlocks) {
       allToolCalls.push({ name: b.name, input: b.input });
-      const result = await executeTool(b.name, b.input as any, userRole, sb);
+      const result = await executeTool(b.name, b.input as any, context);
       allToolResults.push({ name: b.name, result: JSON.parse(result) });
       toolResults.push({ type: "tool_result", tool_use_id: b.id, content: result });
     }
@@ -528,8 +622,7 @@ async function callClaude(
 async function callGemini(
   systemPrompt: string,
   messages: any[],
-  sb: any,
-  userRole: string
+  context: AgentChatContext,
 ): Promise<LLMResponse> {
   if (!GEMINI_API_KEY) throw new Error("GOOGLE_AI_API_KEY not configured");
 
@@ -576,7 +669,7 @@ async function callGemini(
     for (const p of fnParts) {
       const fc = p.functionCall;
       allToolCalls.push({ name: fc.name, input: fc.args || {} });
-      const result = await executeTool(fc.name, fc.args || {}, userRole, sb);
+      const result = await executeTool(fc.name, fc.args || {}, context);
       allToolResults.push({ name: fc.name, result: JSON.parse(result) });
       fnResponses.push({ functionResponse: { name: fc.name, response: JSON.parse(result) } });
     }
@@ -596,37 +689,49 @@ Deno.serve(async (req: Request) => {
   if (corsRes) return corsRes;
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) return errorResponse("Missing authorization", 401);
-
     const body: ChatRequest = await req.json();
-    const { project_id: rawProjectId, message, user_role, user_id, attachments = [] } = body;
+    const message = body.message?.trim();
+    const attachments = Array.isArray(body.attachments) ? body.attachments : [];
+    if (!message) return errorResponse("message ist erforderlich", 400, req);
+
+    const user = await requireUserContext(req);
+    const rawProjectId = body.project_id?.trim();
+    const project_id = !rawProjectId || rawProjectId === "general" ? null : rawProjectId;
+    if (project_id) {
+      await requireProjectAccess(user.authHeader, project_id);
+    }
+
     const sb = createServiceClient();
-
-    // "general" oder leere IDs → null (kein Projektbezug)
-    const isGeneralChat = !rawProjectId || rawProjectId === "general";
-    const project_id = isGeneralChat ? null : rawProjectId;
-
-    // user_id validieren: "anonymous" oder leere Strings → null (kein FK-Bruch)
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const validUserId = user_id && UUID_RE.test(user_id) ? user_id : null;
+    const userClient = getUserClient(user.authHeader);
+    const context: AgentChatContext = {
+      user,
+      serviceClient: sb,
+      userClient,
+      currentProjectId: project_id,
+    };
 
     // 1a. Memory laden (global + tenant + user scope, confidence >= 0.6)
     let memoryBlock = "";
     try {
       const { data: memories } = await sb
         .from("memory_entries")
-        .select("key, value, memory_type, scope, trade")
-        .in("scope", ["global", "tenant", "user"])
+        .select("key, value, memory_type, scope, scope_id, trade, confidence")
         .gte("confidence", 0.6)
         .order("confidence", { ascending: false })
-        .limit(30);
+        .limit(50);
 
-      if (memories && memories.length > 0) {
-        const rules = memories.filter((m: any) => m.memory_type === "style_rule").map((m: any) => `- ${m.value}`);
-        const terms = memories.filter((m: any) => m.memory_type === "term_preference").map((m: any) => `- Verwende "${m.value}" statt "${m.key}"`);
-        const examples = memories.filter((m: any) => m.memory_type === "few_shot_example").slice(0, 3);
-        const corrections = memories.filter((m: any) => m.memory_type === "correction_pattern").map((m: any) => `- ${m.value}`);
+      const scopedMemories = (memories ?? []).filter((memory: any) => {
+        if (memory.scope === "global" || memory.scope === "tenant") return true;
+        if (memory.scope === "user") return memory.scope_id === user.userId;
+        if (memory.scope === "project") return project_id && memory.scope_id === project_id;
+        return false;
+      });
+
+      if (scopedMemories.length > 0) {
+        const rules = scopedMemories.filter((m: any) => m.memory_type === "style_rule").map((m: any) => `- ${m.value}`);
+        const terms = scopedMemories.filter((m: any) => m.memory_type === "term_preference").map((m: any) => `- Verwende "${m.value}" statt "${m.key}"`);
+        const examples = scopedMemories.filter((m: any) => m.memory_type === "few_shot_example").slice(0, 3);
+        const corrections = scopedMemories.filter((m: any) => m.memory_type === "correction_pattern").map((m: any) => `- ${m.value}`);
 
         const parts: string[] = [];
         if (rules.length > 0) parts.push("GELERNTE REGELN:\n" + rules.join("\n"));
@@ -645,7 +750,7 @@ Deno.serve(async (req: Request) => {
     // 1b. Kontext laden (nur bei echtem Projekt)
     let projectContext = "Kein Projektkontext (allgemeine Anfrage).";
     if (project_id) {
-      const { data: project } = await sb
+      const { data: project } = await userClient
         .from("projects")
         .select("name, object_street, object_city, status, project_type, client_id")
         .eq("id", project_id)
@@ -686,7 +791,7 @@ ANTWORT-STIL:
 - Wenn der User nach einem Raum fragt: filtere mit dem room-Parameter in query_positions
 - Wenn nichts gefunden: sag das klar ("Keine Positionen für Wohnzimmer gefunden")
 
-${roleRules[user_role] || roleRules.monteur}
+${roleRules[user.role] || roleRules.monteur}
 
 FOTOS/BILDER:
 - Beschreibe was du siehst: Zustand, Schaden, Material, Gewerk
@@ -699,14 +804,14 @@ ${projectContext}
 ${project_id ? `Projekt-ID: ${project_id} (nutze diese ID für alle Tool-Aufrufe!)` : "Kein Projekt ausgewählt."}
 ${memoryBlock}`;
 
-    // 2. Nachricht speichern (immer, auch ohne validUserId)
-    console.log("[agent-chat] Saving user message:", { project_id, validUserId, user_id, messageLen: message.length });
+    // 2. Nachricht speichern
+    console.log("[agent-chat] Saving user message:", { project_id, user_id: user.userId, messageLen: message.length });
     const { error: insertErr } = await sb.from("chat_messages").insert({
       project_id,
-      user_id: validUserId,
+      user_id: user.userId,
       role: "user",
       content: message,
-      metadata: { user_role, original_user_id: user_id },
+      metadata: { user_role: user.role },
     });
     if (insertErr) {
       console.error("[agent-chat] User message insert failed:", insertErr.message, insertErr.details, insertErr.hint);
@@ -717,13 +822,13 @@ ${memoryBlock}`;
     let historyQuery = sb
       .from("chat_messages")
       .select("role, content, tool_calls, tool_results")
+      .eq("user_id", user.userId)
       .order("created_at", { ascending: true })
       .limit(50);
     if (project_id) {
       historyQuery = historyQuery.eq("project_id", project_id);
-    }
-    if (validUserId) {
-      historyQuery = historyQuery.eq("user_id", validUserId);
+    } else {
+      historyQuery = historyQuery.is("project_id", null);
     }
     const { data: history } = await historyQuery;
     let chatMessages = (history || []).map((r: any) => {
@@ -759,18 +864,18 @@ ${memoryBlock}`;
     if (attachments.length > 0) {
       // Vision → nur Claude kann Bilder
       console.log("[agent-chat] → Claude (Vision)");
-      response = await callClaude(systemPrompt, chatMessages, sb, user_role, attachments);
+      response = await callClaude(systemPrompt, chatMessages, context, attachments);
       usedModel = `claude:${CLAUDE_MODEL}`;
     } else {
       // Text → Claude primary, Gemini fallback
       try {
         console.log("[agent-chat] → Claude (Primary)");
-        response = await callClaude(systemPrompt, chatMessages, sb, user_role);
+        response = await callClaude(systemPrompt, chatMessages, context);
         usedModel = `claude:${CLAUDE_MODEL}`;
       } catch (claudeErr: any) {
         console.error("[agent-chat] Claude failed, trying Gemini:", claudeErr.message);
         try {
-          response = await callGemini(systemPrompt, chatMessages, sb, user_role);
+          response = await callGemini(systemPrompt, chatMessages, context);
           usedModel = `gemini:${GEMINI_MODEL}`;
         } catch (geminiErr: any) {
           console.error("[agent-chat] Gemini also failed:", geminiErr.message);
@@ -782,40 +887,37 @@ ${memoryBlock}`;
     // 5. Antwort speichern (immer)
     const { error: assistantErr } = await sb.from("chat_messages").insert({
       project_id,
-      user_id: validUserId,
+      user_id: user.userId,
       role: "assistant",
       content: response.text,
       tool_calls: response.tool_calls.length > 0 ? response.tool_calls : null,
       tool_results: response.tool_results.length > 0 ? response.tool_results : null,
-      metadata: { model: usedModel, user_role },
+      metadata: { model: usedModel, user_role: user.role },
     });
     if (assistantErr) {
       console.error("[agent-chat] Assistant message insert failed:", assistantErr.message, assistantErr.details);
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: response.text,
-        tool_calls: response.tool_calls,
-        tool_results: response.tool_results,
-        model: usedModel,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return jsonResponse({
+      success: true,
+      message: response.text,
+      tool_calls: response.tool_calls,
+      tool_results: response.tool_results,
+      model: usedModel,
+    }, 200, req);
   } catch (err) {
     const errMsg = (err as Error).message || String(err);
-    const errStack = (err as Error).stack || "";
-    console.error("[agent-chat] FATAL:", errMsg, errStack);
-    // Debug: Fehler detailliert zurückgeben
-    return new Response(JSON.stringify({
-      success: false,
-      error: errMsg,
-      stack: errStack,
-      hint: "Debug-Modus aktiv",
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const authErrors = new Set([
+      "Missing authorization",
+      "Invalid JWT token",
+      "User authentication required",
+    ]);
+    const status = errMsg === "Forbidden"
+      ? 403
+      : authErrors.has(errMsg)
+      ? 401
+      : 500;
+    console.error("[agent-chat] FATAL:", errMsg, (err as Error).stack || "");
+    return errorResponse(errMsg, status, req);
   }
 });

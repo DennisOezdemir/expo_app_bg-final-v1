@@ -1,7 +1,11 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 import { handleCors } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import {
+  assertRole,
+  requireProjectAccess,
+  requireUserContext,
+} from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { logEvent } from "../_shared/events.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
@@ -52,10 +56,15 @@ Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
   if (cors) return cors;
 
+  let authHeader = "";
   try {
-    await authenticate(req);
+    const user = await requireUserContext(req);
+    assertRole(user, ["gf", "bauleiter"]);
+    authHeader = user.authHeader;
   } catch (e) {
-    return errorResponse((e as Error).message, 401);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 401;
+    return errorResponse(message, status, req);
   }
 
   try {
@@ -65,8 +74,10 @@ Deno.serve(async (req: Request) => {
       sections: SectionInput[];
     };
 
-    if (!project_id) return errorResponse("project_id ist erforderlich");
-    if (!sections?.length) return errorResponse("Mindestens eine Sektion nötig");
+    if (!project_id) return errorResponse("project_id ist erforderlich", 400, req);
+    if (!sections?.length) return errorResponse("Mindestens eine Sektion nötig", 400, req);
+
+    await requireProjectAccess(authHeader, project_id);
 
     const sb = createServiceClient();
 
@@ -78,7 +89,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (projErr || !project) {
-      return errorResponse("Projekt nicht gefunden", 404);
+      return errorResponse("Projekt nicht gefunden", 404, req);
     }
 
     // Angebot erstellen
@@ -92,7 +103,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (offerErr || !offer) {
-      return errorResponse("Angebot konnte nicht erstellt werden: " + offerErr?.message, 500);
+      return errorResponse("Angebot konnte nicht erstellt werden: " + offerErr?.message, 500, req);
     }
 
     let totalPositions = 0;
@@ -174,9 +185,11 @@ Deno.serve(async (req: Request) => {
       offer_number: offer.offer_number,
       sections: sectionResults,
       total_positions: totalPositions,
-    });
+    }, 200, req);
   } catch (e) {
     console.error("create-offer error:", e);
-    return errorResponse("Interner Fehler: " + (e as Error).message, 500);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 500;
+    return errorResponse("Interner Fehler: " + message, status, req);
   }
 });

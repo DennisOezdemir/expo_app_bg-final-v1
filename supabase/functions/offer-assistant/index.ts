@@ -3,7 +3,13 @@
 // Batch-Generierung mit Approve/Edit/Reject Workflow
 // Logging fuer Godmode Text Learning
 
-import { handleCors, corsHeaders } from "../_shared/cors.ts";
+import { handleCors } from "../_shared/cors.ts";
+import {
+  assertRole,
+  requireOfferAccess,
+  requireUserContext,
+  type UserContext,
+} from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
 import { callLLM, type LLMMessage, type SystemBlock, type LLMResult } from "../_shared/llm-router.ts";
@@ -19,41 +25,31 @@ interface AssistantRequest {
   final_text?: string;
 }
 
-// ── Auth Helper ──
+async function requireOfferScope(req: Request, offerId: string): Promise<{
+  user: UserContext;
+  offer: { id: string; project_id: string };
+}> {
+  const user = await requireUserContext(req);
+  assertRole(user, ["gf", "bauleiter"], "Monteure koennen keine Angebots-Texte generieren");
 
-async function getUserFromJWT(req: Request, sb: any): Promise<{ user_id: string; role: string; name: string } | null> {
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) return null;
+  const offer = await requireOfferAccess(user.authHeader, offerId);
+  return { user, offer };
+}
 
-  const token = authHeader.replace("Bearer ", "");
-
-  // Service-Role Key erkennen (fuer Backend-Calls und Tests)
-  try {
-    const payloadB64 = token.split(".")[1];
-    if (payloadB64) {
-      const payload = JSON.parse(atob(payloadB64));
-      if (payload.role === "service_role") {
-        // Use the only auth user as fallback for service_role calls
-        return { user_id: "627ec3d9-9414-4427-99ad-5c2a914c9e29", role: "gf", name: "Service Role" };
-      }
-    }
-  } catch { /* not a JWT */ }
-
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) return null;
-
-  // Rolle aus team_members ableiten
-  const { data: member } = await sb
-    .from("team_members")
-    .select("role, name")
-    .eq("auth_id", user.id)
+async function requireThreadOwnership(sb: any, threadId: string, offerId: string, userId: string) {
+  const { data, error } = await sb
+    .from("agent_threads")
+    .select("id, offer_id, user_id")
+    .eq("id", threadId)
+    .eq("offer_id", offerId)
+    .eq("user_id", userId)
     .maybeSingle();
 
-  return {
-    user_id: user.id,
-    role: member?.role || "gf",
-    name: member?.name || user.email || "Unbekannt",
-  };
+  if (error || !data) {
+    throw new Error("Forbidden");
+  }
+
+  return data;
 }
 
 // ── System Prompt Builder ──
@@ -168,7 +164,7 @@ ${userHint ? "\nUser-Anweisung: " + userHint : ""}`;
 
 // ── Action Handlers ──
 
-async function handleStartBatch(sb: any, body: AssistantRequest, userId: string) {
+async function handleStartBatch(sb: any, body: AssistantRequest, user: UserContext) {
   const { offer_id } = body;
 
   // 1. Offer-Kontext laden
@@ -203,7 +199,7 @@ async function handleStartBatch(sb: any, body: AssistantRequest, userId: string)
       thread_type: "offer_longtext",
       project_id: offerContext.project?.id || null,
       offer_id,
-      user_id: userId,
+      user_id: user.userId,
       status: "active",
       context_snapshot: offerContext,
       positions_total: allPositions.length,
@@ -243,7 +239,7 @@ async function handleStartBatch(sb: any, body: AssistantRequest, userId: string)
       await sb.from("offer_positions").update({
         staged_long_text: text,
         staged_at: new Date().toISOString(),
-        staged_by: userId,
+        staged_by: user.userId,
       }).eq("id", pos.id);
 
       // agent_message loggen
@@ -296,15 +292,17 @@ async function handleStartBatch(sb: any, body: AssistantRequest, userId: string)
   });
 }
 
-async function handleApprove(sb: any, body: AssistantRequest, userId: string) {
-  const { thread_id, position_id } = body;
+async function handleApprove(sb: any, body: AssistantRequest, user: UserContext) {
+  const { thread_id, position_id, offer_id } = body;
   if (!thread_id || !position_id) return errorResponse("thread_id and position_id required");
+  await requireThreadOwnership(sb, thread_id, offer_id, user.userId);
 
   // Position laden
   const { data: pos } = await sb
     .from("offer_positions")
     .select("id, title, staged_long_text, catalog_code")
     .eq("id", position_id)
+    .eq("offer_id", offer_id)
     .maybeSingle();
 
   if (!pos?.staged_long_text) return errorResponse("No staged text to approve");
@@ -336,9 +334,10 @@ async function handleApprove(sb: any, body: AssistantRequest, userId: string) {
   return jsonResponse({ success: true, position_id, action: "approved", quality_score: 0.8 });
 }
 
-async function handleEdit(sb: any, body: AssistantRequest, userId: string) {
-  const { thread_id, position_id, final_text, message } = body;
+async function handleEdit(sb: any, body: AssistantRequest, user: UserContext) {
+  const { thread_id, position_id, offer_id, final_text, message } = body;
   if (!thread_id || !position_id) return errorResponse("thread_id and position_id required");
+  await requireThreadOwnership(sb, thread_id, offer_id, user.userId);
 
   // Wenn message statt final_text: Regeneration mit User-Hinweis
   if (message && !final_text) {
@@ -347,13 +346,18 @@ async function handleEdit(sb: any, body: AssistantRequest, userId: string) {
       .from("agent_threads")
       .select("context_snapshot, offer_id")
       .eq("id", thread_id)
-      .single();
+      .eq("offer_id", offer_id)
+      .eq("user_id", user.userId)
+      .maybeSingle();
+    if (!thread) return errorResponse("Forbidden", 403);
 
     const { data: pos } = await sb
       .from("offer_positions")
       .select("id, title, description, unit, unit_price, quantity, catalog_code")
       .eq("id", position_id)
-      .single();
+      .eq("offer_id", offer_id)
+      .maybeSingle();
+    if (!pos) return errorResponse("Forbidden", 403);
 
     const { data: memoryEntries } = await sb
       .from("memory_entries")
@@ -368,7 +372,7 @@ async function handleEdit(sb: any, body: AssistantRequest, userId: string) {
     await sb.from("offer_positions").update({
       staged_long_text: text,
       staged_at: new Date().toISOString(),
-      staged_by: userId,
+      staged_by: user.userId,
     }).eq("id", position_id);
 
     await sb.from("agent_messages").insert({
@@ -395,13 +399,15 @@ async function handleEdit(sb: any, body: AssistantRequest, userId: string) {
     .from("offer_positions")
     .select("id, staged_long_text, catalog_code")
     .eq("id", position_id)
+    .eq("offer_id", offer_id)
     .maybeSingle();
+  if (!pos) return errorResponse("Forbidden", 403);
 
   // Staged Text auf editierten Text setzen
   await sb.from("offer_positions").update({
     staged_long_text: final_text,
     staged_at: new Date().toISOString(),
-    staged_by: userId,
+    staged_by: user.userId,
   }).eq("id", position_id);
 
   // Levenshtein-Approximation
@@ -432,15 +438,18 @@ async function handleEdit(sb: any, body: AssistantRequest, userId: string) {
   return jsonResponse({ success: true, position_id, action: "edited", quality_score: 1.0 });
 }
 
-async function handleReject(sb: any, body: AssistantRequest, userId: string) {
-  const { thread_id, position_id } = body;
+async function handleReject(sb: any, body: AssistantRequest, user: UserContext) {
+  const { thread_id, position_id, offer_id } = body;
   if (!thread_id || !position_id) return errorResponse("thread_id and position_id required");
+  await requireThreadOwnership(sb, thread_id, offer_id, user.userId);
 
   const { data: pos } = await sb
     .from("offer_positions")
     .select("id, staged_long_text, catalog_code")
     .eq("id", position_id)
+    .eq("offer_id", offer_id)
     .maybeSingle();
+  if (!pos) return errorResponse("Forbidden", 403);
 
   // Staged loeschen
   await sb.from("offer_positions").update({
@@ -472,9 +481,10 @@ async function handleReject(sb: any, body: AssistantRequest, userId: string) {
   return jsonResponse({ success: true, position_id, action: "rejected" });
 }
 
-async function handleApproveAll(sb: any, body: AssistantRequest, userId: string) {
+async function handleApproveAll(sb: any, body: AssistantRequest, user: UserContext) {
   const { thread_id, offer_id } = body;
   if (!thread_id) return errorResponse("thread_id required");
+  await requireThreadOwnership(sb, thread_id, offer_id, user.userId);
 
   // Alle Positionen mit staged_long_text laden
   const { data: positions } = await sb
@@ -514,9 +524,10 @@ async function handleApproveAll(sb: any, body: AssistantRequest, userId: string)
   return jsonResponse({ success: true, approved });
 }
 
-async function handleCommitAll(sb: any, body: AssistantRequest, userId: string) {
+async function handleCommitAll(sb: any, body: AssistantRequest, user: UserContext) {
   const { thread_id, offer_id } = body;
   if (!thread_id) return errorResponse("thread_id required");
+  await requireThreadOwnership(sb, thread_id, offer_id, user.userId);
 
   // Alle Positionen mit staged_long_text committen
   const { data: positions } = await sb
@@ -530,7 +541,7 @@ async function handleCommitAll(sb: any, body: AssistantRequest, userId: string) 
   for (const pos of (positions || [])) {
     const { data: result } = await sb.rpc("fn_commit_staged_longtext", {
       p_position_id: pos.id,
-      p_user_id: userId,
+      p_user_id: user.userId,
     });
 
     if (result?.success) {
@@ -561,36 +572,43 @@ Deno.serve(async (req: Request) => {
   if (corsRes) return corsRes;
 
   try {
-    const sb = createServiceClient();
-
-    // Server-authoritative Auth
-    const user = await getUserFromJWT(req, sb);
-    if (!user) return errorResponse("Unauthorized", 401);
-    if (user.role === "monteur") return errorResponse("Monteure koennen keine Angebots-Texte generieren", 403);
-
     const body: AssistantRequest = await req.json();
-    if (!body.offer_id) return errorResponse("offer_id required");
+    if (!body.offer_id) return errorResponse("offer_id required", 400, req);
+
+    const { user } = await requireOfferScope(req, body.offer_id);
+    const sb = createServiceClient();
 
     console.log(`[offer-assistant] ${body.action} by ${user.name} (${user.role}) for offer ${body.offer_id}`);
 
     switch (body.action) {
       case "start_batch":
-        return await handleStartBatch(sb, body, user.user_id);
+        return await handleStartBatch(sb, body, user);
       case "approve":
-        return await handleApprove(sb, body, user.user_id);
+        return await handleApprove(sb, body, user);
       case "approve_all":
-        return await handleApproveAll(sb, body, user.user_id);
+        return await handleApproveAll(sb, body, user);
       case "edit":
-        return await handleEdit(sb, body, user.user_id);
+        return await handleEdit(sb, body, user);
       case "reject":
-        return await handleReject(sb, body, user.user_id);
+        return await handleReject(sb, body, user);
       case "commit_all":
-        return await handleCommitAll(sb, body, user.user_id);
+        return await handleCommitAll(sb, body, user);
       default:
-        return errorResponse(`Unknown action: ${body.action}`);
+        return errorResponse(`Unknown action: ${body.action}`, 400, req);
     }
   } catch (err) {
-    console.error("[offer-assistant] FATAL:", (err as Error).message, (err as Error).stack);
-    return errorResponse((err as Error).message, 500);
+    const message = (err as Error).message;
+    const authErrors = new Set([
+      "Missing authorization",
+      "Invalid JWT token",
+      "User authentication required",
+    ]);
+    const status = message === "Forbidden" || message.includes("Monteure")
+      ? 403
+      : authErrors.has(message)
+      ? 401
+      : 500;
+    console.error("[offer-assistant] FATAL:", message, (err as Error).stack);
+    return errorResponse(message, status, req);
   }
 });

@@ -25,6 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { confirmProposedPhases, discardProposedPhases } from "@/lib/api/pipeline";
 import { useProjectPlanning } from "@/hooks/queries/usePlanning";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -608,14 +609,13 @@ export default function PlanungDetailScreen() {
 
   const handleConfirmAll = useCallback(async () => {
     if (!project) return;
-    const { data, error } = await supabase.rpc("confirm_proposed_phases", {
-      p_project_id: project.id,
-    });
-    if (error) {
-      showAlert("Fehler", error.message);
+    let result: any;
+    try {
+      result = await confirmProposedPhases(project.id);
+    } catch (error) {
+      showAlert("Fehler", (error as Error).message);
       return;
     }
-    const result = data as any;
     if (!result?.success) {
       showAlert("Fehler", result?.error || "Unbekannter Fehler");
       return;
@@ -634,8 +634,12 @@ export default function PlanungDetailScreen() {
         text: "Verwerfen",
         style: "destructive",
         onPress: async () => {
-          await supabase.rpc("discard_proposed_phases", { p_project_id: project.id });
-          queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
+          try {
+            await discardProposedPhases(project.id);
+            queryClient.invalidateQueries({ queryKey: queryKeys.planning.all });
+          } catch (error) {
+            showAlert("Fehler", (error as Error).message);
+          }
         },
       },
     ]);
@@ -643,7 +647,7 @@ export default function PlanungDetailScreen() {
 
   const openMonteurPicker = useCallback(async (trade: Trade) => {
     const { data } = await supabase
-      .from("team_members")
+      .from("team_members_public")
       .select("id, name, gewerk")
       .eq("active", true)
       .eq("role", "Monteur")
