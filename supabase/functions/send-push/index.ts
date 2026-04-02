@@ -61,24 +61,27 @@ Deno.serve(async (req) => {
 
   try {
     // Auth prüfen (service_role oder agent key)
-    const auth = await authenticate(req);
+    const auth = await authenticate(req, {
+      allowAgent: true,
+      allowServiceRole: true,
+    });
     if (!auth.authenticated) {
-      return errorResponse("Unauthorized", 401);
+      return errorResponse("Unauthorized", 401, req);
     }
 
     // Nur service_role oder agents dürfen Pushes senden
     if (auth.source !== "service_role" && auth.source !== "agent") {
-      return errorResponse("Push senden nur mit service_role oder agent key erlaubt", 403);
+      return errorResponse("Push senden nur mit service_role oder agent key erlaubt", 403, req);
     }
 
     const payload: PushRequest = await req.json();
 
     // Validierung
     if (!payload.title || !payload.body) {
-      return errorResponse("title und body sind Pflichtfelder");
+      return errorResponse("title und body sind Pflichtfelder", 400, req);
     }
     if (!payload.user_id && !payload.role) {
-      return errorResponse("user_id oder role muss angegeben werden");
+      return errorResponse("user_id oder role muss angegeben werden", 400, req);
     }
 
     const sb = createServiceClient();
@@ -99,7 +102,7 @@ Deno.serve(async (req) => {
     const { data: members, error: queryError } = await query;
 
     if (queryError) {
-      return errorResponse(`DB Fehler: ${queryError.message}`, 500);
+      return errorResponse(`DB Fehler: ${queryError.message}`, 500, req);
     }
 
     if (!members || members.length === 0) {
@@ -107,7 +110,7 @@ Deno.serve(async (req) => {
         success: true,
         sent: 0,
         message: "Keine Push-Tokens gefunden",
-      });
+      }, 200, req);
     }
 
     // Expo Push Messages bauen
@@ -127,7 +130,7 @@ Deno.serve(async (req) => {
         success: true,
         sent: 0,
         message: "Keine gültigen Push-Tokens",
-      });
+      }, 200, req);
     }
 
     // Expo Push API aufrufen (Batches von max 100)
@@ -164,10 +167,11 @@ Deno.serve(async (req) => {
       success: true,
       sent: messages.length,
       recipients: members.map((m) => m.name),
-    });
+    }, 200, req);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[send-push] Error:", message);
-    return errorResponse(message, 500);
+    const status = message === "Forbidden" ? 403 : 500;
+    return errorResponse(message, status, req);
   }
 });

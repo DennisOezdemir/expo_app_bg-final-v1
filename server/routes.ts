@@ -6,8 +6,21 @@ const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+const legacyBegehungenApiEnabled = process.env.ENABLE_LEGACY_BEGEHUNGEN_API === "true";
+
+function rejectLegacyBegehungenApi(res: Response) {
+  res.status(410).json({
+    error: "Legacy /api/begehungen ist deaktiviert. Nutzt die abgesicherten Supabase-Flows.",
+  });
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/begehungen", async (req: Request, res: Response) => {
+    if (!legacyBegehungenApiEnabled) {
+      rejectLegacyBegehungenApi(res);
+      return;
+    }
+
     try {
       const { project_id, type, positions } = req.body;
       if (!project_id || !type || !positions || !Array.isArray(positions)) {
@@ -70,6 +83,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/begehungen/:projectId", async (req: Request, res: Response) => {
+    if (!legacyBegehungenApiEnabled) {
+      rejectLegacyBegehungenApi(res);
+      return;
+    }
+
     try {
       const { projectId } = req.params;
       const { type } = req.query;
@@ -93,6 +111,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/begehungen/:projectId/latest/:type", async (req: Request, res: Response) => {
+    if (!legacyBegehungenApiEnabled) {
+      rejectLegacyBegehungenApi(res);
+      return;
+    }
+
     try {
       const { projectId, type } = req.params;
 
@@ -123,6 +146,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/begehungen/:projectId/:begehungId", async (req: Request, res: Response) => {
+    if (!legacyBegehungenApiEnabled) {
+      rejectLegacyBegehungenApi(res);
+      return;
+    }
+
     try {
       const { projectId, begehungId } = req.params;
 

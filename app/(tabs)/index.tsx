@@ -71,7 +71,6 @@ function TileSubtext({ text, color }: { text: string; color?: string }) {
 // --- BauGenius Chat Widget ---
 
 function ChatWidget() {
-  const { role, user } = useRole();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [sending, setSending] = useState(false);
@@ -89,9 +88,6 @@ function ChatWidget() {
       const res = await sendChatMessage({
         project_id: "general",
         message: text,
-        user_role: role,
-        user_name: user.name,
-        user_id: user.id ?? "",
       });
       setMessages((prev) => [...prev, { role: "assistant", text: res.message }]);
     } catch (err: any) {
@@ -99,7 +95,7 @@ function ChatWidget() {
     } finally {
       setSending(false);
     }
-  }, [message, sending, role, user]);
+  }, [message, sending]);
 
   return (
     <View style={chatStyles.container}>

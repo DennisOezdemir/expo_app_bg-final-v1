@@ -22,11 +22,7 @@ export async function generateProtokollPdf(
     throw new Error("Nicht angemeldet");
   }
 
-  const { data: urlData } = supabase.storage.from("project-files").getPublicUrl("");
-  // Basis-URL aus Supabase ableiten
-  const supabaseUrl = (supabase as unknown as { supabaseUrl: string }).supabaseUrl
-    ?? process.env.EXPO_PUBLIC_SUPABASE_URL
-    ?? "";
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
 
   const response = await fetch(`${supabaseUrl}/functions/v1/generate-protokoll-pdf`, {
     method: "POST",

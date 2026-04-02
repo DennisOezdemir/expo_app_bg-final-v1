@@ -1,7 +1,11 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 import { handleCors } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import {
+  assertRole,
+  requireOfferAccess,
+  requireUserContext,
+} from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { logEvent } from "../_shared/events.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
@@ -21,10 +25,15 @@ Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
   if (cors) return cors;
 
+  let authHeader = "";
   try {
-    await authenticate(req);
+    const user = await requireUserContext(req);
+    assertRole(user, ["gf", "bauleiter"]);
+    authHeader = user.authHeader;
   } catch (e) {
-    return errorResponse((e as Error).message, 401);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 401;
+    return errorResponse(message, status, req);
   }
 
   try {
@@ -36,7 +45,9 @@ Deno.serve(async (req: Request) => {
       material_markup = 10,
     } = body;
 
-    if (!offer_id) return errorResponse("offer_id ist erforderlich");
+    if (!offer_id) return errorResponse("offer_id ist erforderlich", 400, req);
+
+    await requireOfferAccess(authHeader, offer_id);
 
     const sb = createServiceClient();
 
@@ -48,7 +59,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (offerErr || !offer) {
-      return errorResponse("Angebot nicht gefunden", 404);
+      return errorResponse("Angebot nicht gefunden", 404, req);
     }
 
     const { data: positions, error: posErr } = await sb
@@ -58,11 +69,11 @@ Deno.serve(async (req: Request) => {
       .is("deleted_at", null);
 
     if (posErr) {
-      return errorResponse("Positionen konnten nicht geladen werden", 500);
+      return errorResponse("Positionen konnten nicht geladen werden", 500, req);
     }
 
     if (!positions?.length) {
-      return errorResponse("Keine Positionen im Angebot");
+      return errorResponse("Keine Positionen im Angebot", 400, req);
     }
 
     // Richtzeitwerte laden (key = catalog_position_nr which maps to catalog_code)
@@ -198,9 +209,11 @@ Deno.serve(async (req: Request) => {
         margin_percent_actual: Math.round(marginPercentActual * 10) / 10,
       },
       positions: calculatedPositions,
-    });
+    }, 200, req);
   } catch (e) {
     console.error("calculate-offer error:", e);
-    return errorResponse("Interner Fehler: " + (e as Error).message, 500);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 500;
+    return errorResponse("Interner Fehler: " + message, status, req);
   }
 });

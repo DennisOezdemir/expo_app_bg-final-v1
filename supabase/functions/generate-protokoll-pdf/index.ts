@@ -1,7 +1,11 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 import { handleCors } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import {
+  assertRole,
+  requireProtocolAccess,
+  requireUserContext,
+} from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { logEvent } from "../_shared/events.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
@@ -23,10 +27,15 @@ Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
   if (cors) return cors;
 
+  let authHeader = "";
   try {
-    await authenticate(req);
+    const user = await requireUserContext(req);
+    assertRole(user, ["gf", "bauleiter"]);
+    authHeader = user.authHeader;
   } catch (e) {
-    return errorResponse((e as Error).message, 401);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 401;
+    return errorResponse(message, status, req);
   }
 
   try {
@@ -36,11 +45,13 @@ Deno.serve(async (req: Request) => {
       protocol_type: "erstbegehung" | "zwischenbegehung" | "abnahme";
     };
 
-    if (!protocol_id) return errorResponse("protocol_id ist erforderlich");
-    if (!protocol_type) return errorResponse("protocol_type ist erforderlich");
+    if (!protocol_id) return errorResponse("protocol_id ist erforderlich", 400, req);
+    if (!protocol_type) return errorResponse("protocol_type ist erforderlich", 400, req);
     if (!["erstbegehung", "zwischenbegehung", "abnahme"].includes(protocol_type)) {
-      return errorResponse("protocol_type muss 'erstbegehung', 'zwischenbegehung' oder 'abnahme' sein");
+      return errorResponse("protocol_type muss 'erstbegehung', 'zwischenbegehung' oder 'abnahme' sein", 400, req);
     }
+
+    await requireProtocolAccess(authHeader, protocol_id);
 
     const sb = createServiceClient();
 
@@ -57,7 +68,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (protoErr || !protocol) {
-      return errorResponse("Protokoll nicht gefunden", 404);
+      return errorResponse("Protokoll nicht gefunden", 404, req);
     }
 
     // Projekt + Auftraggeber laden
@@ -71,7 +82,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (projectErr || !project) {
-      return errorResponse("Projekt nicht gefunden", 404);
+      return errorResponse("Projekt nicht gefunden", 404, req);
     }
 
     // Positionen laden: gefiltert nach offer_id (falls vorhanden) und phase
@@ -220,7 +231,7 @@ Deno.serve(async (req: Request) => {
     if (!pdfResponse.ok) {
       const errText = await pdfResponse.text();
       console.error("Gotenberg error:", errText);
-      return errorResponse("PDF-Generierung fehlgeschlagen: " + pdfResponse.status, 500);
+      return errorResponse("PDF-Generierung fehlgeschlagen: " + pdfResponse.status, 500, req);
     }
 
     const pdfBuffer = await pdfResponse.arrayBuffer();
@@ -243,7 +254,7 @@ Deno.serve(async (req: Request) => {
 
     if (uploadErr) {
       console.error("Storage upload error:", uploadErr);
-      return errorResponse("PDF-Upload fehlgeschlagen: " + uploadErr.message, 500);
+      return errorResponse("PDF-Upload fehlgeschlagen: " + uploadErr.message, 500, req);
     }
 
     // inspection_protocols aktualisieren
@@ -278,11 +289,13 @@ Deno.serve(async (req: Request) => {
       protocol_type,
       storage_path: storagePath,
       pdf_size_bytes: pdfBytes.length,
-    });
+    }, 200, req);
 
   } catch (e) {
     console.error("generate-protokoll-pdf error:", e);
-    return errorResponse("Interner Fehler: " + (e as Error).message, 500);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 500;
+    return errorResponse("Interner Fehler: " + message, status, req);
   }
 });
 

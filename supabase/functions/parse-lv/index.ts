@@ -1,7 +1,12 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 import { handleCors } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import {
+  assertRole,
+  extractProjectIdFromStoragePath,
+  requireProjectAccess,
+  requireUserContext,
+} from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { logEvent } from "../_shared/events.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
@@ -34,10 +39,15 @@ Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
   if (cors) return cors;
 
+  let authHeader = "";
   try {
-    await authenticate(req);
+    const user = await requireUserContext(req);
+    assertRole(user, ["gf", "bauleiter"]);
+    authHeader = user.authHeader;
   } catch (e) {
-    return errorResponse((e as Error).message, 401);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 401;
+    return errorResponse(message, status, req);
   }
 
   try {
@@ -49,7 +59,14 @@ Deno.serve(async (req: Request) => {
       confidence_threshold = 0.8,
     } = body;
 
-    if (!storage_path) return errorResponse("storage_path ist erforderlich");
+    if (!storage_path) return errorResponse("storage_path ist erforderlich", 400, req);
+
+    const projectId = extractProjectIdFromStoragePath(storage_path);
+    if (!projectId) {
+      return errorResponse("storage_path muss unter projects/<project_id>/... liegen", 400, req);
+    }
+
+    await requireProjectAccess(authHeader, projectId);
 
     const sb = createServiceClient();
 
@@ -59,7 +76,7 @@ Deno.serve(async (req: Request) => {
       .download(storage_path);
 
     if (downloadErr || !fileData) {
-      return errorResponse("Datei nicht gefunden: " + (downloadErr?.message ?? storage_path), 404);
+      return errorResponse("Datei nicht gefunden: " + (downloadErr?.message ?? storage_path), 404, req);
     }
 
     // Format erkennen
@@ -83,7 +100,7 @@ Deno.serve(async (req: Request) => {
         rawPositions = await parsePdfWithVision(sb, storage_path, fileData);
         break;
       default:
-        return errorResponse(`Unbekanntes Format: ${extension}. Unterstützt: XML (GAEB), CSV, XLSX, PDF`);
+        return errorResponse(`Unbekanntes Format: ${extension}. Unterstützt: XML (GAEB), CSV, XLSX, PDF`, 400, req);
     }
 
     // Katalog-Matching
@@ -155,10 +172,12 @@ Deno.serve(async (req: Request) => {
         needs_review: reviewPositions.length,
       },
       warnings,
-    });
+    }, 200, req);
   } catch (e) {
     console.error("parse-lv error:", e);
-    return errorResponse("Interner Fehler: " + (e as Error).message, 500);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 500;
+    return errorResponse("Interner Fehler: " + message, status, req);
   }
 });
 

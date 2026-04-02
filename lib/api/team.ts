@@ -17,31 +17,50 @@ export interface TeamMemberRow {
   max_hours_per_week: number | null;
 }
 
+function toTeamMemberRow(row: Record<string, any>): TeamMemberRow {
+  return {
+    id: row.id,
+    name: row.name,
+    initials: row.initials ?? null,
+    role: row.role ?? null,
+    gewerk: row.gewerk ?? null,
+    active: !!row.active,
+    is_active: !!row.is_active,
+    sort_order: Number(row.sort_order ?? 0),
+    email: row.email ?? null,
+    phone: row.phone ?? null,
+    hourly_rate: row.hourly_rate ?? null,
+    skill_level: row.skill_level ?? null,
+    skills: row.skills ?? null,
+    max_hours_per_week: row.max_hours_per_week ?? null,
+  };
+}
+
 export async function fetchTeamMembers(): Promise<TeamMemberRow[]> {
   const { data, error } = await supabase
-    .from("team_members")
+    .from("team_members_public")
     .select(
-      "id, name, initials, role, gewerk, active, is_active, sort_order, email, phone, hourly_rate, skill_level, skills, max_hours_per_week"
+      "id, name, initials, role, gewerk, active, is_active, sort_order, skill_level, skills, max_hours_per_week"
     )
     .eq("active", true)
     .order("sort_order")
     .order("name");
 
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map((row) => toTeamMemberRow(row as Record<string, any>));
 }
 
 export async function fetchTeamMember(id: string): Promise<TeamMemberRow> {
   const { data, error } = await supabase
-    .from("team_members")
+    .from("team_members_public")
     .select(
-      "id, name, initials, role, gewerk, active, is_active, sort_order, email, phone, hourly_rate, skill_level, skills, max_hours_per_week"
+      "id, name, initials, role, gewerk, active, is_active, sort_order, skill_level, skills, max_hours_per_week"
     )
     .eq("id", id)
     .single();
 
   if (error) throw error;
-  return data;
+  return toTeamMemberRow(data as Record<string, any>);
 }
 
 export interface UpdateTeamMemberInput {
@@ -83,7 +102,7 @@ export async function fetchProfileStats(): Promise<ProfileStats> {
       .from("projects")
       .select("status"),
     supabase
-      .from("team_members")
+      .from("team_members_public")
       .select("id", { count: "exact", head: true })
       .eq("active", true),
   ]);

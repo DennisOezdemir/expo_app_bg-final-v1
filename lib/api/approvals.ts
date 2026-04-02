@@ -46,12 +46,34 @@ export async function fetchPendingApprovalCount(): Promise<number> {
 }
 
 async function runApprovalRpc(fnName: string, approvalId: string) {
-  const { data, error } = await supabase.rpc(fnName, { p_approval_id: approvalId });
-  if (error) throw error;
-  if (data && typeof data === "object" && "success" in data && !data.success) {
-    throw new Error(String(data.error || "Freigabe-Aktion fehlgeschlagen"));
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("Nicht eingeloggt");
+
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error("Supabase URL not configured");
+
+  const action = fnName === "reject" || fnName.startsWith("fn_reject_")
+    ? "reject"
+    : "approve";
+  const response = await fetch(`${supabaseUrl}/functions/v1/manage-approval`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      approval_id: approvalId,
+      action,
+    }),
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || "Freigabe-Aktion fehlgeschlagen");
   }
-  return data;
+
+  return result.result;
 }
 
 // Maps approval_type → correct RPC function
@@ -67,21 +89,7 @@ const REJECT_FN_MAP: Record<string, string> = {
 };
 
 async function genericReject(approvalId: string) {
-  const { data, error } = await supabase
-    .from("approvals")
-    .update({
-      status: "REJECTED",
-      decided_at: new Date().toISOString(),
-      decided_by: "app_gf",
-      decision_channel: "freigabecenter",
-      feedback_category: "rejected",
-    })
-    .eq("id", approvalId)
-    .eq("status", "PENDING")
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  return runApprovalRpc("reject", approvalId);
 }
 
 export async function approveApproval(approvalId: string, approvalType?: string) {

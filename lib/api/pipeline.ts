@@ -143,9 +143,46 @@ export async function checkPipelineReadiness(projectId: string): Promise<Readine
 }
 
 export async function startAutoPlan(projectId: string): Promise<{ success: boolean; error?: string; schedule?: any; material?: any }> {
-  const { data, error } = await supabase.rpc("auto_plan_full", { p_project_id: projectId });
-  if (error) throw error;
-  return data as any;
+  return callPlanningAction("start_auto_plan", projectId);
+}
+
+async function callPlanningAction(
+  action: "start_auto_plan" | "confirm_proposed_phases" | "discard_proposed_phases",
+  projectId: string,
+): Promise<any> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("Nicht eingeloggt");
+
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error("Supabase URL not configured");
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/planning-actions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      action,
+      project_id: projectId,
+    }),
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.success === false) {
+    throw new Error(result.error || "Planungsaktion fehlgeschlagen");
+  }
+
+  return result;
+}
+
+export async function confirmProposedPhases(projectId: string): Promise<any> {
+  return callPlanningAction("confirm_proposed_phases", projectId);
+}
+
+export async function discardProposedPhases(projectId: string): Promise<any> {
+  return callPlanningAction("discard_proposed_phases", projectId);
 }
 
 // --- Pipeline status for project list ---

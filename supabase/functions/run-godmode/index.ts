@@ -1,7 +1,12 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
 import { handleCors } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import {
+  assertRole,
+  authenticate,
+  requireProjectAccess,
+  requireUserContext,
+} from "../_shared/auth.ts";
 import { createServiceClient } from "../_shared/supabase-client.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
 
@@ -18,10 +23,18 @@ Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
   if (cors) return cors;
 
+  let userAuthHeader: string | null = null;
   try {
-    await authenticate(req);
+    const auth = await authenticate(req, { allowServiceRole: true });
+    if (auth.source === "user") {
+      const user = await requireUserContext(req);
+      assertRole(user, ["gf"]);
+      userAuthHeader = user.authHeader;
+    }
   } catch (e) {
-    return errorResponse((e as Error).message, 401);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 401;
+    return errorResponse(message, status, req);
   }
 
   try {
@@ -31,16 +44,20 @@ Deno.serve(async (req: Request) => {
     const sb = createServiceClient();
 
     if (project_id) {
+      if (userAuthHeader) {
+        await requireProjectAccess(userAuthHeader, project_id);
+      }
+
       // Einzelnes Projekt
       const { data, error } = await sb.rpc("fn_godmode_learner", {
         p_project_id: project_id,
       });
 
       if (error) {
-        return errorResponse("Godmode fehlgeschlagen: " + error.message, 500);
+        return errorResponse("Godmode fehlgeschlagen: " + error.message, 500, req);
       }
 
-      return jsonResponse(data);
+      return jsonResponse(data, 200, req);
     }
 
     if (auto) {
@@ -52,7 +69,7 @@ Deno.serve(async (req: Request) => {
         .gte("updated_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
 
       if (projErr) {
-        return errorResponse("Projekte laden fehlgeschlagen: " + projErr.message, 500);
+        return errorResponse("Projekte laden fehlgeschlagen: " + projErr.message, 500, req);
       }
 
       if (!projects?.length) {
@@ -60,7 +77,7 @@ Deno.serve(async (req: Request) => {
           success: true,
           message: "Keine kürzlich abgeschlossenen Projekte gefunden",
           projects_processed: 0,
-        });
+        }, 200, req);
       }
 
       // Prüfen welche schon gelernt wurden (Event exists)
@@ -95,12 +112,14 @@ Deno.serve(async (req: Request) => {
         success: true,
         projects_processed: results.length,
         results,
-      });
+      }, 200, req);
     }
 
-    return errorResponse("project_id oder auto=true ist erforderlich");
+    return errorResponse("project_id oder auto=true ist erforderlich", 400, req);
   } catch (e) {
     console.error("run-godmode error:", e);
-    return errorResponse("Interner Fehler: " + (e as Error).message, 500);
+    const message = (e as Error).message;
+    const status = message === "Forbidden" ? 403 : 500;
+    return errorResponse("Interner Fehler: " + message, status, req);
   }
 });

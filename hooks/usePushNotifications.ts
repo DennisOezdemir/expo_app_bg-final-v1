@@ -110,25 +110,26 @@ async function registerForPushNotifications(): Promise<string | null> {
 }
 
 async function savePushToken(token: string, authUserId: string) {
-  // Token in team_members speichern (matcht über auth_id)
-  const { error } = await supabase
-    .from("team_members")
-    .update({ push_token: token })
-    .eq("auth_id", authUserId);
+  const { data: sessionData } = await supabase.auth.getSession();
+  const sessionToken = sessionData?.session?.access_token;
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 
-  if (error) {
-    // Falls kein team_member mit dieser auth_id existiert,
-    // versuchen wir über die Email zu matchen und auth_id zu setzen
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user?.email) {
-      const { error: updateError } = await supabase
-        .from("team_members")
-        .update({ push_token: token, auth_id: authUserId })
-        .eq("email", user.email);
+  if (!sessionToken || !supabaseUrl) {
+    console.error("[Push] Session oder Supabase URL fehlt");
+    return;
+  }
 
-      if (updateError) {
-        console.error("[Push] Token speichern fehlgeschlagen:", updateError.message);
-      }
-    }
+  const response = await fetch(`${supabaseUrl}/functions/v1/save-push-token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    body: JSON.stringify({ token, auth_user_id: authUserId }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    console.error("[Push] Token speichern fehlgeschlagen:", body.error || `HTTP ${response.status}`);
   }
 }

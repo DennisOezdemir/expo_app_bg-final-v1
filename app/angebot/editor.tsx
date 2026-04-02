@@ -2180,7 +2180,11 @@ export default function OfferEditorScreen() {
     const mwstVal = totalNetto * 0.19;
     const bruttoVal = totalNetto + mwstVal;
 
-    const logoUrl = "https://yetwntwayhmzmhhgdkli.supabase.co/storage/v1/object/public/assets/branding/logo.png";
+    // Logo via Signed URL laden (assets Bucket ist private)
+    const { data: logoSignedData } = await supabase.storage
+      .from("assets")
+      .createSignedUrl("branding/logo.png", 3600);
+    const logoUrl = logoSignedData?.signedUrl ?? "";
 
     const html = `<!DOCTYPE html>
 <html lang="de">
@@ -2580,7 +2584,7 @@ export default function OfferEditorScreen() {
           const storagePath = `offers/${offerId}/${fileName}`;
           const arrayBuffer = await pdfBlob.arrayBuffer();
           await supabase.storage.from("project-files").upload(storagePath, arrayBuffer, { contentType: "application/pdf", upsert: true });
-          const { data: signedData } = await supabase.storage.from("project-files").createSignedUrl(storagePath, 365 * 24 * 60 * 60);
+          const { data: signedData } = await supabase.storage.from("project-files").createSignedUrl(storagePath, 30 * 24 * 60 * 60);
           await supabase.from("offers").update({ pdf_storage_path: storagePath, pdf_public_url: signedData?.signedUrl || null }).eq("id", offerId);
         }
 

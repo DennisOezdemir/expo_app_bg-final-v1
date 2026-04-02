@@ -37,7 +37,7 @@ export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
       .select("total_net")
       .not("total_net", "is", null),
     supabase
-      .from("team_members")
+      .from("team_members_public")
       .select("id", { count: "exact", head: true })
       .eq("active", true),
     supabase

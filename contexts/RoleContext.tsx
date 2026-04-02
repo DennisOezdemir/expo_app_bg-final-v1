@@ -133,8 +133,7 @@ function normalizeUserRole(role?: string | null): UserRole {
     case "gf":
     case "geschäftsführer":
     case "geschaeftsfuehrer":
-      // GF wird in der Expo App als BL behandelt — GF-Features sind im AgentView
-      return "bauleiter";
+      return "gf";
     case "bauleiter":
     case "bauleiterin":
     case "polier":
@@ -160,21 +159,24 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     [authUser?.role, isAuthenticated]
   );
   const [overrideRole, setOverrideRole] = useState<UserRole | null>(null);
+  const canImpersonate = __DEV__;
 
   useEffect(() => {
     setOverrideRole(null);
   }, [actualRole]);
 
   const role = overrideRole ?? actualRole;
-  const isImpersonating = overrideRole !== null && overrideRole !== actualRole;
+  const isImpersonating = canImpersonate && overrideRole !== null && overrideRole !== actualRole;
 
   const setRole = useCallback((newRole: UserRole) => {
+    if (!canImpersonate) return;
     setOverrideRole(newRole === actualRole ? null : newRole);
-  }, [actualRole]);
+  }, [actualRole, canImpersonate]);
 
   const resetRole = useCallback(() => {
+    if (!canImpersonate) return;
     setOverrideRole(null);
-  }, []);
+  }, [canImpersonate]);
 
   const can = useCallback((action: RoleAction) => {
     return ROLE_PERMISSIONS[role].has(action);

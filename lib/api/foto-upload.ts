@@ -28,7 +28,7 @@ export async function uploadFoto(input: UploadFotoInput): Promise<FotoCapture> {
   const blob = await response.blob();
 
   const { error: storageError } = await supabase.storage
-    .from("site-photos")
+    .from("project-files")
     .upload(fileName, blob, {
       contentType: "image/jpeg",
       upsert: false,
