@@ -43,6 +43,9 @@ yarn-error.*
 
 # local dev state
 .local/
+.claude/
+.cursor/
+supabase/.temp/
 
 # Ralph
 /.ralph
