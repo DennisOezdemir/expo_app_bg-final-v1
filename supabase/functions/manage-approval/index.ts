@@ -10,9 +10,12 @@ import { createServiceClient } from "../_shared/supabase-client.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
 
 interface ApprovalActionRequest {
-  approval_id: string;
+  approval_id?: string;
+  change_order_id?: string;
   action: "approve" | "reject";
   approval_type?: string;
+  approved_by?: string;
+  reason?: string;
 }
 
 const APPROVE_FN_MAP: Record<string, string> = {
@@ -43,11 +46,36 @@ Deno.serve(async (req: Request) => {
     assertRole(user, ["gf", "bauleiter"]);
 
     const body = await req.json() as ApprovalActionRequest;
-    if (!body.approval_id || !body.action) {
-      return errorResponse("approval_id und action sind erforderlich", 400, req);
+    if (!body.action) {
+      return errorResponse("action ist erforderlich", 400, req);
     }
 
     const sb = createServiceClient();
+
+    // ── Change Order Route ──
+    if (body.change_order_id) {
+      if (body.action === "approve") {
+        const { data, error } = await sb.rpc("approve_change_order", {
+          p_change_order_id: body.change_order_id,
+          p_approved_by: body.approved_by || "Auftraggeber",
+        });
+        if (error) return errorResponse(error.message, 400, req);
+        return jsonResponse({ success: true, result: data }, 200, req);
+      }
+      // reject
+      const { data, error } = await sb.rpc("reject_change_order", {
+        p_change_order_id: body.change_order_id,
+        p_rejected_by: user.name || "System",
+        p_reason: body.reason || "",
+      });
+      if (error) return errorResponse(error.message, 400, req);
+      return jsonResponse({ success: true, result: data }, 200, req);
+    }
+
+    // ── Approval Route (bestehend) ──
+    if (!body.approval_id) {
+      return errorResponse("approval_id oder change_order_id ist erforderlich", 400, req);
+    }
     const { data: approval, error: approvalError } = await sb
       .from("approvals")
       .select("id, project_id, approval_type, status")

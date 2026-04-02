@@ -314,20 +314,58 @@ export async function approveChangeOrder(
   changeOrderId: string,
   approvedBy?: string
 ): Promise<void> {
-  const { error } = await supabase.rpc("approve_change_order", {
-    p_change_order_id: changeOrderId,
-    p_approved_by: approvedBy || "Auftraggeber",
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("Nicht eingeloggt");
+
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error("Supabase URL not configured");
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/manage-approval`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      change_order_id: changeOrderId,
+      action: "approve",
+      approved_by: approvedBy || "Auftraggeber",
+    }),
   });
-  if (error) throw error;
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || "Nachtrag-Genehmigung fehlgeschlagen");
+  }
 }
 
 export async function rejectChangeOrder(
   changeOrderId: string,
   reason?: string
 ): Promise<void> {
-  const { error } = await supabase.rpc("reject_change_order", {
-    p_change_order_id: changeOrderId,
-    p_reason: reason || null,
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("Nicht eingeloggt");
+
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error("Supabase URL not configured");
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/manage-approval`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      change_order_id: changeOrderId,
+      action: "reject",
+      reason: reason || "",
+    }),
   });
-  if (error) throw error;
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || "Nachtrag-Ablehnung fehlgeschlagen");
+  }
 }
