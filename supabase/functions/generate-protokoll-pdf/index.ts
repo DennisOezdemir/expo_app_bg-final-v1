@@ -76,7 +76,7 @@ Deno.serve(async (req: Request) => {
       .from("projects")
       .select(`
         id, name, project_number, object_street, object_zip, object_city, client_id,
-        clients:client_id (name, address, zip, city)
+        clients:client_id (company_name, street, zip_code, city)
       `)
       .eq("id", protocol.project_id)
       .single();
@@ -117,9 +117,9 @@ Deno.serve(async (req: Request) => {
     const clientRaw = project.clients as Record<string, unknown> | null;
     const clientData = clientRaw
       ? {
-          name: (clientRaw.name as string) ?? "",
-          address: (clientRaw.address as string) ?? "",
-          zip: (clientRaw.zip as string) ?? "",
+          name: (clientRaw.company_name as string) ?? "",
+          address: (clientRaw.street as string) ?? "",
+          zip: (clientRaw.zip_code as string) ?? "",
           city: (clientRaw.city as string) ?? "",
         }
       : null;
