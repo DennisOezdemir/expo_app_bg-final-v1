@@ -971,6 +971,7 @@ export default function ChatScreen() {
   const INTENT_PROMPTS: Record<string, string> = {
     material: "Ich brauche folgendes Material: ",
     nachtrag: "Ich möchte einen Nachtrag anlegen für: ",
+    angebot: "Erstelle ein Angebot für dieses Projekt: ",
   };
 
   const [inputText, setInputText] = useState(

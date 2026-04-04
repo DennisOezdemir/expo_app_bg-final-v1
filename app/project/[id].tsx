@@ -2114,6 +2114,11 @@ export default function ProjectDetailScreen() {
             onPress={() => { if (id) router.push({ pathname: "/chat/[id]", params: { id, intent: "nachtrag" } }); }}
           />
           <QuickAction
+            icon={<Ionicons name="document-text" size={24} color={Colors.raw.amber500} />}
+            label="Angebot"
+            onPress={() => { if (id) router.push({ pathname: "/chat/[id]", params: { id, intent: "angebot" } }); }}
+          />
+          <QuickAction
             icon={<Ionicons name="chatbubbles" size={24} color={Colors.raw.amber500} />}
             label="Chat"
             onPress={() => { if (id) router.push(`/chat/${id}`); }}
