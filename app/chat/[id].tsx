@@ -978,6 +978,7 @@ export default function ChatScreen() {
     intent && INTENT_PROMPTS[intent] ? INTENT_PROMPTS[intent] : ""
   );
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
+  const [createdOfferId, setCreatedOfferId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -1119,7 +1120,13 @@ export default function ChatScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     setInputText("");
-    sendMutation.mutate(text);
+    sendMutation.mutate(text, {
+      onSuccess: (response) => {
+        const offerResult = response.tool_results?.find((r) => r.name === "create_offer");
+        const offerId = offerResult?.result?.offer_id as string | undefined;
+        if (offerId) setCreatedOfferId(offerId);
+      },
+    });
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
   }, [inputText, sendMutation]);
 
@@ -1188,6 +1195,28 @@ export default function ChatScreen() {
           </View>
         </View>
       </View>
+
+      {createdOfferId && (
+        <View style={styles.offerBanner}>
+          <Ionicons name="document-text" size={18} color="#fff" />
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => {
+              router.push({ pathname: "/angebot/[id]", params: { id: createdOfferId } });
+              setCreatedOfferId(null);
+            }}
+          >
+            <Text style={styles.offerBannerText}>Angebot erstellt — zum Bearbeiten öffnen</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setCreatedOfferId(null)}
+            hitSlop={8}
+            testID="offer-banner-close"
+          >
+            <Ionicons name="close" size={18} color="#fff" />
+          </Pressable>
+        </View>
+      )}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -1530,5 +1559,22 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 15,
     color: Colors.raw.zinc400,
+  },
+  offerBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 10,
+    zIndex: 9,
+  },
+  offerBannerText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
   },
 });
