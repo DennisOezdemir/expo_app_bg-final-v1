@@ -1,0 +1,154 @@
+## Context
+If @.ralph/guides/AGENTS.md exists, study it for commands and patterns.
+Study @.ralph/specs/$FEATURE.md for feature specification.
+Study @.ralph/specs/$FEATURE-implementation-plan.md for completed tasks.
+
+## Learnings
+Read @.ralph/LEARNINGS.md for patterns from previous features.
+Capture any review feedback patterns for future iterations.
+
+## Task
+All implementation and E2E tasks are complete. Create PR and request review.
+Complete ALL steps in a single pass — do not end the session between steps.
+
+### Step 1: Verify Ready State
+1. Check all tasks are complete in implementation plan (no `- [ ]` items)
+2. Verify tests pass: `cd . && npm test`
+3. Verify build succeeds: `cd . && npm run build`
+
+If any fail, fix before proceeding.
+
+### Step 2: Check Git Status
+```bash
+cd . && git status
+cd . && git log --oneline -5
+```
+
+Ensure:
+- On branch `feat/$FEATURE`
+- All changes are committed
+- Branch is pushed to remote
+
+If uncommitted changes exist:
+```bash
+git -C . add -A && git -C . commit -m "chore($FEATURE): final cleanup"
+git -C . push origin feat/$FEATURE
+```
+
+### Step 3: Create PR
+Check if PR already exists:
+```bash
+cd . && gh pr list --head feat/$FEATURE
+```
+
+If no PR exists, create one:
+```bash
+cd . && gh pr create --base main --head feat/$FEATURE \
+  --title "feat($FEATURE): [read description from spec]" \
+  --body "$(cat <<'EOF'
+## Summary
+[Read from spec Purpose section]
+
+## Changes
+[Read from implementation plan - list completed phases]
+
+## Testing
+- [x] Unit/integration tests: passing
+- [x] E2E tests: All scenarios passed
+- [x] Build succeeds
+
+## E2E Test Results
+[Copy from implementation plan E2E section]
+
+Closes #[Read the source issue number from the spec file metadata or context section]
+
+Generated with Claude Code
+EOF
+)"
+```
+
+### Step 4: Request Claude Code Review
+
+Run automated code review using Claude Code CLI:
+
+```bash
+# Check if Claude Code CLI is installed
+if ! command -v claude &> /dev/null; then
+    echo "WARNING: Claude Code CLI not installed. Manual review needed."
+    cd . && gh pr comment --body "Manual review requested - Claude Code CLI not available. Install: https://docs.anthropic.com/en/docs/claude-code/overview"
+else
+    echo "Running Claude Code review..."
+
+    cd . && claude -p "You are reviewing a PR for the $FEATURE feature.
+
+Review the git diff against main and check:
+- Code quality and patterns consistency
+- Test coverage adequacy
+- Potential bugs or edge cases
+- Security concerns (injection, XSS, etc.)
+- Performance implications
+- Error handling completeness
+
+Run: git diff main
+
+Then:
+1. Post your complete review as a comment on the PR using:
+   gh pr comment --body '<your review in markdown>'
+   Format the comment with: a summary, specific issues with file:line refs (if any), and the verdict.
+2. Print your final verdict as the LAST line of stdout. Print exactly one of:
+   VERDICT: APPROVED
+   VERDICT: NOT APPROVED
+   This line is parsed by the automation — do not omit it."
+fi
+```
+
+After the review completes, check its output:
+- If it contains "VERDICT: APPROVED", echo that line so the automation detects it:
+  ```bash
+  echo "VERDICT: APPROVED"
+  ```
+- If issues were found, echo:
+  ```bash
+  echo "VERDICT: NOT APPROVED"
+  ```
+
+**Handle review feedback:**
+- If Claude outputs "VERDICT: APPROVED" -> Done. The PR is ready for manual merge by the user.
+- If Claude lists issues:
+  1. Address each issue with code fixes
+  2. Commit: `git -C . add -A && git -C . commit -m "fix($FEATURE): address review feedback"`
+  3. Push: `git -C . push origin feat/$FEATURE`
+  4. Re-run the Claude review command above
+- Max 3 review iterations before requiring manual intervention
+
+### Step 5: Final Summary
+After review is complete (approved or max iterations reached):
+1. Post a summary comment on the PR with the review outcome
+2. Do NOT merge — the user will review and merge manually
+
+## IMPORTANT: Review scope
+If you discover that no implementation code exists (empty diff, no source files changed),
+do NOT implement the feature yourself. Instead, report "VERDICT: NOT APPROVED —
+no implementation found" so the harness can trigger a new implementation iteration.
+
+## Rules
+- **NEVER approve if any tests are failing.** Output "VERDICT: NOT APPROVED — test failures" if any tests fail.
+- Do NOT merge the PR — auto mode only reviews, the user merges
+- Do NOT implement missing features — only review and fix minor issues
+- Address ALL review comments before marking as approved
+- If gh CLI fails, check authentication: `gh auth status`
+- Keep review conversation focused and professional
+
+## Troubleshooting
+- **gh: command not found** -> Install GitHub CLI: `brew install gh`
+- **gh auth error** -> Run: `gh auth login`
+- **PR already exists** -> Use: `gh pr view` to see status
+- **Claude Code CLI not installed** -> Install: `npm install -g @anthropic-ai/claude-code`
+
+## Learning Capture
+If the review revealed patterns worth remembering, append to @.ralph/LEARNINGS.md:
+- Code quality feedback -> Add under "## Anti-Patterns" or "## Patterns"
+- Common review issues -> Add under "## Anti-Patterns"
+- Good practices identified -> Add under "## Patterns"
+
+Format: `- [YYYY-MM-DD] [$FEATURE] Brief description`

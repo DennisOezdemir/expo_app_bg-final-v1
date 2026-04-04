@@ -21,6 +21,7 @@
   "exclude": [
     "supabase/functions",
     "server",
-    "mcp-server"
+    "mcp-server",
+    "docs"
   ]
 }
