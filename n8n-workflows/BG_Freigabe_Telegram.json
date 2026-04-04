@@ -1,0 +1,901 @@
+{
+  "updatedAt": "2026-04-01T19:42:49.808Z",
+  "createdAt": "2026-04-01T18:03:38.425Z",
+  "id": "TCk45vw4VhNBuUkq",
+  "name": "BG Freigabe — Material/Nachtrag → Telegram → GF",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bg-approval",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        208,
+        304
+      ],
+      "webhookId": "bg-approval-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.approval_type, a.status, a.request_summary, a.request_data, a.created_at, p.name as project_name, p.object_street, p.object_city FROM approvals a LEFT JOIN projects p ON a.project_id = p.id WHERE a.id = '{{ $json.body.approval_id }}' LIMIT 1",
+        "options": {}
+      },
+      "id": "load-approval",
+      "name": "Lade Approval Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        448,
+        304
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "=6088921678",
+        "text": "=🔧 *{{ $json.approval_type === 'MATERIAL_ORDER' ? 'Materialanfrage' : $json.approval_type === 'TOOL_REQUEST' ? 'Werkzeuganfrage' : 'Freigabe' }}*\n\n📍 *Projekt:* {{ $json.project_name }}\n📌 {{ $json.object_street }}, {{ $json.object_city }}\n\n📝 {{ $json.request_summary }}\n\n🕐 {{ $formatDate($json.created_at, 'DD.MM.YYYY HH:mm') }}\n\n_Approval ID: {{ $json.id }}_",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "=✅ Freigeben",
+                    "additionalFields": {
+                      "callback_data": "=approve_{{ $json.id }}"
+                    }
+                  },
+                  {
+                    "text": "=❌ Ablehnen",
+                    "additionalFields": {
+                      "callback_data": "=reject_{{ $json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-send",
+      "name": "Telegram: Freigabe-Anfrage",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        688,
+        304
+      ],
+      "webhookId": "1d1bc0ca-36fd-4d86-9edd-2362610f4ea3",
+      "credentials": {
+        "telegramApi": {
+          "id": "vNb691K1lDcJzuhY",
+          "name": "BGFreigaben"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "telegram-callback",
+      "name": "Telegram: GF Antwort",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        608
+      ],
+      "webhookId": "bg-telegram-callback",
+      "credentials": {
+        "telegramApi": {
+          "id": "vNb691K1lDcJzuhY",
+          "name": "BGFreigaben"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-approve",
+              "leftValue": "={{ $json.callback_query.data }}",
+              "rightValue": "approve_",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-decision",
+      "name": "Freigegeben?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE approvals \nSET status = 'APPROVED', decided_by = 'gf_telegram', decided_at = NOW(), \n    feedback_category = 'approved_telegram', updated_at = NOW() \nWHERE id = '{{ $json.callback_query.data.replace('approve_', '') }}' \n  AND status = 'PENDING'\nRETURNING id, request_summary, project_id, status",
+        "options": {}
+      },
+      "id": "approve-db",
+      "name": "DB: Freigeben",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        704,
+        512
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE approvals \nSET status = 'REJECTED', decided_by = 'gf_telegram', decided_at = NOW(), \n    feedback_category = 'rejected_telegram', updated_at = NOW() \nWHERE id = '{{ $json.callback_query.data.replace('reject_', '') }}' \n  AND status = 'PENDING'\nRETURNING id, request_summary, project_id, status",
+        "options": {}
+      },
+      "id": "reject-db",
+      "name": "DB: Ablehnen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        704,
+        704
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram: GF Antwort').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram: GF Antwort').item.json.callback_query.message.message_id }}",
+        "text": "=✅ *FREIGEGEBEN*\n\n{{ $('Telegram: GF Antwort').item.json.callback_query.message.text }}\n\n_Freigegeben am {{ $now.format('DD.MM.YYYY HH:mm') }}_",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-confirm-approve",
+      "name": "Telegram: Bestätigung ✅",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        944,
+        512
+      ],
+      "webhookId": "45ebd856-05c8-4b9c-96f5-19a88cbf74b4",
+      "credentials": {
+        "telegramApi": {
+          "id": "vNb691K1lDcJzuhY",
+          "name": "BGFreigaben"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram: GF Antwort').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram: GF Antwort').item.json.callback_query.message.message_id }}",
+        "text": "=❌ *ABGELEHNT*\n\n{{ $('Telegram: GF Antwort').item.json.callback_query.message.text }}\n\n_Abgelehnt am {{ $now.format('DD.MM.YYYY HH:mm') }}_",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-confirm-reject",
+      "name": "Telegram: Bestätigung ❌",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        944,
+        704
+      ],
+      "webhookId": "df01bd42-656f-4308-8b8d-820929546c2f",
+      "credentials": {
+        "telegramApi": {
+          "id": "vNb691K1lDcJzuhY",
+          "name": "BGFreigaben"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (project_id, event_type, source_system, source_flow, payload, reference_id, reference_table)\nSELECT \n  '{{ $json.project_id }}',\n  'MATERIAL_ORDER_APPROVED',\n  'n8n',\n  'bg-freigabe',\n  jsonb_build_object('request_summary', '{{ $json.request_summary }}'),\n  '{{ $json.id }}',\n  'approvals'\nWHERE '{{ $json.id }}' IS NOT NULL AND '{{ $json.id }}' != ''",
+        "options": {}
+      },
+      "id": "event-log",
+      "name": "Event loggen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1184,
+        512
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "id": "save-telegram-ref",
+      "name": "Speichere Telegram Ref",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        938,
+        454
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE approvals \nSET request_data = COALESCE(request_data, '{}'::jsonb) || jsonb_build_object(\n  'telegram_message_id', '{{ $('Telegram: Freigabe-Anfrage').item.json.messageId }}',\n  'telegram_chat_id', '6088921678'\n)\nWHERE id = '{{ $('Lade Approval Details').item.json.id }}'"
+      },
+      "credentials": {
+        "postgres": {
+          "id": "qXZ2ZjK31ZDrPoDG",
+          "name": "Supabase Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Approval Webhook": {
+      "main": [
+        [
+          {
+            "node": "Lade Approval Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lade Approval Details": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Freigabe-Anfrage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: GF Antwort": {
+      "main": [
+        [
+          {
+            "node": "Freigegeben?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freigegeben?": {
+      "main": [
+        [
+          {
+            "node": "DB: Freigeben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DB: Ablehnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB: Freigeben": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Bestätigung ✅",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB: Ablehnen": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Bestätigung ❌",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Bestätigung ✅": {
+      "main": [
+        [
+          {
+            "node": "Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Freigabe-Anfrage": {
+      "main": [
+        [
+          {
+            "node": "Speichere Telegram Ref",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true,
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "zAFieMcnwATMcHhY"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {
+    "Approval Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n.srv1045913.hstgr.cloud",
+            "user-agent": "Deno/2.1.4 (variant; SupabaseEdgeRuntime/1.73.0)",
+            "content-length": "86",
+            "accept": "*/*",
+            "accept-encoding": "gzip,br",
+            "accept-language": "*",
+            "content-type": "application/json",
+            "traceparent": "00-72fcad9fd4facca29655569f09eb4c3a-00533dd7f22444de-01",
+            "x-forwarded-for": "172.18.0.1",
+            "x-forwarded-host": "n8n.srv1045913.hstgr.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "7b08d4382687",
+            "x-real-ip": "172.18.0.1"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "approval_id": "cd0ba070-8a94-4fce-8987-5e36ec85f611",
+            "telegram_chat_id": "6088921678"
+          },
+          "webhookUrl": "https://n8n.srv1045913.hstgr.cloud/webhook/bg-approval",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Telegram: GF Antwort": [
+      {
+        "json": {
+          "update_id": 364005140,
+          "callback_query": {
+            "id": "7704975403014385749",
+            "from": {
+              "id": 6088921678,
+              "is_bot": false,
+              "first_name": "Dennis",
+              "last_name": "Öz",
+              "username": "DennisOez",
+              "language_code": "de"
+            },
+            "message": {
+              "message_id": 6,
+              "from": {
+                "id": 8706843590,
+                "is_bot": true,
+                "first_name": "BGFreigabe",
+                "username": "BGFreigabebot"
+              },
+              "chat": {
+                "id": 6088921678,
+                "first_name": "Dennis",
+                "last_name": "Öz",
+                "username": "DennisOez",
+                "type": "private"
+              },
+              "date": 1775069211,
+              "text": "🔧 Materialanfrage\n\n📍 Projekt: SAGA Springeltwiete 9 - 1.OG rechts\n📌 Springeltwiete 9, Hamburg\n\n📝 Materialanfrage: 1 Eimer Wandfarbe\n\n🕐 \n\nApproval ID: cd0ba070-8a94-4fce-8987-5e36ec85f611\n\nThis message was sent automatically with n8n",
+              "entities": [
+                {
+                  "offset": 3,
+                  "length": 15,
+                  "type": "bold"
+                },
+                {
+                  "offset": 23,
+                  "length": 8,
+                  "type": "bold"
+                },
+                {
+                  "offset": 142,
+                  "length": 49,
+                  "type": "italic"
+                },
+                {
+                  "offset": 193,
+                  "length": 41,
+                  "type": "italic"
+                },
+                {
+                  "offset": 234,
+                  "length": 3,
+                  "type": "text_link",
+                  "url": "https://n8n.io/?utm_source=n8n-internal&utm_medium=powered_by&utm_campaign=n8n-nodes-base.telegram_8a6ab07feb6b3a749b46055b9e8da0f4b4c6cd3cec7db0b3076d7004dbbb106f"
+                }
+              ],
+              "link_preview_options": {
+                "is_disabled": true
+              },
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "✅ Freigeben",
+                      "callback_data": "approve_cd0ba070-8a94-4fce-8987-5e36ec85f611"
+                    },
+                    {
+                      "text": "❌ Ablehnen",
+                      "callback_data": "reject_cd0ba070-8a94-4fce-8987-5e36ec85f611"
+                    }
+                  ]
+                ]
+              }
+            },
+            "chat_instance": "-3683585655349382368",
+            "data": "approve_cd0ba070-8a94-4fce-8987-5e36ec85f611"
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "versionId": "8a6b1bfb-7e34-453d-a6a8-5d732586e7ac",
+  "activeVersionId": "8a6b1bfb-7e34-453d-a6a8-5d732586e7ac",
+  "versionCounter": 49,
+  "triggerCount": 2,
+  "shared": [
+    {
+      "updatedAt": "2026-04-01T18:03:38.428Z",
+      "createdAt": "2026-04-01T18:03:38.428Z",
+      "role": "workflow:owner",
+      "workflowId": "TCk45vw4VhNBuUkq",
+      "projectId": "lxYwL2wy7xgg1POq",
+      "project": {
+        "updatedAt": "2025-10-10T16:06:01.650Z",
+        "createdAt": "2025-10-04T22:17:46.741Z",
+        "id": "lxYwL2wy7xgg1POq",
+        "name": "Dennis Özdemir <info@deine-bauloewen.de>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f290b8bc-a990-495d-aedc-d1ee5abfc443"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-04-01T19:30:56.000Z",
+    "createdAt": "2026-04-01T19:30:45.584Z",
+    "versionId": "8a6b1bfb-7e34-453d-a6a8-5d732586e7ac",
+    "workflowId": "TCk45vw4VhNBuUkq",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "bg-approval",
+          "options": {}
+        },
+        "id": "webhook-trigger",
+        "name": "Approval Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          208,
+          304
+        ],
+        "webhookId": "bg-approval-webhook"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT a.id, a.approval_type, a.status, a.request_summary, a.request_data, a.created_at, p.name as project_name, p.object_street, p.object_city FROM approvals a LEFT JOIN projects p ON a.project_id = p.id WHERE a.id = '{{ $json.body.approval_id }}' LIMIT 1",
+          "options": {}
+        },
+        "id": "load-approval",
+        "name": "Lade Approval Details",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          448,
+          304
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "qXZ2ZjK31ZDrPoDG",
+            "name": "Supabase Postgres"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "chatId": "=6088921678",
+          "text": "=🔧 *{{ $json.approval_type === 'MATERIAL_ORDER' ? 'Materialanfrage' : $json.approval_type === 'TOOL_REQUEST' ? 'Werkzeuganfrage' : 'Freigabe' }}*\n\n📍 *Projekt:* {{ $json.project_name }}\n📌 {{ $json.object_street }}, {{ $json.object_city }}\n\n📝 {{ $json.request_summary }}\n\n🕐 {{ $formatDate($json.created_at, 'DD.MM.YYYY HH:mm') }}\n\n_Approval ID: {{ $json.id }}_",
+          "replyMarkup": "inlineKeyboard",
+          "inlineKeyboard": {
+            "rows": [
+              {
+                "row": {
+                  "buttons": [
+                    {
+                      "text": "=✅ Freigeben",
+                      "additionalFields": {
+                        "callback_data": "=approve_{{ $json.id }}"
+                      }
+                    },
+                    {
+                      "text": "=❌ Ablehnen",
+                      "additionalFields": {
+                        "callback_data": "=reject_{{ $json.id }}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "additionalFields": {
+            "parse_mode": "Markdown"
+          }
+        },
+        "id": "telegram-send",
+        "name": "Telegram: Freigabe-Anfrage",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          688,
+          304
+        ],
+        "webhookId": "1d1bc0ca-36fd-4d86-9edd-2362610f4ea3",
+        "credentials": {
+          "telegramApi": {
+            "id": "vNb691K1lDcJzuhY",
+            "name": "BGFreigaben"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "updates": [
+            "callback_query"
+          ],
+          "additionalFields": {}
+        },
+        "id": "telegram-callback",
+        "name": "Telegram: GF Antwort",
+        "type": "n8n-nodes-base.telegramTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          208,
+          608
+        ],
+        "webhookId": "bg-telegram-callback",
+        "credentials": {
+          "telegramApi": {
+            "id": "vNb691K1lDcJzuhY",
+            "name": "BGFreigaben"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "cond-approve",
+                "leftValue": "={{ $json.callback_query.data }}",
+                "rightValue": "approve_",
+                "operator": {
+                  "type": "string",
+                  "operation": "startsWith"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "check-decision",
+        "name": "Freigegeben?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          448,
+          608
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE approvals SET status = 'APPROVED', decided_by = 'gf_telegram', decided_at = NOW(), feedback_category = 'approved_telegram', updated_at = NOW() WHERE id \n  = '{{ $json.callback_query.data.replace('approve_', '') }}' RETURNING id, request_summary, project_id",
+          "options": {}
+        },
+        "id": "approve-db",
+        "name": "DB: Freigeben",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          704,
+          512
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "qXZ2ZjK31ZDrPoDG",
+            "name": "Supabase Postgres"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE approvals SET status = 'REJECTED', decided_by = 'gf_telegram', decided_at = NOW(), feedback_category = 'rejected_telegram', updated_at = NOW() WHERE id \n  = '{{ $json.callback_query.data.replace('reject_', '') }}' RETURNING id, request_summary, project_id",
+          "options": {}
+        },
+        "id": "reject-db",
+        "name": "DB: Ablehnen",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          704,
+          704
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "qXZ2ZjK31ZDrPoDG",
+            "name": "Supabase Postgres"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "editMessageText",
+          "chatId": "={{ $('Telegram: GF Antwort').item.json.callback_query.message.chat.id }}",
+          "messageId": "={{ $('Telegram: GF Antwort').item.json.callback_query.message.message_id }}",
+          "text": "=✅ *FREIGEGEBEN*\n\n{{ $('Telegram: GF Antwort').item.json.callback_query.message.text }}\n\n_Freigegeben am {{ $now.format('DD.MM.YYYY HH:mm') }}_",
+          "additionalFields": {
+            "parse_mode": "Markdown"
+          }
+        },
+        "id": "telegram-confirm-approve",
+        "name": "Telegram: Bestätigung ✅",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          944,
+          512
+        ],
+        "webhookId": "45ebd856-05c8-4b9c-96f5-19a88cbf74b4",
+        "credentials": {
+          "telegramApi": {
+            "id": "vNb691K1lDcJzuhY",
+            "name": "BGFreigaben"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "editMessageText",
+          "chatId": "={{ $('Telegram: GF Antwort').item.json.callback_query.message.chat.id }}",
+          "messageId": "={{ $('Telegram: GF Antwort').item.json.callback_query.message.message_id }}",
+          "text": "=❌ *ABGELEHNT*\n\n{{ $('Telegram: GF Antwort').item.json.callback_query.message.text }}\n\n_Abgelehnt am {{ $now.format('DD.MM.YYYY HH:mm') }}_",
+          "additionalFields": {
+            "parse_mode": "Markdown"
+          }
+        },
+        "id": "telegram-confirm-reject",
+        "name": "Telegram: Bestätigung ❌",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          944,
+          704
+        ],
+        "webhookId": "df01bd42-656f-4308-8b8d-820929546c2f",
+        "credentials": {
+          "telegramApi": {
+            "id": "vNb691K1lDcJzuhY",
+            "name": "BGFreigaben"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO events (project_id, event_type, source_system, source_flow, payload, reference_id, reference_table) SELECT project_id, 'MATERIAL_ORDER_APPROVED', 'n8n', \n  'bg-freigabe', jsonb_build_object('request_summary', request_summary), id, 'approvals' FROM approvals WHERE decided_by = 'gf_telegram' ORDER BY decided_at DESC\n   LIMIT 1",
+          "options": {}
+        },
+        "id": "event-log",
+        "name": "Event loggen",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          1184,
+          512
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "qXZ2ZjK31ZDrPoDG",
+            "name": "Supabase Postgres"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Approval Webhook": {
+        "main": [
+          [
+            {
+              "node": "Lade Approval Details",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Lade Approval Details": {
+        "main": [
+          [
+            {
+              "node": "Telegram: Freigabe-Anfrage",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Telegram: GF Antwort": {
+        "main": [
+          [
+            {
+              "node": "Freigegeben?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Freigegeben?": {
+        "main": [
+          [
+            {
+              "node": "DB: Freigeben",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "DB: Ablehnen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "DB: Freigeben": {
+        "main": [
+          [
+            {
+              "node": "Telegram: Bestätigung ✅",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "DB: Ablehnen": {
+        "main": [
+          [
+            {
+              "node": "Telegram: Bestätigung ❌",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Telegram: Bestätigung ✅": {
+        "main": [
+          [
+            {
+              "node": "Event loggen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Dennis Özdemir",
+    "name": "Version 8a6b1bfb",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-01T19:30:56.074Z",
+        "id": 1153,
+        "workflowId": "TCk45vw4VhNBuUkq",
+        "versionId": "8a6b1bfb-7e34-453d-a6a8-5d732586e7ac",
+        "event": "activated",
+        "userId": "f290b8bc-a990-495d-aedc-d1ee5abfc443"
+      }
+    ]
+  }
+}
