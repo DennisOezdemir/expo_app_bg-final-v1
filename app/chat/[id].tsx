@@ -955,11 +955,18 @@ function formatDateLabel(dateStr: string): string {
 }
 
 export default function ChatScreen() {
-  const { id: projectId } = useLocalSearchParams<{ id: string }>();
+  const { id: projectId, intent } = useLocalSearchParams<{ id: string; intent?: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
 
-  const [inputText, setInputText] = useState("");
+  const INTENT_PROMPTS: Record<string, string> = {
+    material: "Ich brauche folgendes Material: ",
+    nachtrag: "Ich möchte einen Nachtrag anlegen für: ",
+  };
+
+  const [inputText, setInputText] = useState(
+    intent && INTENT_PROMPTS[intent] ? INTENT_PROMPTS[intent] : ""
+  );
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
