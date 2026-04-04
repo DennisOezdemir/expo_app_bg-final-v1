@@ -51,6 +51,7 @@ import {
 } from "@/lib/api/team-assignment";
 import type { TeamMemberRow } from "@/lib/api/team";
 import type { SubcontractorRow } from "@/lib/api/team-assignment";
+import MaterialRequirementsEditor from "@/components/MaterialRequirementsEditor";
 
 type PosCheckStatus = "none" | "confirmed" | "rejected";
 type ZBWorkStatus = "nicht_gestartet" | "geplant" | "in_arbeit";
@@ -65,6 +66,7 @@ interface BegehungPosition {
   unit: string;
   price: number;
   trade: string;
+  catalogPositionV2Id: string | null;
 }
 
 interface BegehungRoom {
@@ -224,7 +226,7 @@ async function fetchRoomsForProject(projectId: string, offerId?: string): Promis
   const sectionIds = sections.map((s) => s.id);
   const { data: positions, error: posError } = await supabase
     .from("offer_positions")
-    .select("id, section_id, position_number, title, description, long_text, quantity, unit, unit_price, trade, sort_order, catalog_code")
+    .select("id, section_id, position_number, title, description, long_text, quantity, unit, unit_price, trade, sort_order, catalog_code, catalog_position_v2_id")
     .in("section_id", sectionIds)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
@@ -250,6 +252,7 @@ async function fetchRoomsForProject(projectId: string, offerId?: string): Promis
       unit: pos.unit || "Stk",
       price: Number(pos.unit_price) || 0,
       trade: pos.trade || "Sonstiges",
+      catalogPositionV2Id: pos.catalog_position_v2_id || null,
     })),
   }));
 }
@@ -623,6 +626,9 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicateInfo, setDuplicateInfo] = useState<{ count: number; positionIds: string[] }>({ count: 0, positionIds: [] });
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+
+  // Multi-material editor state
+  const [materialEditorPos, setMaterialEditorPos] = useState<BegehungPosition | null>(null);
 
   // Team assignment state
   const [teamAssignments, setTeamAssignments] = useState<Record<string, TeamAssignment>>({});
@@ -1225,6 +1231,29 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
                               assigned={teamAssignments[pos.id] || null}
                             />
                           )}
+                          {/* Multi-Material Editor Button */}
+                          {!finalized && isConfirmed && pos.catalogPositionV2Id && (
+                            <Pressable
+                              onPress={() => setMaterialEditorPos(pos)}
+                              style={({ pressed }) => ({
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 6,
+                                marginTop: 6,
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                backgroundColor: Colors.raw.amber500 + "14",
+                                borderRadius: 8,
+                                borderWidth: 1,
+                                borderColor: Colors.raw.amber500 + "30",
+                                alignSelf: "flex-start",
+                                opacity: pressed ? 0.7 : 1,
+                              })}
+                            >
+                              <Ionicons name="layers-outline" size={16} color={Colors.raw.amber500} />
+                              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.raw.amber500 }}>Materialien verwalten</Text>
+                            </Pressable>
+                          )}
                         </View>
                         <Pressable onPress={() => addPhoto(pos.id, room.id, room.name, pos.title)} style={({ pressed }) => [s.posPhotoBtn, { opacity: pressed ? 0.7 : 1 }]} testID={`photo-${pos.id}`}>
                           <Ionicons name="camera" size={18} color={Colors.raw.zinc500} />
@@ -1632,6 +1661,17 @@ function ErstbegehungView({ type, projectId, protocolId, offerId }: { type: stri
           </View>
         </View>
       </Modal>
+
+      {/* ─── Multi-Material Editor ─── */}
+      {materialEditorPos?.catalogPositionV2Id && (
+        <MaterialRequirementsEditor
+          catalogPositionV2Id={materialEditorPos.catalogPositionV2Id}
+          catalogPositionNr={materialEditorPos.nr}
+          trade={materialEditorPos.trade}
+          visible={!!materialEditorPos}
+          onClose={() => setMaterialEditorPos(null)}
+        />
+      )}
     </View>
   );
 }
