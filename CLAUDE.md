@@ -307,3 +307,26 @@ Migrations können NICHT über CLI deployed werden (Schema-Drift). SQL muss im *
 - **STOP.** Nicht weiter bauen.
 - Kommentar im Issue: "Blockiert weil: [Grund]. Brauche Klärung zu: [Frage]."
 - Zum nächsten Issue weitergehen.
+
+---
+
+## PAPERCLIP AGENT REGELN
+
+> Diese Regeln gelten für alle Paperclip Agents die auf diesem Repo arbeiten.
+
+### Branch-Pflicht
+- **NIEMALS direkt auf main committen**
+- Jeder Agent erstellt einen Branch: `agent/{agent-name}/{issue-id}`
+- Beispiel: `agent/be-engineer/han-7`
+- Nach Abschluss: PR erstellen via `gh pr create`
+- PRs werden vom CTO oder Board reviewed
+
+### Workspace-Isolation
+- Dieses Repo ist ein isolierter Workspace — NICHT das Haupt-Repo des Entwicklers
+- Änderungen nur über PRs ins Haupt-Repo
+- `git push origin` ist erlaubt (auf Feature-Branches)
+
+### Budget
+- Halte dich kurz und effizient
+- Keine unnötigen Reads — lies gezielt
+- Maximal 50 Tool-Calls pro Task
