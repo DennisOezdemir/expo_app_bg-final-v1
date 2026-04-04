@@ -10,6 +10,7 @@ import {
   Modal,
   ScrollView,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -20,6 +21,14 @@ import Colors from "@/constants/colors";
 import { useChatHistory, useSendMessage } from "@/hooks/queries/useChat";
 import { useRole } from "@/contexts/RoleContext";
 import type { ChatMessageRow } from "@/lib/api/chat";
+import {
+  requestAudioPermission,
+  startRecording,
+  uploadAudioFile,
+  formatDuration,
+  type AudioRecording,
+} from "@/lib/audio-capture";
+import { supabase } from "@/lib/supabase";
 
 type MsgType = "human" | "human_photo" | "system" | "approval" | "alert";
 
@@ -955,15 +964,138 @@ function formatDateLabel(dateStr: string): string {
 }
 
 export default function ChatScreen() {
-  const { id: projectId } = useLocalSearchParams<{ id: string }>();
+  const { id: projectId, intent } = useLocalSearchParams<{ id: string; intent?: string }>();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
 
-  const [inputText, setInputText] = useState("");
+  const INTENT_PROMPTS: Record<string, string> = {
+    material: "Ich brauche folgendes Material: ",
+    nachtrag: "Ich möchte einen Nachtrag anlegen für: ",
+    angebot: "Erstelle ein Angebot für dieses Projekt: ",
+  };
+
+  const [inputText, setInputText] = useState(
+    intent && INTENT_PROMPTS[intent] ? INTENT_PROMPTS[intent] : ""
+  );
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
+  const [createdOfferId, setCreatedOfferId] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingRef = useRef<AudioRecording | null>(null);
+  const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const flatListRef = useRef<FlatList>(null);
   const { role } = useRole();
+
+  // Puls-Animation beim Aufnehmen
+  useEffect(() => {
+    if (isRecording) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.3, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.stopAnimation();
+      pulseAnim.setValue(1);
+    }
+  }, [isRecording, pulseAnim]);
+
+  const handleVoiceStart = useCallback(async () => {
+    const granted = await requestAudioPermission();
+    if (!granted) return;
+
+    const recording = await startRecording();
+    if (!recording) return;
+
+    recordingRef.current = recording;
+    setIsRecording(true);
+    setRecordingDuration(0);
+
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+
+    durationIntervalRef.current = setInterval(async () => {
+      if (recordingRef.current) {
+        const status = await recordingRef.current.getStatus();
+        setRecordingDuration(status.durationMs);
+      }
+    }, 500);
+  }, []);
+
+  const handleVoiceStop = useCallback(async () => {
+    if (!recordingRef.current) return;
+
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+      durationIntervalRef.current = null;
+    }
+
+    setIsRecording(false);
+    setIsTranscribing(true);
+
+    try {
+      const { uri, durationMs } = await recordingRef.current.stop();
+      recordingRef.current = null;
+
+      if (!uri || durationMs < 500) {
+        // Zu kurz — ignorieren
+        setIsTranscribing(false);
+        return;
+      }
+
+      const upload = await uploadAudioFile(projectId || "general", uri, durationMs);
+      if (!upload) {
+        setIsTranscribing(false);
+        return;
+      }
+
+      // Signed URL für die Edge Function holen
+      const { data: signedData, error: signError } = await supabase.storage
+        .from("project-files")
+        .createSignedUrl(upload.storagePath, 120);
+
+      if (signError || !signedData?.signedUrl) {
+        setIsTranscribing(false);
+        return;
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        setIsTranscribing(false);
+        return;
+      }
+
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const res = await fetch(`${supabaseUrl}/functions/v1/transcribe-audio`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ audio_url: signedData.signedUrl }),
+      });
+
+      if (res.ok) {
+        const { transcript } = await res.json();
+        if (transcript) {
+          setInputText(transcript);
+          if (Platform.OS !== "web") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        }
+      }
+    } catch {
+      // Stille Fehlerbehandlung — keine Alert-Flut
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [projectId]);
 
   // Real data from Supabase + Realtime
   const { data: dbMessages = [], isLoading } = useChatHistory(projectId || "");
@@ -988,7 +1120,13 @@ export default function ChatScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     setInputText("");
-    sendMutation.mutate(text);
+    sendMutation.mutate(text, {
+      onSuccess: (response) => {
+        const offerResult = response.tool_results?.find((r) => r.name === "create_offer");
+        const offerId = offerResult?.result?.offer_id as string | undefined;
+        if (offerId) setCreatedOfferId(offerId);
+      },
+    });
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
   }, [inputText, sendMutation]);
 
@@ -1058,6 +1196,28 @@ export default function ChatScreen() {
         </View>
       </View>
 
+      {createdOfferId && (
+        <View style={styles.offerBanner}>
+          <Ionicons name="document-text" size={18} color="#fff" />
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => {
+              router.push({ pathname: "/angebot/[id]", params: { id: createdOfferId } });
+              setCreatedOfferId(null);
+            }}
+          >
+            <Text style={styles.offerBannerText}>Angebot erstellt — zum Bearbeiten öffnen</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setCreatedOfferId(null)}
+            hitSlop={8}
+            testID="offer-banner-close"
+          >
+            <Ionicons name="close" size={18} color="#fff" />
+          </Pressable>
+        </View>
+      )}
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -1113,50 +1273,92 @@ export default function ChatScreen() {
               },
             ]}
           >
-            <Pressable
-              onPress={() => setPhotoModalVisible(true)}
-              style={({ pressed }) => [
-                styles.inputIcon,
-                { opacity: pressed ? 0.6 : 1 },
-              ]}
-              testID="camera-btn"
-            >
-              <Ionicons name="camera" size={22} color={Colors.raw.amber500} />
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.inputIcon,
-                { opacity: pressed ? 0.6 : 1 },
-              ]}
-            >
-              <Ionicons name="attach" size={22} color={Colors.raw.zinc500} />
-            </Pressable>
-            <View style={styles.inputField}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Frag BauGenius..."
-                placeholderTextColor={Colors.raw.zinc600}
-                value={inputText}
-                onChangeText={setInputText}
-                onSubmitEditing={handleSend}
-                returnKeyType="send"
-                editable={!sendMutation.isPending}
-                testID="message-input"
-              />
-            </View>
-            <Pressable
-              onPress={handleSend}
-              style={({ pressed }) => [
-                styles.sendButton,
-                {
-                  opacity: inputText.trim() && !sendMutation.isPending ? (pressed ? 0.8 : 1) : 0.4,
-                },
-              ]}
-              disabled={!inputText.trim() || sendMutation.isPending}
-              testID="send-btn"
-            >
-              <Ionicons name="send" size={18} color="#000" />
-            </Pressable>
+            {isRecording ? (
+              <>
+                <Animated.View
+                  style={[styles.recordingPulse, { transform: [{ scale: pulseAnim }] }]}
+                >
+                  <Ionicons name="mic" size={20} color="#fff" />
+                </Animated.View>
+                <View style={styles.recordingInfo}>
+                  <Text style={styles.recordingDot}>●</Text>
+                  <Text style={styles.recordingText}> {formatDuration(recordingDuration)}</Text>
+                  <Text style={styles.recordingHint}> — Loslassen zum Senden</Text>
+                </View>
+                <Pressable
+                  onPress={handleVoiceStop}
+                  style={({ pressed }) => [styles.inputIcon, { opacity: pressed ? 0.7 : 1 }]}
+                  testID="voice-stop-btn"
+                >
+                  <Ionicons name="stop-circle" size={32} color={Colors.raw.amber500} />
+                </Pressable>
+              </>
+            ) : isTranscribing ? (
+              <>
+                <ActivityIndicator size="small" color={Colors.raw.amber500} style={{ marginRight: 8 }} />
+                <View style={styles.inputField}>
+                  <Text style={styles.transcribingText}>Sprache wird erkannt...</Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <Pressable
+                  onPress={() => setPhotoModalVisible(true)}
+                  style={({ pressed }) => [
+                    styles.inputIcon,
+                    { opacity: pressed ? 0.6 : 1 },
+                  ]}
+                  testID="camera-btn"
+                >
+                  <Ionicons name="camera" size={22} color={Colors.raw.amber500} />
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.inputIcon,
+                    { opacity: pressed ? 0.6 : 1 },
+                  ]}
+                >
+                  <Ionicons name="attach" size={22} color={Colors.raw.zinc500} />
+                </Pressable>
+                <View style={styles.inputField}>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Frag BauGenius..."
+                    placeholderTextColor={Colors.raw.zinc600}
+                    value={inputText}
+                    onChangeText={setInputText}
+                    onSubmitEditing={handleSend}
+                    returnKeyType="send"
+                    editable={!sendMutation.isPending}
+                    testID="message-input"
+                  />
+                </View>
+                {inputText.trim() ? (
+                  <Pressable
+                    onPress={handleSend}
+                    style={({ pressed }) => [
+                      styles.sendButton,
+                      { opacity: !sendMutation.isPending ? (pressed ? 0.8 : 1) : 0.4 },
+                    ]}
+                    disabled={sendMutation.isPending}
+                    testID="send-btn"
+                  >
+                    <Ionicons name="send" size={18} color="#000" />
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    onPress={handleVoiceStart}
+                    style={({ pressed }) => [
+                      styles.inputIcon,
+                      { opacity: pressed ? 0.6 : 1 },
+                    ]}
+                    testID="voice-btn"
+                  >
+                    <Ionicons name="mic" size={22} color={Colors.raw.amber500} />
+                  </Pressable>
+                )}
+              </>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -1323,5 +1525,56 @@ const styles = StyleSheet.create({
   },
   suggestionText: {
     fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.raw.zinc300,
+  },
+  recordingPulse: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#E53E3E",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recordingInfo: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+  },
+  recordingDot: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#E53E3E",
+  },
+  recordingText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.raw.white,
+  },
+  recordingHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.raw.zinc400,
+  },
+  transcribingText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.raw.zinc400,
+  },
+  offerBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: Colors.raw.amber500,
+    borderRadius: 10,
+    zIndex: 9,
+  },
+  offerBannerText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
   },
 });

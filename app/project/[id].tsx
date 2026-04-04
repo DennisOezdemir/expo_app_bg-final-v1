@@ -2106,12 +2106,17 @@ export default function ProjectDetailScreen() {
           <QuickAction
             icon={<MaterialCommunityIcons name="package-variant" size={24} color={Colors.raw.amber500} />}
             label="Material"
-            onPress={() => { if (id) router.push(`/chat/${id}`); }}
+            onPress={() => { if (id) router.push({ pathname: "/chat/[id]", params: { id, intent: "material" } }); }}
           />
           <QuickAction
             icon={<Ionicons name="construct" size={24} color={Colors.raw.amber500} />}
             label="Nachtrag"
-            onPress={() => { if (id) router.push(`/chat/${id}`); }}
+            onPress={() => { if (id) router.push({ pathname: "/chat/[id]", params: { id, intent: "nachtrag" } }); }}
+          />
+          <QuickAction
+            icon={<Ionicons name="document-text" size={24} color={Colors.raw.amber500} />}
+            label="Angebot"
+            onPress={() => { if (id) router.push({ pathname: "/chat/[id]", params: { id, intent: "angebot" } }); }}
           />
           <QuickAction
             icon={<Ionicons name="chatbubbles" size={24} color={Colors.raw.amber500} />}
