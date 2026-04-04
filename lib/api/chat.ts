@@ -76,3 +76,42 @@ export async function sendChatMessage(params: {
 
   return res.json();
 }
+
+export interface TranscribeAudioResponse {
+  transcript: string;
+  duration_ms: number;
+  language: string;
+}
+
+/**
+ * Audio-Datei transkribieren via Whisper Edge Function
+ */
+export async function transcribeAudio(
+  audioUrl: string
+): Promise<TranscribeAudioResponse> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("Nicht eingeloggt");
+
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error("Supabase URL not configured");
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/transcribe-audio`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ audio_url: audioUrl }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(
+      (errBody as { error?: string }).error ||
+        `Transkription fehlgeschlagen: ${res.status}`
+    );
+  }
+
+  return res.json();
+}

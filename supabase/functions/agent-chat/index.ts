@@ -223,6 +223,46 @@ const TOOL_DEFS = [
       required: ["project_id", "description"],
     },
   },
+  {
+    name: "create_offer",
+    description: "Angebot für ein Projekt erstellen — mit Sektionen und Positionen. Nutze dieses Tool wenn der User ein Angebot erstellen möchte (z.B. 'erstelle ein Angebot', 'ich brauche ein Angebot für...', 'mach ein Angebot'). Nur GF und Bauleiter.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Projekt-UUID" },
+        title: { type: "string", description: "Titel des Angebots (z.B. 'Malerarbeiten EG', 'Sanitär Bad OG')" },
+        sections: {
+          type: "array",
+          description: "Sektionen des Angebots (mindestens eine)",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Sektionsname (z.B. 'Wohnzimmer', 'Bad OG')" },
+              positions: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string", description: "Positionsbezeichnung" },
+                    description: { type: "string", description: "Leistungsbeschreibung (optional)" },
+                    quantity: { type: "number", description: "Menge" },
+                    unit: { type: "string", description: "Einheit (z.B. m², Stk, lfd. m)" },
+                    catalog_code: { type: "string", description: "Katalogcode falls bekannt (optional)" },
+                    unit_price: { type: "number", description: "Einzelpreis in EUR (optional, 0 wenn unbekannt)" },
+                    trade: { type: "string", description: "Gewerk (z.B. Maler, Sanitär, Elektro)" },
+                  },
+                  required: ["title", "quantity", "unit"],
+                },
+              },
+            },
+            required: ["title", "positions"],
+          },
+        },
+        note_to_user: { type: "string", description: "Optionaler Hinweis an den User (z.B. 'Preise bitte noch prüfen')" },
+      },
+      required: ["project_id", "sections"],
+    },
+  },
 ];
 
 // Claude format
@@ -543,6 +583,103 @@ async function executeTool(
         return JSON.stringify({ success: true, project_id: projectId, new_status: newStatus, message: `Projektstatus auf ${newStatus} gesetzt.` });
       }
 
+      case "create_offer": {
+        assertRole(context.user, ["gf", "bauleiter"], "Monteure dürfen keine Angebote erstellen.");
+        const projectId = await requireToolProjectAccess(toolInput, context);
+
+        const rawSections = toolInput.sections as any[];
+        if (!rawSections?.length) {
+          return JSON.stringify({ error: "Mindestens eine Sektion mit Positionen erforderlich." });
+        }
+
+        // Angebot anlegen
+        const offerTitle = (toolInput.title as string) || null;
+        const { data: offer, error: offerErr } = await serviceClient
+          .from("offers")
+          .insert({ project_id: projectId, status: "draft", ...(offerTitle ? { title: offerTitle } : {}) })
+          .select("id, offer_number")
+          .single();
+
+        if (offerErr || !offer) {
+          return JSON.stringify({ error: "Angebot konnte nicht erstellt werden: " + offerErr?.message });
+        }
+
+        let totalPositions = 0;
+        const sectionSummaries: { title: string; position_count: number }[] = [];
+
+        for (let si = 0; si < rawSections.length; si++) {
+          const sec = rawSections[si];
+          const { data: sectionRow, error: secErr } = await serviceClient
+            .from("offer_sections")
+            .insert({ offer_id: offer.id, title: sec.title, section_number: si + 1 })
+            .select("id")
+            .single();
+
+          if (secErr || !sectionRow) {
+            console.error("[create_offer] Section insert error:", secErr);
+            continue;
+          }
+
+          const positions = (sec.positions || []).map((pos: any, pi: number) => ({
+            offer_id: offer.id,
+            section_id: sectionRow.id,
+            catalog_code: pos.catalog_code ?? null,
+            title: pos.title,
+            description: pos.description ?? null,
+            quantity: pos.quantity ?? 0,
+            unit: pos.unit ?? "Stk",
+            unit_price: pos.unit_price ?? 0,
+            total_price: (pos.quantity ?? 0) * (pos.unit_price ?? 0),
+            trade: pos.trade ?? null,
+            is_optional: false,
+            source: "agent_chat",
+            position_number: pi + 1,
+            sort_order: pi + 1,
+          }));
+
+          const { error: posErr } = await serviceClient.from("offer_positions").insert(positions);
+          if (posErr) {
+            console.error("[create_offer] Position insert error:", posErr);
+          } else {
+            totalPositions += positions.length;
+          }
+
+          sectionSummaries.push({ title: sec.title, position_count: sec.positions?.length ?? 0 });
+        }
+
+        // Event loggen
+        try {
+          await serviceClient.from("events").insert({
+            event_type: "OFFER_CREATED_VIA_CHAT",
+            project_id: projectId,
+            source_system: "agent-chat",
+            source_flow: "create_offer_tool",
+            payload: {
+              offer_id: offer.id,
+              offer_number: offer.offer_number,
+              sections_count: sectionSummaries.length,
+              positions_count: totalPositions,
+              requested_by_role: context.user.role,
+              requested_by_user_id: context.user.userId,
+            },
+          });
+        } catch (evtErr) {
+          console.error("[create_offer] Event log error:", (evtErr as Error).message);
+        }
+
+        const note = toolInput.note_to_user as string | undefined;
+        return JSON.stringify({
+          success: true,
+          offer_id: offer.id,
+          offer_number: offer.offer_number,
+          sections: sectionSummaries,
+          total_positions: totalPositions,
+          open_url: `/angebot/${offer.id}`,
+          note: note ?? null,
+          message: `Angebot ${offer.offer_number ? `#${offer.offer_number}` : ""} mit ${sectionSummaries.length} Sektion(en) und ${totalPositions} Position(en) erstellt.`,
+        });
+      }
+
       default:
         return JSON.stringify({ error: `Unbekanntes Tool: ${toolName}` });
     }
@@ -780,6 +917,7 @@ WICHTIGSTE REGEL: NUTZE DEINE TOOLS. Frag NICHT zurück wenn du die Antwort nach
 - User sucht ein Projekt → SOFORT search_projects aufrufen
 - User will Status ändern → SOFORT update_project_status aufrufen
 - User sagt "merk dir" → SOFORT remember aufrufen
+- User will ein Angebot erstellen / sagt "erstelle ein Angebot" / "ich brauche ein Angebot für..." → SOFORT create_offer aufrufen. Frage NICHT nach mehr Details wenn du genug Kontext hast — erstelle direkt einen Entwurf. Der User kann im Angebot-Editor verfeinern.
 
 NIEMALS sagen "Ich brauche die Projekt-ID" — du HAST den Projektkontext (siehe unten). Nutze ihn.
 NIEMALS fragen "Um welches Projekt geht es?" wenn project_id vorhanden ist.
